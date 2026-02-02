@@ -3,6 +3,7 @@
 모델 CRUD, 등급별 가격 관리, 일괄 등록 (Bulk Registration)
 """
 
+import re
 import uuid as uuid_module
 import json
 from uuid import UUID
@@ -32,11 +33,16 @@ from app.schemas.ssot_model import (
     GradePriceInfo,
     BulkStorageValidateRequest,
     JsonBulkValidateRequest,
+    JsonBulkModelInput,
     ValidateRowResult,
     BulkValidateResponse,
     BulkValidateSummary,
     BulkCommitRequest,
     BulkCommitResponse,
+    BulkPriceSetRequest,
+    BulkPriceSetByIdsRequest,
+    BulkPriceSetResponse,
+    GradePriceItem,
 )
 from app.schemas.grade import GradePriceBulkUpdate
 from app.schemas.common import SuccessResponse
@@ -46,6 +52,63 @@ router = APIRouter()
 # Redis 키 접두어 및 TTL 설정
 BULK_VALIDATE_KEY_PREFIX = "bulk_validate:"
 BULK_VALIDATE_TTL = 1800  # 30분
+
+
+# ============================================================================
+# model_key / model_code 자동 생성 함수
+# ============================================================================
+
+def generate_model_key(device_type: str, manufacturer: str, series: str, model_name: str) -> str:
+    """
+    model_key 생성 (불변 식별자, 스토리지 미포함)
+    
+    규칙:
+    - 형식: {device_prefix}-{mfr_prefix}-{series_slug}-{name_slug}
+    - 예시: SP-AP-IPHONE16PRO-IPHONE16PROMAX
+    
+    특징:
+    - 동일 기종의 여러 스토리지가 같은 model_key 공유
+    - 생성 후 절대 변경 불가
+    
+    Args:
+        device_type: 기기 타입 (smartphone, tablet, wearable)
+        manufacturer: 제조사 (apple, samsung, other)
+        series: 시리즈명 (예: iPhone 16 Pro)
+        model_name: 모델명 (예: iPhone 16 Pro Max)
+    
+    Returns:
+        model_key 문자열
+    """
+    prefix_map = {"smartphone": "SP", "tablet": "TB", "wearable": "WR"}
+    mfr_map = {"apple": "AP", "samsung": "SM", "other": "OT"}
+    
+    device_prefix = prefix_map.get(device_type, "XX")
+    mfr_prefix = mfr_map.get(manufacturer, "XX")
+    
+    # 정규화: 공백/특수문자 제거, 대문자화
+    series_slug = re.sub(r'[^a-zA-Z0-9]', '', series).upper()[:10]
+    name_slug = re.sub(r'[^a-zA-Z0-9]', '', model_name).upper()[:15]
+    
+    return f"{device_prefix}-{mfr_prefix}-{series_slug}-{name_slug}"
+
+
+def generate_model_code(model_key: str, storage_gb: int) -> str:
+    """
+    model_code 생성 (model_key + 스토리지)
+    
+    규칙:
+    - 형식: {model_key}-{storage}
+    - 예시: SP-AP-IPHONE16PRO-IPHONE16PROMAX-256
+    
+    Args:
+        model_key: 불변 모델 키
+        storage_gb: 스토리지 용량 (GB)
+    
+    Returns:
+        model_code 문자열
+    """
+    storage_str = f"{storage_gb // 1024}TB" if storage_gb >= 1024 else str(storage_gb)
+    return f"{model_key}-{storage_str}"
 
 
 @router.get("", response_model=SuccessResponse[SSOTModelListResponse])
@@ -125,6 +188,7 @@ async def list_models(
         
         response = SSOTModelResponse(
             id=model.id,
+            model_key=model.model_key,
             model_code=model.model_code,
             device_type=model.device_type,
             manufacturer=model.manufacturer,
@@ -152,7 +216,11 @@ async def create_model(
     current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """SSOT 모델 생성 (관리자 전용)"""
+    """SSOT 모델 생성 (관리자 전용)
+    
+    단건 등록용 API입니다. model_code는 사용자가 입력하고,
+    model_key는 서버에서 자동 생성됩니다.
+    """
     # 모델코드 중복 확인
     result = await db.execute(
         select(SSOTModel).where(SSOTModel.model_code == model_data.model_code)
@@ -163,8 +231,18 @@ async def create_model(
             detail={"code": "MODEL_CODE_EXISTS", "message": "이미 사용 중인 모델 코드입니다"}
         )
     
-    # 모델 생성
-    new_model = SSOTModel(**model_data.model_dump())
+    # model_key 자동 생성
+    model_key = generate_model_key(
+        model_data.device_type.value,
+        model_data.manufacturer.value,
+        model_data.series,
+        model_data.model_name
+    )
+    
+    # 모델 생성 (model_key 추가)
+    model_dict = model_data.model_dump()
+    model_dict["model_key"] = model_key
+    new_model = SSOTModel(**model_dict)
     db.add(new_model)
     await db.flush()
     
@@ -174,7 +252,7 @@ async def create_model(
         action=AuditAction.MODEL_CREATE,
         target_type="ssot_model",
         target_id=new_model.id,
-        after_data=model_data.model_dump(mode="json"),
+        after_data={**model_data.model_dump(mode="json"), "model_key": model_key},
     )
     db.add(audit_log)
     
@@ -184,6 +262,7 @@ async def create_model(
     return SuccessResponse(
         data=SSOTModelResponse(
             id=new_model.id,
+            model_key=new_model.model_key,
             model_code=new_model.model_code,
             device_type=new_model.device_type,
             manufacturer=new_model.manufacturer,
@@ -242,6 +321,7 @@ async def get_model(
     return SuccessResponse(
         data=SSOTModelResponse(
             id=model.id,
+            model_key=model.model_key,
             model_code=model.model_code,
             device_type=model.device_type,
             manufacturer=model.manufacturer,
@@ -266,7 +346,16 @@ async def update_model(
     current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """SSOT 모델 수정 (관리자 전용)"""
+    """SSOT 모델 수정 (관리자 전용)
+    
+    불변 필드 (수정 불가):
+    - model_key: 불변 식별자
+    - model_code: model_key + storage 조합
+    - storage_gb: model_code에 영향
+    
+    수정 가능 필드:
+    - device_type, manufacturer, series, model_name, connectivity, is_active
+    """
     result = await db.execute(
         select(SSOTModel)
         .where(SSOTModel.id == model_id)
@@ -280,19 +369,9 @@ async def update_model(
             detail={"code": "MODEL_NOT_FOUND", "message": "모델을 찾을 수 없습니다"}
         )
     
-    # 모델코드 중복 확인
-    if model_data.model_code and model_data.model_code != model.model_code:
-        dup_result = await db.execute(
-            select(SSOTModel).where(SSOTModel.model_code == model_data.model_code)
-        )
-        if dup_result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"code": "MODEL_CODE_EXISTS", "message": "이미 사용 중인 모델 코드입니다"}
-            )
-    
     # 변경 전 데이터
     before_data = {
+        "model_key": model.model_key,
         "model_code": model.model_code,
         "device_type": model.device_type.value,
         "manufacturer": model.manufacturer.value,
@@ -303,13 +382,14 @@ async def update_model(
         "is_active": model.is_active,
     }
     
-    # 업데이트
+    # 업데이트 (불변 필드는 스키마에서 제거되었으므로 안전)
     update_fields = model_data.model_dump(exclude_unset=True)
     for field, value in update_fields.items():
         setattr(model, field, value)
     
     # 변경 후 데이터
     after_data = {
+        "model_key": model.model_key,
         "model_code": model.model_code,
         "device_type": model.device_type.value,
         "manufacturer": model.manufacturer.value,
@@ -347,6 +427,7 @@ async def update_model(
     return SuccessResponse(
         data=SSOTModelResponse(
             id=model.id,
+            model_key=model.model_key,
             model_code=model.model_code,
             device_type=model.device_type,
             manufacturer=model.manufacturer,
@@ -451,6 +532,7 @@ async def update_model_prices(
     return SuccessResponse(
         data=SSOTModelResponse(
             id=model.id,
+            model_key=model.model_key,
             model_code=model.model_code,
             device_type=model.device_type,
             manufacturer=model.manufacturer,
@@ -540,6 +622,7 @@ async def _validate_bulk_models(
     
     # 3. 각 행 검증
     for idx, model_data in enumerate(models_data):
+        model_key = model_data.get("model_key", "")
         model_code = model_data.get("model_code", "")
         model_name = model_data.get("model_name", "")
         storage_gb = model_data.get("storage_gb", 0)
@@ -547,7 +630,9 @@ async def _validate_bulk_models(
         
         errors = []
         
-        # 필수값 검증
+        # 필수값 검증 (model_key와 model_code는 서버 생성이므로 검증 생략 가능)
+        if not model_key:
+            errors.append("모델키 필수")
         if not model_code:
             errors.append("모델코드 필수")
         if not model_data.get("device_type"):
@@ -613,6 +698,7 @@ async def _validate_bulk_models(
         
         results.append(ValidateRowResult(
             row_index=idx,
+            model_key=model_key,
             model_code=model_code,
             full_name=full_name,
             status=status_str,
@@ -663,9 +749,18 @@ async def validate_bulk_storage(
     공통 정보(타입/제조사/시리즈/모델명/연결성)와 스토리지 목록을 받아
     생성될 모델 목록을 검증하고 프리뷰를 반환합니다.
     
-    - 모델코드: {접두어}{스토리지} 형식으로 자동 생성 (예: IP15PM-256)
+    - model_key: 서버에서 자동 생성 (device_type/manufacturer/series/model_name 기반)
+    - model_code: model_code_prefix + 스토리지 형식 (사용자 지정 접두어 사용)
     - 검증 결과는 30분간 유효하며, commit API에서 사용됩니다.
     """
+    # model_key 생성 (동일 기종 공유)
+    model_key = generate_model_key(
+        request.device_type.value,
+        request.manufacturer.value,
+        request.series,
+        request.model_name
+    )
+    
     # 스토리지별 모델 데이터 생성
     models_data = []
     for storage in request.storage_list:
@@ -674,6 +769,7 @@ async def validate_bulk_storage(
         model_code = f"{request.model_code_prefix}{storage_suffix}"
         
         models_data.append({
+            "model_key": model_key,
             "model_code": model_code,
             "device_type": request.device_type.value,
             "manufacturer": request.manufacturer.value,
@@ -699,24 +795,39 @@ async def validate_bulk_json(
     
     여러 모델 정보를 JSON 배열로 받아 검증하고 프리뷰를 반환합니다.
     
+    - model_key와 model_code는 서버에서 자동 생성됩니다.
+    - storage_gb 배열의 각 스토리지별로 개별 모델이 생성됩니다.
     - 검증 결과는 30분간 유효하며, commit API에서 사용됩니다.
     - 부분 성공은 허용되지 않습니다 (검증 통과 모델만 커밋 가능).
     """
-    # SSOTModelCreate 스키마에서 dict로 변환
-    models_data = [
-        {
-            "model_code": m.model_code,
-            "device_type": m.device_type.value,
-            "manufacturer": m.manufacturer.value,
-            "series": m.series,
-            "model_name": m.model_name,
-            "storage_gb": m.storage_gb,
-            "connectivity": m.connectivity.value,
-        }
-        for m in request.models
-    ]
+    # storage_gb 배열 확장 → 개별 모델 데이터 생성
+    expanded_models = []
+    for model_input in request.models:
+        # model_key 생성 (스토리지 미포함, 동일 기종 공유)
+        model_key = generate_model_key(
+            model_input.device_type.value,
+            model_input.manufacturer.value,
+            model_input.series,
+            model_input.model_name
+        )
+        
+        # 각 스토리지별로 개별 모델 데이터 생성
+        for storage in model_input.storage_gb:
+            # model_code 생성 (model_key + storage)
+            model_code = generate_model_code(model_key, storage)
+            
+            expanded_models.append({
+                "model_key": model_key,      # 서버 생성 (불변)
+                "model_code": model_code,    # 서버 생성 (불변)
+                "device_type": model_input.device_type.value,
+                "manufacturer": model_input.manufacturer.value,
+                "series": model_input.series,
+                "model_name": model_input.model_name,
+                "storage_gb": storage,
+                "connectivity": model_input.connectivity.value,
+            })
     
-    result = await _validate_bulk_models(models_data, db, redis_client, "json_bulk")
+    result = await _validate_bulk_models(expanded_models, db, redis_client, "json_bulk")
     return SuccessResponse(data=result)
 
 
@@ -734,6 +845,7 @@ async def commit_bulk(
     
     - 단일 트랜잭션으로 처리되며, 하나라도 실패하면 전체 롤백됩니다.
     - 감사로그는 trace_id로 묶어서 기록됩니다.
+    - 멱등성: 동일 validation_id로 중복 커밋 시 ALREADY_COMMITTED 오류 반환
     """
     # Redis에서 검증 결과 조회
     cache_key = f"{BULK_VALIDATE_KEY_PREFIX}{request.validation_id}"
@@ -756,6 +868,16 @@ async def commit_bulk(
             detail={
                 "code": "CACHE_ERROR",
                 "message": "캐시 데이터 파싱에 실패했습니다."
+            }
+        )
+    
+    # 멱등성 체크: 이미 커밋된 경우 거부
+    if cache_data.get("committed"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "ALREADY_COMMITTED",
+                "message": "이미 처리된 요청입니다. 동일한 검증 결과로 중복 커밋할 수 없습니다."
             }
         )
     
@@ -793,6 +915,7 @@ async def commit_bulk(
     try:
         for model_data in models_data:
             new_model = SSOTModel(
+                model_key=model_data["model_key"],
                 model_code=model_data["model_code"],
                 device_type=DeviceType(model_data["device_type"]),
                 manufacturer=Manufacturer(model_data["manufacturer"]),
@@ -809,6 +932,7 @@ async def commit_bulk(
         # 감사로그 기록 (trace_id로 묶음)
         created_models_summary = [
             {
+                "model_key": m.model_key,
                 "model_code": m.model_code,
                 "full_name": m.full_name,
                 "manufacturer": m.manufacturer.value,
@@ -835,8 +959,13 @@ async def commit_bulk(
         
         await db.commit()
         
-        # 사용한 캐시 삭제
-        await redis_client.delete(cache_key)
+        # 커밋 완료 후 committed 플래그 설정 (캐시 유지)
+        # 동일 validation_id로 중복 커밋 방지
+        cache_data["committed"] = True
+        cache_data["committed_at"] = datetime.utcnow().isoformat()
+        cache_data["committed_by"] = str(current_user.id)
+        cache_data["trace_id"] = trace_id
+        await redis_client.setex(cache_key, BULK_VALIDATE_TTL, json.dumps(cache_data))
         
     except Exception as e:
         await db.rollback()
@@ -852,6 +981,7 @@ async def commit_bulk(
     created_responses = [
         SSOTModelResponse(
             id=m.id,
+            model_key=m.model_key,
             model_code=m.model_code,
             device_type=m.device_type,
             manufacturer=m.manufacturer,
@@ -874,5 +1004,224 @@ async def commit_bulk(
             trace_id=trace_id,
             created_count=len(created_models),
             created_models=created_responses
+        )
+    )
+
+
+# ============================================================================
+# 등급별 가격 일괄 설정 API
+# ============================================================================
+
+@router.put("/bulk/prices", response_model=SuccessResponse[BulkPriceSetResponse])
+async def set_bulk_prices(
+    request: BulkPriceSetRequest,
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    등급별 가격 일괄 설정 - model_key 기준 (관리자 전용)
+    
+    동일 model_key를 가진 모든 모델(스토리지 변형)에 동일한 등급별 가격을 설정합니다.
+    
+    - 예: iPhone 16 Pro Max의 128/256/512/1TB 모두 동일 가격 적용
+    - 기존 가격이 있으면 업데이트, 없으면 신규 생성
+    """
+    # 1. model_key로 해당하는 모든 모델 조회
+    result = await db.execute(
+        select(SSOTModel).where(SSOTModel.model_key == request.model_key)
+    )
+    models = result.scalars().all()
+    
+    if not models:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "MODEL_KEY_NOT_FOUND",
+                "message": f"해당 model_key를 찾을 수 없습니다: {request.model_key}"
+            }
+        )
+    
+    # 2. 등급 ID 유효성 확인
+    grade_ids = [p.grade_id for p in request.prices]
+    grades_result = await db.execute(
+        select(Grade).where(Grade.id.in_(grade_ids))
+    )
+    valid_grades = {g.id for g in grades_result.scalars().all()}
+    
+    invalid_grades = set(grade_ids) - valid_grades
+    if invalid_grades:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "INVALID_GRADE",
+                "message": f"유효하지 않은 등급 ID: {', '.join(str(g) for g in invalid_grades)}"
+            }
+        )
+    
+    # 3. 각 모델에 대해 등급별 가격 설정/업데이트
+    updated_count = 0
+    for model in models:
+        for price_item in request.prices:
+            # 기존 가격 조회
+            existing = await db.execute(
+                select(GradePrice).where(
+                    GradePrice.model_id == model.id,
+                    GradePrice.grade_id == price_item.grade_id
+                )
+            )
+            grade_price = existing.scalar_one_or_none()
+            
+            if grade_price:
+                # 기존 가격 업데이트
+                grade_price.price = price_item.price
+                grade_price.version += 1
+            else:
+                # 신규 가격 생성
+                new_price = GradePrice(
+                    model_id=model.id,
+                    grade_id=price_item.grade_id,
+                    price=price_item.price
+                )
+                db.add(new_price)
+            
+            updated_count += 1
+    
+    # 4. 감사로그
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action=AuditAction.PRICE_UPDATE,
+        target_type="grade_price",
+        target_id=None,
+        after_data={
+            "model_key": request.model_key,
+            "affected_models": len(models),
+            "price_updates": updated_count,
+            "prices": [{"grade_id": str(p.grade_id), "price": p.price} for p in request.prices],
+        },
+        description=f"일괄 가격 설정: {request.model_key} ({len(models)}개 모델)"
+    )
+    db.add(audit_log)
+    
+    await db.commit()
+    
+    return SuccessResponse(
+        data=BulkPriceSetResponse(
+            model_key=request.model_key,
+            affected_models=len(models),
+            updated_prices=updated_count,
+            model_codes=[m.model_code for m in models]
+        )
+    )
+
+
+@router.put("/bulk/prices/by-ids", response_model=SuccessResponse[BulkPriceSetResponse])
+async def set_bulk_prices_by_ids(
+    request: BulkPriceSetByIdsRequest,
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    등급별 가격 일괄 설정 - 모델 ID 목록 기준 (관리자 전용)
+    
+    선택한 모델 ID들에 동일한 등급별 가격을 설정합니다.
+    
+    - 사용자가 UI에서 여러 모델을 선택하여 일괄 가격 설정
+    - 기존 가격이 있으면 업데이트, 없으면 신규 생성
+    """
+    # 1. 모델 ID로 모델 조회
+    result = await db.execute(
+        select(SSOTModel).where(SSOTModel.id.in_(request.model_ids))
+    )
+    models = result.scalars().all()
+    
+    if not models:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "MODELS_NOT_FOUND",
+                "message": "해당하는 모델을 찾을 수 없습니다"
+            }
+        )
+    
+    found_ids = {m.id for m in models}
+    missing_ids = set(request.model_ids) - found_ids
+    if missing_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "MODELS_NOT_FOUND",
+                "message": f"일부 모델을 찾을 수 없습니다: {', '.join(str(i) for i in missing_ids)}"
+            }
+        )
+    
+    # 2. 등급 ID 유효성 확인
+    grade_ids = [p.grade_id for p in request.prices]
+    grades_result = await db.execute(
+        select(Grade).where(Grade.id.in_(grade_ids))
+    )
+    valid_grades = {g.id for g in grades_result.scalars().all()}
+    
+    invalid_grades = set(grade_ids) - valid_grades
+    if invalid_grades:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "INVALID_GRADE",
+                "message": f"유효하지 않은 등급 ID: {', '.join(str(g) for g in invalid_grades)}"
+            }
+        )
+    
+    # 3. 각 모델에 대해 등급별 가격 설정/업데이트
+    updated_count = 0
+    for model in models:
+        for price_item in request.prices:
+            # 기존 가격 조회
+            existing = await db.execute(
+                select(GradePrice).where(
+                    GradePrice.model_id == model.id,
+                    GradePrice.grade_id == price_item.grade_id
+                )
+            )
+            grade_price = existing.scalar_one_or_none()
+            
+            if grade_price:
+                # 기존 가격 업데이트
+                grade_price.price = price_item.price
+                grade_price.version += 1
+            else:
+                # 신규 가격 생성
+                new_price = GradePrice(
+                    model_id=model.id,
+                    grade_id=price_item.grade_id,
+                    price=price_item.price
+                )
+                db.add(new_price)
+            
+            updated_count += 1
+    
+    # 4. 감사로그
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action=AuditAction.PRICE_UPDATE,
+        target_type="grade_price",
+        target_id=None,
+        after_data={
+            "model_ids": [str(m.id) for m in models],
+            "affected_models": len(models),
+            "price_updates": updated_count,
+            "prices": [{"grade_id": str(p.grade_id), "price": p.price} for p in request.prices],
+        },
+        description=f"일괄 가격 설정 (ID 기준): {len(models)}개 모델"
+    )
+    db.add(audit_log)
+    
+    await db.commit()
+    
+    return SuccessResponse(
+        data=BulkPriceSetResponse(
+            model_key=None,
+            affected_models=len(models),
+            updated_prices=updated_count,
+            model_codes=[m.model_code for m in models]
         )
     )

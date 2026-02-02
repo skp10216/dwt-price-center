@@ -26,13 +26,25 @@ class SSOTModel(Base):
         default=uuid.uuid4
     )
     
-    # 모델 코드 (본사 업로드 1차 매칭 키) - 고유값
+    # 모델 키 (불변 식별자, 스토리지 미포함 - 동일 기종 공유)
+    # 형식: {device_prefix}-{mfr_prefix}-{series_slug}-{name_slug}
+    # 예시: SP-AP-IPHONE16PRO-IPHONE16PROMAX
+    model_key: Mapped[str] = mapped_column(
+        String(100),
+        index=True,
+        nullable=False,
+        comment="불변 모델 키 (동일 기종 공유, 스토리지 미포함)"
+    )
+    
+    # 모델 코드 (본사 업로드 1차 매칭 키) - 고유값, 불변
+    # 형식: {model_key}-{storage}
+    # 예시: SP-AP-IPHONE16PRO-IPHONE16PROMAX-256
     model_code: Mapped[str] = mapped_column(
-        String(50),
+        String(100),
         unique=True,
         index=True,
         nullable=False,
-        comment="모델 코드 (본사 업로드 매칭 키)"
+        comment="모델 코드 (model_key + storage 조합, 불변)"
     )
     
     # 분류 정보
@@ -106,6 +118,7 @@ class SSOTModel(Base):
     __table_args__ = (
         Index("ix_ssot_models_type_manufacturer", "device_type", "manufacturer"),
         Index("ix_ssot_models_series", "series"),
+        Index("ix_ssot_models_model_key", "model_key"),
     )
     
     @property

@@ -2,8 +2,7 @@
  * 단가표 통합 관리 시스템 - SSOT 모델 관리 페이지 (관리자)
  * 
  * 기능:
- * - 단건 등록: 기존 폼으로 1개 모델 등록
- * - 다중 스토리지 일괄 생성: 공통 정보 + 여러 스토리지 선택 → N개 모델 생성
+ * - 모델 등록: 다중 스토리지 지원 통합 폼
  * - JSON 일괄 등록: JSON 붙여넣기/업로드 → 파싱 → 검증 → 커밋
  */
 
@@ -31,15 +30,16 @@ import {
   Grid,
   Tabs,
   Tab,
-  FormGroup,
-  FormControlLabel,
-  Checkbox,
   Alert,
+  AlertTitle,
   CircularProgress,
-  Divider,
-  List,
-  ListItem,
-  ListItemText,
+  Paper,
+  IconButton,
+  Tooltip,
+  Fade,
+  Collapse,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -50,10 +50,21 @@ import {
   Error as ErrorIcon,
   Warning as WarningIcon,
   Upload as UploadIcon,
+  Storage as StorageIcon,
+  Smartphone as SmartphoneIcon,
+  Tablet as TabletIcon,
+  Watch as WatchIcon,
+  Apple as AppleIcon,
+  PhoneAndroid as SamsungIcon,
+  AutoAwesome as AutoAwesomeIcon,
+  Refresh as RefreshIcon,
+  Add as AddIcon,
+  Remove as RemoveIcon,
+  Info as InfoIcon,
+  Memory as MemoryIcon,
 } from '@mui/icons-material';
 import { DataGrid, GridColDef, GridRenderCellParams, GridActionsCellItem } from '@mui/x-data-grid';
 import { useSnackbar } from 'notistack';
-import { useForm, Controller } from 'react-hook-form';
 import PageHeader from '@/components/ui/PageHeader';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import {
@@ -69,6 +80,7 @@ import {
 
 interface Model {
   id: string;
+  model_key: string;
   model_code: string;
   device_type: string;
   manufacturer: string;
@@ -87,25 +99,13 @@ interface Grade {
   name: string;
 }
 
-// 단건 등록 폼 타입
-interface SingleModelForm {
-  model_code: string;
-  device_type: string;
-  manufacturer: string;
-  series: string;
-  model_name: string;
-  storage_gb: number;
-  connectivity: string;
-}
-
-// 다중 스토리지 등록 폼 타입
-interface MultiStorageForm {
+// 통합 모델 등록 폼 타입
+interface ModelRegistrationForm {
   device_type: string;
   manufacturer: string;
   series: string;
   model_name: string;
   connectivity: string;
-  model_code_prefix: string;
   storage_list: number[];
 }
 
@@ -114,27 +114,101 @@ interface MultiStorageForm {
 // ============================================================================
 
 const deviceTypes = [
-  { value: 'smartphone', label: '스마트폰' },
-  { value: 'tablet', label: '태블릿' },
-  { value: 'wearable', label: '웨어러블' },
+  { value: 'smartphone', label: '스마트폰', icon: <SmartphoneIcon fontSize="small" /> },
+  { value: 'tablet', label: '태블릿', icon: <TabletIcon fontSize="small" /> },
+  { value: 'wearable', label: '웨어러블', icon: <WatchIcon fontSize="small" /> },
 ];
 
+// 제조사 (Apple, Samsung만)
 const manufacturers = [
-  { value: 'apple', label: '애플' },
-  { value: 'samsung', label: '삼성' },
-  { value: 'other', label: '기타' },
+  { value: 'apple', label: 'Apple', icon: <AppleIcon fontSize="small" /> },
+  { value: 'samsung', label: 'Samsung', icon: <SamsungIcon fontSize="small" /> },
 ];
 
 const connectivityOptions: Record<string, { value: string; label: string }[]> = {
   smartphone: [{ value: 'lte', label: 'LTE' }],
   tablet: [
-    { value: 'wifi', label: 'WiFi' },
-    { value: 'wifi_cellular', label: 'WiFi+Cellular' },
+    { value: 'wifi', label: 'WiFi Only' },
+    { value: 'wifi_cellular', label: 'WiFi + Cellular' },
   ],
   wearable: [{ value: 'standard', label: 'Standard' }],
 };
 
-// 스토리지 옵션 (GB 단위)
+// 제조사별 시리즈 옵션
+const seriesOptions: Record<string, Record<string, string[]>> = {
+  smartphone: {
+    apple: [
+      'iPhone 16 Pro',
+      'iPhone 16',
+      'iPhone 15 Pro',
+      'iPhone 15',
+      'iPhone 14 Pro',
+      'iPhone 14',
+      'iPhone 13 Pro',
+      'iPhone 13',
+      'iPhone 12 Pro',
+      'iPhone 12',
+      'iPhone 11 Pro',
+      'iPhone 11',
+      'iPhone SE',
+      'iPhone XS',
+      'iPhone XR',
+      'iPhone X',
+    ],
+    samsung: [
+      'Galaxy S24',
+      'Galaxy S23',
+      'Galaxy S22',
+      'Galaxy S21',
+      'Galaxy S20',
+      'Galaxy Z Fold6',
+      'Galaxy Z Fold5',
+      'Galaxy Z Fold4',
+      'Galaxy Z Flip6',
+      'Galaxy Z Flip5',
+      'Galaxy Z Flip4',
+      'Galaxy A55',
+      'Galaxy A54',
+      'Galaxy A53',
+      'Galaxy Note 20',
+    ],
+  },
+  tablet: {
+    apple: [
+      'iPad Pro 13',
+      'iPad Pro 12.9',
+      'iPad Pro 11',
+      'iPad Air',
+      'iPad mini',
+      'iPad',
+    ],
+    samsung: [
+      'Galaxy Tab S9',
+      'Galaxy Tab S8',
+      'Galaxy Tab S7',
+      'Galaxy Tab A9',
+      'Galaxy Tab A8',
+    ],
+  },
+  wearable: {
+    apple: [
+      'Apple Watch Ultra 2',
+      'Apple Watch Ultra',
+      'Apple Watch Series 9',
+      'Apple Watch Series 8',
+      'Apple Watch SE',
+    ],
+    samsung: [
+      'Galaxy Watch 7',
+      'Galaxy Watch 6',
+      'Galaxy Watch 5',
+      'Galaxy Watch FE',
+      'Galaxy Fit 3',
+    ],
+  },
+};
+
+// 스토리지 옵션
 const storageOptions = [
   { value: 32, label: '32GB' },
   { value: 64, label: '64GB' },
@@ -148,12 +222,11 @@ const storageOptions = [
 // JSON 예시 템플릿
 const jsonTemplate = `[
   {
-    "model_code": "IP16PM-256",
     "device_type": "smartphone",
     "manufacturer": "apple",
-    "series": "iPhone 16",
+    "series": "iPhone 16 Pro",
     "model_name": "iPhone 16 Pro Max",
-    "storage_gb": 256,
+    "storage_gb": [256, 512, 1024],
     "connectivity": "lte"
   }
 ]`;
@@ -193,14 +266,13 @@ export default function ModelsPage() {
   const [committing, setCommitting] = useState(false);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   
-  // 다중 스토리지 폼
-  const [multiStorageForm, setMultiStorageForm] = useState<MultiStorageForm>({
+  // 통합 모델 등록 폼
+  const [modelForm, setModelForm] = useState<ModelRegistrationForm>({
     device_type: 'smartphone',
     manufacturer: 'apple',
     series: '',
     model_name: '',
     connectivity: 'lte',
-    model_code_prefix: '',
     storage_list: [],
   });
   
@@ -208,20 +280,10 @@ export default function ModelsPage() {
   const [jsonInput, setJsonInput] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
   
-  // 단건 등록 폼 (react-hook-form)
-  const { control, handleSubmit, reset, watch, setValue } = useForm<SingleModelForm>({
-    defaultValues: {
-      model_code: '',
-      device_type: 'smartphone',
-      manufacturer: 'apple',
-      series: '',
-      model_name: '',
-      storage_gb: 128,
-      connectivity: 'lte',
-    },
-  });
-  
-  const watchDeviceType = watch('device_type');
+  // 현재 선택 가능한 시리즈 목록
+  const availableSeries = useMemo(() => {
+    return seriesOptions[modelForm.device_type]?.[modelForm.manufacturer] || [];
+  }, [modelForm.device_type, modelForm.manufacturer]);
   
   // 목록 새로고침 함수
   const refreshModels = useCallback(async () => {
@@ -262,17 +324,15 @@ export default function ModelsPage() {
     refreshModels();
   }, [refreshModels]);
   
-  // device_type 변경 시 connectivity 자동 설정 (단건 등록)
+  // device_type 또는 manufacturer 변경 시 connectivity 및 series 초기화
   useEffect(() => {
-    const defaultConnectivity = connectivityOptions[watchDeviceType]?.[0]?.value || 'lte';
-    setValue('connectivity', defaultConnectivity);
-  }, [watchDeviceType, setValue]);
-  
-  // 다중 스토리지 폼의 device_type 변경 시 connectivity 자동 설정
-  useEffect(() => {
-    const defaultConnectivity = connectivityOptions[multiStorageForm.device_type]?.[0]?.value || 'lte';
-    setMultiStorageForm(prev => ({ ...prev, connectivity: defaultConnectivity }));
-  }, [multiStorageForm.device_type]);
+    const defaultConnectivity = connectivityOptions[modelForm.device_type]?.[0]?.value || 'lte';
+    setModelForm(prev => ({ 
+      ...prev, 
+      connectivity: defaultConnectivity,
+      series: '', // 시리즈 초기화
+    }));
+  }, [modelForm.device_type, modelForm.manufacturer]);
   
   // ============================================================================
   // 다이얼로그 핸들러
@@ -280,46 +340,32 @@ export default function ModelsPage() {
   
   const handleOpenDialog = (model?: Model) => {
     if (model) {
-      // 수정 모드 (단건 등록 탭으로)
+      // 수정 모드
       setEditingModel(model);
       setActiveTab(0);
-      reset({
-        model_code: model.model_code,
+      setModelForm({
         device_type: model.device_type,
         manufacturer: model.manufacturer,
         series: model.series,
         model_name: model.model_name,
-        storage_gb: model.storage_gb,
         connectivity: model.connectivity,
+        storage_list: [model.storage_gb],
       });
     } else {
       // 신규 등록 모드
       setEditingModel(null);
       setActiveTab(0);
-      reset({
-        model_code: '',
-        device_type: 'smartphone',
-        manufacturer: 'apple',
-        series: '',
-        model_name: '',
-        storage_gb: 128,
-        connectivity: 'lte',
-      });
-      // 다중 스토리지 폼 초기화
-      setMultiStorageForm({
+      setModelForm({
         device_type: 'smartphone',
         manufacturer: 'apple',
         series: '',
         model_name: '',
         connectivity: 'lte',
-        model_code_prefix: '',
         storage_list: [],
       });
-      // JSON 입력 초기화
       setJsonInput('');
       setJsonError(null);
     }
-    // 검증 결과 초기화
     setValidationResult(null);
     setDialogOpen(true);
   };
@@ -332,74 +378,96 @@ export default function ModelsPage() {
   };
   
   // ============================================================================
-  // 단건 등록/수정
-  // ============================================================================
-  
-  const onSubmitSingle = async (data: SingleModelForm) => {
-    try {
-      if (editingModel) {
-        await ssotModelsApi.update(editingModel.id, data);
-        enqueueSnackbar('모델이 수정되었습니다', { variant: 'success' });
-      } else {
-        await ssotModelsApi.create(data);
-        enqueueSnackbar('모델이 생성되었습니다', { variant: 'success' });
-      }
-      handleCloseDialog();
-      refreshModels();
-    } catch (error: any) {
-      const message = error.response?.data?.error?.message || '저장에 실패했습니다';
-      enqueueSnackbar(message, { variant: 'error' });
-    }
-  };
-  
-  // ============================================================================
-  // 다중 스토리지 일괄 등록
+  // 스토리지 선택 핸들러
   // ============================================================================
   
   const handleStorageToggle = (storage: number) => {
-    setMultiStorageForm(prev => {
+    setModelForm(prev => {
       const newList = prev.storage_list.includes(storage)
         ? prev.storage_list.filter(s => s !== storage)
-        : [...prev.storage_list, storage];
+        : [...prev.storage_list, storage].sort((a, b) => a - b);
       return { ...prev, storage_list: newList };
     });
-    // 검증 결과 초기화 (스토리지 변경 시)
     setValidationResult(null);
   };
   
-  const handleValidateMultiStorage = async () => {
-    if (!multiStorageForm.series || !multiStorageForm.model_name || !multiStorageForm.model_code_prefix) {
-      enqueueSnackbar('시리즈, 모델명, 모델코드 접두어를 입력하세요', { variant: 'warning' });
+  const handleSelectAllStorages = () => {
+    setModelForm(prev => ({
+      ...prev,
+      storage_list: storageOptions.map(o => o.value),
+    }));
+    setValidationResult(null);
+  };
+  
+  const handleClearStorages = () => {
+    setModelForm(prev => ({ ...prev, storage_list: [] }));
+    setValidationResult(null);
+  };
+  
+  // ============================================================================
+  // 모델 등록 검증 및 저장
+  // ============================================================================
+  
+  const handleValidate = async () => {
+    if (!modelForm.series || !modelForm.model_name) {
+      enqueueSnackbar('시리즈와 모델명을 입력하세요', { variant: 'warning' });
       return;
     }
-    if (multiStorageForm.storage_list.length === 0) {
+    if (modelForm.storage_list.length === 0) {
       enqueueSnackbar('스토리지를 최소 1개 이상 선택하세요', { variant: 'warning' });
       return;
     }
     
     setValidating(true);
     try {
-      const response = await ssotModelsApi.validateBulkStorage({
-        device_type: multiStorageForm.device_type,
-        manufacturer: multiStorageForm.manufacturer,
-        series: multiStorageForm.series,
-        model_name: multiStorageForm.model_name,
-        connectivity: multiStorageForm.connectivity,
-        storage_list: multiStorageForm.storage_list,
-        model_code_prefix: multiStorageForm.model_code_prefix,
+      const response = await ssotModelsApi.validateBulkJson({
+        models: [{
+          device_type: modelForm.device_type,
+          manufacturer: modelForm.manufacturer,
+          series: modelForm.series,
+          model_name: modelForm.model_name,
+          storage_gb: modelForm.storage_list,
+          connectivity: modelForm.connectivity,
+        }],
       });
       setValidationResult(response.data.data);
       
       if (response.data.data.valid_count === 0) {
         enqueueSnackbar('유효한 모델이 없습니다. 오류를 확인하세요.', { variant: 'warning' });
       } else {
-        enqueueSnackbar(`검증 완료: ${response.data.data.valid_count}개 유효`, { variant: 'success' });
+        enqueueSnackbar(`검증 완료: ${response.data.data.valid_count}개 모델 생성 가능`, { variant: 'success' });
       }
     } catch (error: any) {
       const message = error.response?.data?.error?.message || '검증에 실패했습니다';
       enqueueSnackbar(message, { variant: 'error' });
     } finally {
       setValidating(false);
+    }
+  };
+  
+  const handleSaveModel = async () => {
+    if (editingModel) {
+      try {
+        await ssotModelsApi.update(editingModel.id, {
+          device_type: modelForm.device_type,
+          manufacturer: modelForm.manufacturer,
+          series: modelForm.series,
+          model_name: modelForm.model_name,
+          connectivity: modelForm.connectivity,
+        });
+        enqueueSnackbar('모델이 수정되었습니다', { variant: 'success' });
+        handleCloseDialog();
+        refreshModels();
+      } catch (error: any) {
+        const message = error.response?.data?.error?.message || '저장에 실패했습니다';
+        enqueueSnackbar(message, { variant: 'error' });
+      }
+    } else {
+      if (!validationResult || validationResult.valid_count === 0) {
+        enqueueSnackbar('먼저 검증을 완료하세요', { variant: 'warning' });
+        return;
+      }
+      setConfirmDialogOpen(true);
     }
   };
   
@@ -419,7 +487,6 @@ export default function ModelsPage() {
       return;
     }
     
-    // JSON 파싱 검사
     let parsedModels;
     try {
       parsedModels = JSON.parse(jsonInput);
@@ -437,9 +504,7 @@ export default function ModelsPage() {
     
     setValidating(true);
     try {
-      const response = await ssotModelsApi.validateBulkJson({
-        models: parsedModels,
-      });
+      const response = await ssotModelsApi.validateBulkJson({ models: parsedModels });
       setValidationResult(response.data.data);
       
       if (response.data.data.valid_count === 0) {
@@ -468,22 +533,12 @@ export default function ModelsPage() {
       enqueueSnackbar('파일 읽기에 실패했습니다', { variant: 'error' });
     };
     reader.readAsText(file);
-    
-    // 파일 입력 초기화 (같은 파일 재선택 가능하도록)
     event.target.value = '';
   };
   
   // ============================================================================
   // 일괄 등록 커밋
   // ============================================================================
-  
-  const handleOpenCommitConfirm = () => {
-    if (!validationResult || validationResult.valid_count === 0) {
-      enqueueSnackbar('커밋할 유효한 모델이 없습니다', { variant: 'warning' });
-      return;
-    }
-    setConfirmDialogOpen(true);
-  };
   
   const handleCommit = async () => {
     if (!validationResult) return;
@@ -542,23 +597,36 @@ export default function ModelsPage() {
         />
       ),
     },
-    { field: 'model_code', headerName: '모델코드', width: 120 },
+    { 
+      field: 'model_code', 
+      headerName: '모델코드', 
+      width: 200,
+      renderCell: (params) => (
+        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+          {params.value}
+        </Typography>
+      ),
+    },
     {
       field: 'device_type',
       headerName: '타입',
       width: 100,
-      renderCell: (params) =>
-        deviceTypes.find((d) => d.value === params.value)?.label || params.value,
+      renderCell: (params) => {
+        const type = deviceTypes.find((d) => d.value === params.value);
+        return type?.label || params.value;
+      },
     },
     {
       field: 'manufacturer',
       headerName: '제조사',
-      width: 80,
-      renderCell: (params) =>
-        manufacturers.find((m) => m.value === params.value)?.label || params.value,
+      width: 100,
+      renderCell: (params) => {
+        const mfr = manufacturers.find((m) => m.value === params.value);
+        return mfr?.label || params.value;
+      },
     },
-    { field: 'series', headerName: '시리즈', width: 130 },
-    { field: 'full_name', headerName: '모델명', width: 250, flex: 1 },
+    { field: 'series', headerName: '시리즈', width: 140 },
+    { field: 'full_name', headerName: '모델명', width: 280, flex: 1 },
     {
       field: 'actions',
       type: 'actions',
@@ -586,7 +654,7 @@ export default function ModelsPage() {
     {
       field: 'status',
       headerName: '상태',
-      width: 80,
+      width: 90,
       renderCell: (params: GridRenderCellParams<ValidateRowResult>) => {
         const status = params.value as string;
         if (status === 'valid') {
@@ -598,13 +666,26 @@ export default function ModelsPage() {
         }
       },
     },
-    { field: 'model_code', headerName: '모델코드', width: 130 },
-    { field: 'full_name', headerName: '전체 모델명', width: 250, flex: 1 },
+    { 
+      field: 'model_code', 
+      headerName: '모델코드', 
+      width: 220,
+      renderCell: (params) => (
+        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+          {params.value}
+        </Typography>
+      ),
+    },
+    { field: 'full_name', headerName: '전체 모델명', width: 200, flex: 1 },
     {
       field: 'error_message',
       headerName: '오류 메시지',
       width: 200,
-      renderCell: (params) => params.value || '-',
+      renderCell: (params) => (
+        <Typography variant="body2" color="error.main">
+          {params.value || '-'}
+        </Typography>
+      ),
     },
   ];
   
@@ -623,7 +704,7 @@ export default function ModelsPage() {
         }}
       />
       
-      {/* 필터 */}
+      {/* 필터 카드 */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
@@ -632,7 +713,7 @@ export default function ModelsPage() {
               placeholder="모델명/모델코드 검색"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              sx={{ minWidth: 250 }}
+              sx={{ minWidth: 280 }}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -641,24 +722,39 @@ export default function ModelsPage() {
                 ),
               }}
             />
-            <FormControl size="small" sx={{ minWidth: 120 }}>
+            <FormControl size="small" sx={{ minWidth: 140 }}>
               <InputLabel>타입</InputLabel>
               <Select value={deviceTypeFilter} label="타입" onChange={(e) => setDeviceTypeFilter(e.target.value)}>
                 <MenuItem value="">전체</MenuItem>
                 {deviceTypes.map((d) => (
-                  <MenuItem key={d.value} value={d.value}>{d.label}</MenuItem>
+                  <MenuItem key={d.value} value={d.value}>
+                    <Stack direction="row" alignItems="center" spacing={1}>
+                      {d.icon}
+                      <span>{d.label}</span>
+                    </Stack>
+                  </MenuItem>
                 ))}
               </Select>
             </FormControl>
-            <FormControl size="small" sx={{ minWidth: 120 }}>
+            <FormControl size="small" sx={{ minWidth: 140 }}>
               <InputLabel>제조사</InputLabel>
               <Select value={manufacturerFilter} label="제조사" onChange={(e) => setManufacturerFilter(e.target.value)}>
                 <MenuItem value="">전체</MenuItem>
                 {manufacturers.map((m) => (
-                  <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
+                  <MenuItem key={m.value} value={m.value}>
+                    <Stack direction="row" alignItems="center" spacing={1}>
+                      {m.icon}
+                      <span>{m.label}</span>
+                    </Stack>
+                  </MenuItem>
                 ))}
               </Select>
             </FormControl>
+            <Tooltip title="새로고침">
+              <IconButton onClick={refreshModels} color="primary">
+                <RefreshIcon />
+              </IconButton>
+            </Tooltip>
           </Stack>
         </CardContent>
       </Card>
@@ -679,6 +775,10 @@ export default function ModelsPage() {
           }}
           disableRowSelectionOnClick
           autoHeight
+          sx={{
+            border: 'none',
+            '& .MuiDataGrid-columnHeaders': { bgcolor: 'grey.100' },
+          }}
         />
       </Card>
       
@@ -690,17 +790,32 @@ export default function ModelsPage() {
         fullWidth
         PaperProps={{ sx: { minHeight: '70vh' } }}
       >
-        <DialogTitle>
-          {editingModel ? '모델 수정' : '모델 등록'}
+        <DialogTitle sx={{ 
+          bgcolor: 'primary.main',
+          color: 'white',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+        }}>
+          <AutoAwesomeIcon />
+          {editingModel ? '모델 수정' : '새 모델 등록'}
         </DialogTitle>
         
-        <DialogContent>
-          {/* 수정 모드일 때는 탭 없이 단건 폼만 표시 */}
+        <DialogContent sx={{ p: 0 }}>
           {editingModel ? (
-            <SingleModelFormContent
-              control={control}
-              watchDeviceType={watchDeviceType}
-            />
+            <Box sx={{ p: 3 }}>
+              <ModelRegistrationFormContent
+                form={modelForm}
+                setForm={setModelForm}
+                availableSeries={availableSeries}
+                onStorageToggle={handleStorageToggle}
+                onSelectAll={handleSelectAllStorages}
+                onClearAll={handleClearStorages}
+                isEditMode={true}
+                validationResult={validationResult}
+                previewColumns={previewColumns}
+              />
+            </Box>
           ) : (
             <>
               <Tabs
@@ -709,73 +824,85 @@ export default function ModelsPage() {
                   setActiveTab(newValue);
                   setValidationResult(null);
                 }}
-                sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}
+                sx={{
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                  px: 3,
+                  pt: 2,
+                  '& .MuiTab-root': {
+                    fontWeight: 600,
+                    textTransform: 'none',
+                  },
+                }}
               >
-                <Tab label="단건 등록" />
-                <Tab label="다중 스토리지" />
-                <Tab label="JSON 일괄" />
+                <Tab icon={<SmartphoneIcon />} iconPosition="start" label="모델 등록" />
+                <Tab icon={<UploadIcon />} iconPosition="start" label="JSON 일괄" />
               </Tabs>
               
-              {/* 탭 0: 단건 등록 */}
-              {activeTab === 0 && (
-                <SingleModelFormContent
-                  control={control}
-                  watchDeviceType={watchDeviceType}
-                />
-              )}
-              
-              {/* 탭 1: 다중 스토리지 일괄 생성 */}
-              {activeTab === 1 && (
-                <MultiStorageFormContent
-                  form={multiStorageForm}
-                  setForm={setMultiStorageForm}
-                  onStorageToggle={handleStorageToggle}
-                  validationResult={validationResult}
-                  validating={validating}
-                  onValidate={handleValidateMultiStorage}
-                  previewColumns={previewColumns}
-                />
-              )}
-              
-              {/* 탭 2: JSON 일괄 등록 */}
-              {activeTab === 2 && (
-                <JsonBulkFormContent
-                  jsonInput={jsonInput}
-                  jsonError={jsonError}
-                  onJsonChange={handleJsonChange}
-                  onFileUpload={handleFileUpload}
-                  validationResult={validationResult}
-                  validating={validating}
-                  onValidate={handleValidateJson}
-                  previewColumns={previewColumns}
-                />
-              )}
+              <Box sx={{ p: 3 }}>
+                {activeTab === 0 && (
+                  <ModelRegistrationFormContent
+                    form={modelForm}
+                    setForm={setModelForm}
+                    availableSeries={availableSeries}
+                    onStorageToggle={handleStorageToggle}
+                    onSelectAll={handleSelectAllStorages}
+                    onClearAll={handleClearStorages}
+                    isEditMode={false}
+                    validationResult={validationResult}
+                    previewColumns={previewColumns}
+                  />
+                )}
+                
+                {activeTab === 1 && (
+                  <JsonBulkFormContent
+                    jsonInput={jsonInput}
+                    jsonError={jsonError}
+                    onJsonChange={handleJsonChange}
+                    onFileUpload={handleFileUpload}
+                    validationResult={validationResult}
+                    validating={validating}
+                    onValidate={handleValidateJson}
+                    previewColumns={previewColumns}
+                  />
+                )}
+              </Box>
             </>
           )}
         </DialogContent>
         
-        <DialogActions>
-          <Button onClick={handleCloseDialog}>취소</Button>
+        <DialogActions sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
+          <Button onClick={handleCloseDialog} variant="outlined">
+            취소
+          </Button>
           
-          {/* 단건 등록/수정 버튼 */}
-          {(editingModel || activeTab === 0) && (
-            <Button
-              variant="contained"
-              onClick={handleSubmit(onSubmitSingle)}
-            >
-              {editingModel ? '수정' : '저장'}
+          {editingModel ? (
+            <Button variant="contained" onClick={handleSaveModel}>
+              수정 저장
             </Button>
-          )}
-          
-          {/* 일괄 등록 커밋 버튼 */}
-          {!editingModel && (activeTab === 1 || activeTab === 2) && validationResult && validationResult.valid_count > 0 && (
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleOpenCommitConfirm}
-            >
-              저장 ({validationResult.valid_count}개)
-            </Button>
+          ) : (
+            <>
+              {activeTab === 0 && !validationResult && (
+                <Button
+                  variant="contained"
+                  onClick={handleValidate}
+                  disabled={validating || modelForm.storage_list.length === 0}
+                  startIcon={validating ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}
+                >
+                  {validating ? '검증 중...' : '검증하기'}
+                </Button>
+              )}
+              
+              {validationResult && validationResult.valid_count > 0 && (
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={() => setConfirmDialogOpen(true)}
+                >
+                  저장 ({validationResult.valid_count}개 모델)
+                </Button>
+              )}
+            </>
           )}
         </DialogActions>
       </Dialog>
@@ -786,7 +913,7 @@ export default function ModelsPage() {
         title={deactivateDialog.model?.is_active ? '모델 비활성화' : '모델 활성화'}
         message={
           deactivateDialog.model?.is_active
-            ? `"${deactivateDialog.model?.full_name}" 모델을 비활성화하시겠습니까? Viewer 화면에서 숨겨집니다.`
+            ? `"${deactivateDialog.model?.full_name}" 모델을 비활성화하시겠습니까?`
             : `"${deactivateDialog.model?.full_name}" 모델을 활성화하시겠습니까?`
         }
         confirmLabel={deactivateDialog.model?.is_active ? '비활성화' : '활성화'}
@@ -798,7 +925,7 @@ export default function ModelsPage() {
       {/* 일괄 등록 확정 다이얼로그 */}
       <ConfirmDialog
         open={confirmDialogOpen}
-        title="일괄 등록 확정"
+        title="모델 등록 확정"
         maxWidth="sm"
         confirmLabel="확정 저장"
         confirmColor="primary"
@@ -807,42 +934,27 @@ export default function ModelsPage() {
         onCancel={() => setConfirmDialogOpen(false)}
       >
         <Box>
-          <Typography variant="body1" gutterBottom>
-            다음 모델을 생성합니다:
-          </Typography>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <AlertTitle>생성될 모델 정보</AlertTitle>
+            <Typography variant="h5" fontWeight="bold" color="primary">
+              {validationResult?.valid_count ?? 0}개
+            </Typography>
+          </Alert>
           
-          <List dense>
-            <ListItem>
-              <ListItemText
-                primary={`총 생성 개수: ${validationResult?.valid_count ?? 0}개`}
-                primaryTypographyProps={{ fontWeight: 'bold' }}
-              />
-            </ListItem>
-            
-            {validationResult?.summary.by_manufacturer && Object.keys(validationResult.summary.by_manufacturer).length > 0 && (
-              <ListItem>
-                <ListItemText
-                  primary="제조사별"
-                  secondary={Object.entries(validationResult.summary.by_manufacturer)
-                    .map(([key, count]) => `${manufacturers.find(m => m.value === key)?.label || key} (${count})`)
-                    .join(', ')}
-                />
-              </ListItem>
-            )}
-            
-            {validationResult?.summary.by_series && Object.keys(validationResult.summary.by_series).length > 0 && (
-              <ListItem>
-                <ListItemText
-                  primary="시리즈별"
-                  secondary={Object.entries(validationResult.summary.by_series)
-                    .map(([key, count]) => `${key} (${count})`)
-                    .join(', ')}
-                />
-              </ListItem>
-            )}
-          </List>
+          {validationResult?.summary.by_series && Object.keys(validationResult.summary.by_series).length > 0 && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                시리즈별 분류
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {Object.entries(validationResult.summary.by_series).map(([key, count]) => (
+                  <Chip key={key} label={`${key} (${count})`} size="small" variant="outlined" />
+                ))}
+              </Stack>
+            </Box>
+          )}
           
-          <Alert severity="warning" sx={{ mt: 2 }}>
+          <Alert severity="warning" icon={<WarningIcon />}>
             이 작업은 되돌릴 수 없습니다.
           </Alert>
         </Box>
@@ -852,303 +964,269 @@ export default function ModelsPage() {
 }
 
 // ============================================================================
-// 서브 컴포넌트: 단건 등록 폼
+// 서브 컴포넌트: 통합 모델 등록 폼
 // ============================================================================
 
-interface SingleModelFormContentProps {
-  control: any;
-  watchDeviceType: string;
-}
-
-function SingleModelFormContent({ control, watchDeviceType }: SingleModelFormContentProps) {
-  return (
-    <Grid container spacing={2} sx={{ mt: 1 }}>
-      <Grid item xs={12}>
-        <Controller
-          name="model_code"
-          control={control}
-          rules={{ required: '모델코드를 입력하세요' }}
-          render={({ field, fieldState }) => (
-            <TextField
-              {...field}
-              fullWidth
-              label="모델코드"
-              error={!!fieldState.error}
-              helperText={fieldState.error?.message}
-            />
-          )}
-        />
-      </Grid>
-      <Grid item xs={6}>
-        <Controller
-          name="device_type"
-          control={control}
-          render={({ field }) => (
-            <FormControl fullWidth>
-              <InputLabel>타입</InputLabel>
-              <Select {...field} label="타입">
-                {deviceTypes.map((d) => (
-                  <MenuItem key={d.value} value={d.value}>{d.label}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-        />
-      </Grid>
-      <Grid item xs={6}>
-        <Controller
-          name="manufacturer"
-          control={control}
-          render={({ field }) => (
-            <FormControl fullWidth>
-              <InputLabel>제조사</InputLabel>
-              <Select {...field} label="제조사">
-                {manufacturers.map((m) => (
-                  <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-        />
-      </Grid>
-      <Grid item xs={12}>
-        <Controller
-          name="series"
-          control={control}
-          rules={{ required: '시리즈를 입력하세요' }}
-          render={({ field, fieldState }) => (
-            <TextField
-              {...field}
-              fullWidth
-              label="시리즈"
-              placeholder="예: iPhone 15, Galaxy S24"
-              error={!!fieldState.error}
-              helperText={fieldState.error?.message}
-            />
-          )}
-        />
-      </Grid>
-      <Grid item xs={12}>
-        <Controller
-          name="model_name"
-          control={control}
-          rules={{ required: '모델명을 입력하세요' }}
-          render={({ field, fieldState }) => (
-            <TextField
-              {...field}
-              fullWidth
-              label="모델명"
-              placeholder="예: iPhone 15 Pro Max"
-              error={!!fieldState.error}
-              helperText={fieldState.error?.message}
-            />
-          )}
-        />
-      </Grid>
-      <Grid item xs={6}>
-        <Controller
-          name="storage_gb"
-          control={control}
-          rules={{ required: '스토리지를 입력하세요' }}
-          render={({ field, fieldState }) => (
-            <TextField
-              {...field}
-              fullWidth
-              type="number"
-              label="스토리지 (GB)"
-              error={!!fieldState.error}
-              helperText={fieldState.error?.message}
-            />
-          )}
-        />
-      </Grid>
-      <Grid item xs={6}>
-        <Controller
-          name="connectivity"
-          control={control}
-          render={({ field }) => (
-            <FormControl fullWidth>
-              <InputLabel>연결성</InputLabel>
-              <Select {...field} label="연결성">
-                {connectivityOptions[watchDeviceType]?.map((c) => (
-                  <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-        />
-      </Grid>
-    </Grid>
-  );
-}
-
-// ============================================================================
-// 서브 컴포넌트: 다중 스토리지 폼
-// ============================================================================
-
-interface MultiStorageFormContentProps {
-  form: MultiStorageForm;
-  setForm: React.Dispatch<React.SetStateAction<MultiStorageForm>>;
+interface ModelRegistrationFormContentProps {
+  form: ModelRegistrationForm;
+  setForm: React.Dispatch<React.SetStateAction<ModelRegistrationForm>>;
+  availableSeries: string[];
   onStorageToggle: (storage: number) => void;
+  onSelectAll: () => void;
+  onClearAll: () => void;
+  isEditMode: boolean;
   validationResult: BulkValidateResponse | null;
-  validating: boolean;
-  onValidate: () => void;
   previewColumns: GridColDef[];
 }
 
-function MultiStorageFormContent({
+function ModelRegistrationFormContent({
   form,
   setForm,
+  availableSeries,
   onStorageToggle,
+  onSelectAll,
+  onClearAll,
+  isEditMode,
   validationResult,
-  validating,
-  onValidate,
   previewColumns,
-}: MultiStorageFormContentProps) {
+}: ModelRegistrationFormContentProps) {
   return (
     <Box>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        공통 정보를 입력하고 스토리지를 여러 개 선택하면, 선택한 스토리지 개수만큼 모델이 생성됩니다.
-      </Typography>
+      {/* 자동 생성 안내 */}
+      {!isEditMode && (
+        <Alert severity="info" icon={<AutoAwesomeIcon />} sx={{ mb: 3 }}>
+          <AlertTitle>자동 생성 필드</AlertTitle>
+          <Typography variant="body2">
+            <strong>model_key</strong>와 <strong>model_code</strong>는 서버에서 자동 생성됩니다.
+            스토리지를 여러 개 선택하면 각각의 모델이 생성됩니다.
+          </Typography>
+        </Alert>
+      )}
       
-      <Grid container spacing={2}>
-        <Grid item xs={6}>
-          <FormControl fullWidth size="small">
-            <InputLabel>타입</InputLabel>
-            <Select
-              value={form.device_type}
-              label="타입"
-              onChange={(e) => setForm(prev => ({ ...prev, device_type: e.target.value }))}
-            >
-              {deviceTypes.map((d) => (
-                <MenuItem key={d.value} value={d.value}>{d.label}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+      <Grid container spacing={3}>
+        {/* 좌측: 기본 정보 */}
+        <Grid item xs={12} md={6}>
+          <Paper variant="outlined" sx={{ p: 3, height: '100%' }}>
+            <Typography variant="subtitle1" fontWeight={600} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <InfoIcon color="primary" fontSize="small" />
+              기본 정보
+            </Typography>
+            
+            <Stack spacing={2.5} sx={{ mt: 2 }}>
+              {/* 기기 타입 */}
+              <Box>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  기기 타입
+                </Typography>
+                <ToggleButtonGroup
+                  value={form.device_type}
+                  exclusive
+                  onChange={(_, value) => value && setForm(prev => ({ ...prev, device_type: value }))}
+                  fullWidth
+                  size="small"
+                >
+                  {deviceTypes.map((d) => (
+                    <ToggleButton key={d.value} value={d.value} sx={{ textTransform: 'none' }}>
+                      <Stack direction="row" alignItems="center" spacing={0.5}>
+                        {d.icon}
+                        <span>{d.label}</span>
+                      </Stack>
+                    </ToggleButton>
+                  ))}
+                </ToggleButtonGroup>
+              </Box>
+              
+              {/* 제조사 */}
+              <Box>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  제조사
+                </Typography>
+                <ToggleButtonGroup
+                  value={form.manufacturer}
+                  exclusive
+                  onChange={(_, value) => value && setForm(prev => ({ ...prev, manufacturer: value }))}
+                  fullWidth
+                  size="small"
+                >
+                  {manufacturers.map((m) => (
+                    <ToggleButton key={m.value} value={m.value} sx={{ textTransform: 'none' }}>
+                      <Stack direction="row" alignItems="center" spacing={0.5}>
+                        {m.icon}
+                        <span>{m.label}</span>
+                      </Stack>
+                    </ToggleButton>
+                  ))}
+                </ToggleButtonGroup>
+              </Box>
+              
+              {/* 시리즈 - SELECT */}
+              <FormControl fullWidth size="small">
+                <InputLabel>시리즈</InputLabel>
+                <Select
+                  value={form.series}
+                  label="시리즈"
+                  onChange={(e) => setForm(prev => ({ ...prev, series: e.target.value }))}
+                >
+                  {availableSeries.map((series) => (
+                    <MenuItem key={series} value={series}>{series}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              
+              {/* 모델명 */}
+              <TextField
+                fullWidth
+                size="small"
+                label="모델명"
+                placeholder="예: iPhone 16 Pro Max, Galaxy S24 Ultra"
+                value={form.model_name}
+                onChange={(e) => setForm(prev => ({ ...prev, model_name: e.target.value }))}
+              />
+              
+              {/* 연결성 */}
+              <FormControl fullWidth size="small">
+                <InputLabel>연결성</InputLabel>
+                <Select
+                  value={form.connectivity}
+                  label="연결성"
+                  onChange={(e) => setForm(prev => ({ ...prev, connectivity: e.target.value }))}
+                >
+                  {connectivityOptions[form.device_type]?.map((c) => (
+                    <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Stack>
+          </Paper>
         </Grid>
-        <Grid item xs={6}>
-          <FormControl fullWidth size="small">
-            <InputLabel>제조사</InputLabel>
-            <Select
-              value={form.manufacturer}
-              label="제조사"
-              onChange={(e) => setForm(prev => ({ ...prev, manufacturer: e.target.value }))}
-            >
-              {manufacturers.map((m) => (
-                <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Grid>
-        <Grid item xs={12}>
-          <TextField
-            fullWidth
-            size="small"
-            label="시리즈"
-            placeholder="예: iPhone 16 Pro"
-            value={form.series}
-            onChange={(e) => setForm(prev => ({ ...prev, series: e.target.value }))}
-          />
-        </Grid>
-        <Grid item xs={12}>
-          <TextField
-            fullWidth
-            size="small"
-            label="모델명"
-            placeholder="예: iPhone 16 Pro Max"
-            value={form.model_name}
-            onChange={(e) => setForm(prev => ({ ...prev, model_name: e.target.value }))}
-          />
-        </Grid>
-        <Grid item xs={6}>
-          <FormControl fullWidth size="small">
-            <InputLabel>연결성</InputLabel>
-            <Select
-              value={form.connectivity}
-              label="연결성"
-              onChange={(e) => setForm(prev => ({ ...prev, connectivity: e.target.value }))}
-            >
-              {connectivityOptions[form.device_type]?.map((c) => (
-                <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Grid>
-        <Grid item xs={6}>
-          <TextField
-            fullWidth
-            size="small"
-            label="모델코드 접두어"
-            placeholder="예: IP16PM-"
-            value={form.model_code_prefix}
-            onChange={(e) => setForm(prev => ({ ...prev, model_code_prefix: e.target.value }))}
-            helperText="모델코드: {접두어}{스토리지}"
-          />
+        
+        {/* 우측: 스토리지 선택 */}
+        <Grid item xs={12} md={6}>
+          <Paper variant="outlined" sx={{ p: 3, height: '100%' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="subtitle1" fontWeight={600} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <MemoryIcon color="primary" fontSize="small" />
+                스토리지 선택
+              </Typography>
+              
+              {!isEditMode && (
+                <Stack direction="row" spacing={0.5}>
+                  <Tooltip title="전체 선택">
+                    <IconButton size="small" onClick={onSelectAll}>
+                      <AddIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="전체 해제">
+                    <IconButton size="small" onClick={onClearAll}>
+                      <RemoveIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              )}
+            </Box>
+            
+            {isEditMode && (
+              <Alert severity="warning" sx={{ mb: 2 }} icon={<WarningIcon fontSize="small" />}>
+                수정 모드에서는 스토리지를 변경할 수 없습니다.
+              </Alert>
+            )}
+            
+            <Grid container spacing={1}>
+              {storageOptions.map((option) => {
+                const isSelected = form.storage_list.includes(option.value);
+                
+                return (
+                  <Grid item xs={4} key={option.value}>
+                    <Paper
+                      onClick={() => !isEditMode && onStorageToggle(option.value)}
+                      variant={isSelected ? 'elevation' : 'outlined'}
+                      sx={{
+                        p: 1.5,
+                        cursor: isEditMode ? 'not-allowed' : 'pointer',
+                        textAlign: 'center',
+                        bgcolor: isSelected ? 'primary.main' : 'background.paper',
+                        color: isSelected ? 'white' : 'text.primary',
+                        opacity: isEditMode && !isSelected ? 0.4 : 1,
+                        transition: 'all 0.15s ease',
+                        '&:hover': !isEditMode ? {
+                          bgcolor: isSelected ? 'primary.dark' : 'grey.100',
+                        } : {},
+                      }}
+                    >
+                      <StorageIcon sx={{ fontSize: 20, mb: 0.5 }} />
+                      <Typography variant="body2" fontWeight={600}>
+                        {option.label}
+                      </Typography>
+                    </Paper>
+                  </Grid>
+                );
+              })}
+            </Grid>
+            
+            {/* 선택 요약 */}
+            <Collapse in={form.storage_list.length > 0}>
+              <Box sx={{ mt: 2, p: 1.5, bgcolor: 'success.50', borderRadius: 1, border: '1px solid', borderColor: 'success.200' }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="body2" color="success.dark">
+                    선택된 스토리지
+                  </Typography>
+                  <Chip 
+                    label={`${form.storage_list.length}개 모델 생성`} 
+                    color="success" 
+                    size="small"
+                  />
+                </Stack>
+                <Stack direction="row" spacing={0.5} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
+                  {form.storage_list.sort((a, b) => a - b).map((storage) => {
+                    const option = storageOptions.find(o => o.value === storage);
+                    return (
+                      <Chip
+                        key={storage}
+                        label={option?.label || `${storage}GB`}
+                        size="small"
+                        variant="outlined"
+                        color="success"
+                      />
+                    );
+                  })}
+                </Stack>
+              </Box>
+            </Collapse>
+          </Paper>
         </Grid>
       </Grid>
       
-      <Divider sx={{ my: 2 }} />
-      
-      <Typography variant="subtitle2" gutterBottom>
-        스토리지 선택 (복수)
-      </Typography>
-      <FormGroup row>
-        {storageOptions.map((option) => (
-          <FormControlLabel
-            key={option.value}
-            control={
-              <Checkbox
-                checked={form.storage_list.includes(option.value)}
-                onChange={() => onStorageToggle(option.value)}
-              />
-            }
-            label={option.label}
-          />
-        ))}
-      </FormGroup>
-      
-      <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
-        <Button
-          variant="outlined"
-          onClick={onValidate}
-          disabled={validating || form.storage_list.length === 0}
-          startIcon={validating ? <CircularProgress size={16} /> : undefined}
-        >
-          {validating ? '검증 중...' : '검증하기'}
-        </Button>
-        {form.storage_list.length > 0 && (
-          <Typography variant="body2" color="text.secondary">
-            선택: {form.storage_list.length}개
-          </Typography>
-        )}
-      </Box>
-      
       {/* 검증 결과 프리뷰 */}
       {validationResult && (
-        <Box sx={{ mt: 3 }}>
-          <Typography variant="subtitle2" gutterBottom>
-            생성될 모델 {validationResult.total_count}개
-            {validationResult.error_count > 0 && (
-              <Chip label={`오류 ${validationResult.error_count}`} color="error" size="small" sx={{ ml: 1 }} />
-            )}
-            {validationResult.duplicate_count > 0 && (
-              <Chip label={`중복 ${validationResult.duplicate_count}`} color="warning" size="small" sx={{ ml: 1 }} />
-            )}
-          </Typography>
-          
-          <DataGrid
-            rows={validationResult.preview.map((row, idx) => ({ ...row, id: idx }))}
-            columns={previewColumns}
-            autoHeight
-            disableRowSelectionOnClick
-            hideFooter={validationResult.preview.length <= 10}
-            initialState={{
-              pagination: { paginationModel: { pageSize: 10 } },
-            }}
-            pageSizeOptions={[10]}
-            sx={{ mt: 1 }}
-          />
-        </Box>
+        <Fade in>
+          <Paper variant="outlined" sx={{ mt: 3, p: 2 }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+              <Typography variant="subtitle1" fontWeight={600}>
+                검증 결과
+              </Typography>
+              <Stack direction="row" spacing={1}>
+                <Chip icon={<CheckCircleIcon />} label={`유효 ${validationResult.valid_count}`} color="success" size="small" />
+                {validationResult.error_count > 0 && (
+                  <Chip icon={<ErrorIcon />} label={`오류 ${validationResult.error_count}`} color="error" size="small" />
+                )}
+                {validationResult.duplicate_count > 0 && (
+                  <Chip icon={<WarningIcon />} label={`중복 ${validationResult.duplicate_count}`} color="warning" size="small" />
+                )}
+              </Stack>
+            </Stack>
+            
+            <DataGrid
+              rows={validationResult.preview.map((row, idx) => ({ ...row, id: idx }))}
+              columns={previewColumns}
+              autoHeight
+              disableRowSelectionOnClick
+              hideFooter={validationResult.preview.length <= 5}
+              initialState={{ pagination: { paginationModel: { pageSize: 5 } } }}
+              pageSizeOptions={[5]}
+              sx={{ border: 'none' }}
+            />
+          </Paper>
+        </Fade>
       )}
     </Box>
   );
@@ -1181,77 +1259,80 @@ function JsonBulkFormContent({
 }: JsonBulkFormContentProps) {
   return (
     <Box>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        JSON 배열 형식으로 여러 모델을 한 번에 등록할 수 있습니다.
-      </Typography>
+      <Alert severity="info" icon={<AutoAwesomeIcon />} sx={{ mb: 3 }}>
+        <AlertTitle>자동 생성 필드 안내</AlertTitle>
+        <Typography variant="body2" component="div">
+          <ul style={{ margin: 0, paddingLeft: 20 }}>
+            <li><strong>model_key</strong>: 시리즈+모델명 기반으로 서버에서 자동 생성</li>
+            <li><strong>model_code</strong>: model_key + 스토리지 조합으로 자동 생성</li>
+            <li><strong>storage_gb</strong>를 배열로 입력하면 각 스토리지별로 개별 모델 생성</li>
+          </ul>
+        </Typography>
+      </Alert>
       
-      <TextField
-        fullWidth
-        multiline
-        rows={10}
-        label="JSON 입력"
-        placeholder={jsonTemplate}
-        value={jsonInput}
-        onChange={(e) => onJsonChange(e.target.value)}
-        error={!!jsonError}
-        helperText={jsonError}
-        sx={{ fontFamily: 'monospace' }}
-        InputProps={{
-          sx: { fontFamily: 'monospace', fontSize: '0.85rem' },
-        }}
-      />
-      
-      <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
-        <Button
-          variant="outlined"
-          component="label"
-          startIcon={<UploadIcon />}
-        >
-          파일 업로드
-          <input
-            type="file"
-            hidden
-            accept=".json"
-            onChange={onFileUpload}
-          />
-        </Button>
-        <Button
-          variant="outlined"
-          onClick={onValidate}
-          disabled={validating || !jsonInput.trim()}
-          startIcon={validating ? <CircularProgress size={16} /> : undefined}
-        >
-          {validating ? '검증 중...' : '검증하기'}
-        </Button>
-      </Box>
+      <Paper variant="outlined" sx={{ p: 3 }}>
+        <TextField
+          fullWidth
+          multiline
+          rows={12}
+          label="JSON 입력"
+          placeholder={jsonTemplate}
+          value={jsonInput}
+          onChange={(e) => onJsonChange(e.target.value)}
+          error={!!jsonError}
+          helperText={jsonError}
+          InputProps={{
+            sx: { fontFamily: 'monospace', fontSize: '0.85rem' },
+          }}
+        />
+        
+        <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
+          <Button variant="outlined" component="label" startIcon={<UploadIcon />}>
+            파일 업로드
+            <input type="file" hidden accept=".json" onChange={onFileUpload} />
+          </Button>
+          <Button
+            variant="contained"
+            onClick={onValidate}
+            disabled={validating || !jsonInput.trim()}
+            startIcon={validating ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}
+          >
+            {validating ? '검증 중...' : '검증하기'}
+          </Button>
+        </Stack>
+      </Paper>
       
       {/* 검증 결과 프리뷰 */}
       {validationResult && (
-        <Box sx={{ mt: 3 }}>
-          <Typography variant="subtitle2" gutterBottom>
-            검증 결과: 총 {validationResult.total_count}개
-            <Chip label={`유효 ${validationResult.valid_count}`} color="success" size="small" sx={{ ml: 1 }} />
-            {validationResult.error_count > 0 && (
-              <Chip label={`오류 ${validationResult.error_count}`} color="error" size="small" sx={{ ml: 1 }} />
-            )}
-            {validationResult.duplicate_count > 0 && (
-              <Chip label={`중복 ${validationResult.duplicate_count}`} color="warning" size="small" sx={{ ml: 1 }} />
-            )}
-          </Typography>
-          
-          <DataGrid
-            rows={validationResult.preview.map((row, idx) => ({ ...row, id: idx }))}
-            columns={previewColumns}
-            autoHeight
-            disableRowSelectionOnClick
-            hideFooter={validationResult.preview.length <= 10}
-            initialState={{
-              pagination: { paginationModel: { pageSize: 10 } },
-            }}
-            pageSizeOptions={[10]}
-            sx={{ mt: 1 }}
-          />
-        </Box>
+        <Fade in>
+          <Paper variant="outlined" sx={{ mt: 3, p: 2 }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+              <Typography variant="subtitle1" fontWeight={600}>
+                검증 결과: 총 {validationResult.total_count}개
+              </Typography>
+              <Stack direction="row" spacing={1}>
+                <Chip icon={<CheckCircleIcon />} label={`유효 ${validationResult.valid_count}`} color="success" size="small" />
+                {validationResult.error_count > 0 && (
+                  <Chip icon={<ErrorIcon />} label={`오류 ${validationResult.error_count}`} color="error" size="small" />
+                )}
+                {validationResult.duplicate_count > 0 && (
+                  <Chip icon={<WarningIcon />} label={`중복 ${validationResult.duplicate_count}`} color="warning" size="small" />
+                )}
+              </Stack>
+            </Stack>
+            
+            <DataGrid
+              rows={validationResult.preview.map((row, idx) => ({ ...row, id: idx }))}
+              columns={previewColumns}
+              autoHeight
+              disableRowSelectionOnClick
+              hideFooter={validationResult.preview.length <= 10}
+              initialState={{ pagination: { paginationModel: { pageSize: 10 } } }}
+              pageSizeOptions={[10]}
+              sx={{ border: 'none' }}
+            />
+          </Paper>
+        </Fade>
       )}
     </Box>
   );

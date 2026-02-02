@@ -93,23 +93,27 @@ export interface BulkStorageValidateRequest {
   model_code_prefix: string;
 }
 
+/** JSON 일괄 등록 입력 모델 (model_code 없음, storage_gb 배열) */
+export interface JsonBulkModelInput {
+  device_type: string;
+  manufacturer: string;
+  series: string;
+  model_name: string;
+  storage_gb: number[];  // 배열로 변경 - 각 스토리지별로 개별 모델 생성
+  connectivity: string;
+  // model_code는 입력하지 않음 (서버 자동 생성)
+}
+
 /** JSON 일괄 등록 - 검증 요청 */
 export interface JsonBulkValidateRequest {
-  models: {
-    model_code: string;
-    device_type: string;
-    manufacturer: string;
-    series: string;
-    model_name: string;
-    storage_gb: number;
-    connectivity: string;
-  }[];
+  models: JsonBulkModelInput[];
 }
 
 /** 검증 결과 - 개별 행 */
 export interface ValidateRowResult {
   row_index: number;
-  model_code: string;
+  model_key: string;    // 불변 모델 키 (동일 기종 공유)
+  model_code: string;   // 불변 모델 코드 (model_key + storage)
   full_name: string;
   status: 'valid' | 'error' | 'duplicate';
   error_message: string | null;
@@ -141,6 +145,36 @@ export interface BulkCommitResponse {
   created_models: unknown[];
 }
 
+// ============================================================================
+// 등급별 가격 일괄 설정 타입
+// ============================================================================
+
+/** 등급별 가격 항목 */
+export interface GradePriceItem {
+  grade_id: string;
+  price: number;
+}
+
+/** 등급별 가격 일괄 설정 요청 - model_key 기준 */
+export interface BulkPriceSetRequest {
+  model_key: string;
+  prices: GradePriceItem[];
+}
+
+/** 등급별 가격 일괄 설정 요청 - 모델 ID 목록 기준 */
+export interface BulkPriceSetByIdsRequest {
+  model_ids: string[];
+  prices: GradePriceItem[];
+}
+
+/** 등급별 가격 일괄 설정 응답 */
+export interface BulkPriceSetResponse {
+  model_key: string | null;
+  affected_models: number;
+  updated_prices: number;
+  model_codes: string[];
+}
+
 export const ssotModelsApi = {
   list: (params?: Record<string, unknown>) =>
     api.get<ApiResponse<{ models: unknown[]; total: number }>>('/ssot-models', { params }),
@@ -169,6 +203,14 @@ export const ssotModelsApi = {
   /** 일괄 등록 커밋 */
   commitBulk: (validationId: string) =>
     api.post<ApiResponse<BulkCommitResponse>>('/ssot-models/bulk/commit', { validation_id: validationId }),
+  
+  /** 등급별 가격 일괄 설정 - model_key 기준 */
+  setBulkPrices: (data: BulkPriceSetRequest) =>
+    api.put<ApiResponse<BulkPriceSetResponse>>('/ssot-models/bulk/prices', data),
+  
+  /** 등급별 가격 일괄 설정 - 모델 ID 목록 기준 */
+  setBulkPricesByIds: (data: BulkPriceSetByIdsRequest) =>
+    api.put<ApiResponse<BulkPriceSetResponse>>('/ssot-models/bulk/prices/by-ids', data),
 };
 
 export const gradesApi = {
