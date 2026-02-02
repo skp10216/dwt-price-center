@@ -175,6 +175,82 @@ export interface BulkPriceSetResponse {
   model_codes: string[];
 }
 
+/** 모델 삭제 응답 */
+export interface ModelDeleteResponse {
+  deleted_id: string;
+  deleted_model_code: string;
+  deleted_full_name: string;
+  deleted_grade_prices_count: number;
+}
+
+/** 모델 일괄 삭제 응답 */
+export interface BulkDeleteResponse {
+  trace_id: string;
+  deleted_count: number;
+  deleted_models: Array<{
+    model_code: string;
+    full_name: string;
+    grade_prices_count: number;
+  }>;
+  total_grade_prices_deleted: number;
+  not_found_ids: string[];
+}
+
+/** 가격 변경 히스토리 항목 */
+export interface PriceHistoryChange {
+  grade_id: string;
+  old_price: number;
+  new_price: number;
+  diff: number;
+}
+
+/** 가격 변경 히스토리 */
+export interface PriceHistoryItem {
+  id: string;
+  user_id: string;
+  user_email: string | null;
+  user_name: string | null;
+  created_at: string;
+  description: string | null;
+  changes: PriceHistoryChange[];
+}
+
+/** 가격 변경 히스토리 응답 */
+export interface PriceHistoryResponse {
+  model_id: string;
+  model_code: string;
+  model_name: string;
+  history: PriceHistoryItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+/** 삭제된 모델 히스토리 항목 */
+export interface DeletedModelHistoryItem {
+  id: string;
+  trace_id: string | null;
+  action: 'single' | 'bulk';
+  deleted_at: string;
+  deleted_by: {
+    user_id: string;
+    email: string | null;
+    name: string | null;
+  };
+  model_data?: Record<string, unknown>;
+  deleted_count?: number;
+  deleted_models?: Array<{ model_code: string; full_name: string }>;
+  description: string | null;
+}
+
+/** 삭제된 모델 히스토리 응답 */
+export interface DeletedHistoryResponse {
+  history: DeletedModelHistoryItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 export const ssotModelsApi = {
   list: (params?: Record<string, unknown>) =>
     api.get<ApiResponse<{ models: unknown[]; total: number }>>('/ssot-models', { params }),
@@ -211,6 +287,32 @@ export const ssotModelsApi = {
   /** 등급별 가격 일괄 설정 - 모델 ID 목록 기준 */
   setBulkPricesByIds: (data: BulkPriceSetByIdsRequest) =>
     api.put<ApiResponse<BulkPriceSetResponse>>('/ssot-models/bulk/prices/by-ids', data),
+  
+  // 삭제 API
+  /** 모델 삭제 (단일) - 연관 가격정보도 함께 삭제 */
+  delete: (id: string) =>
+    api.delete<ApiResponse<ModelDeleteResponse>>(`/ssot-models/${id}`),
+  
+  /** 모델 일괄 삭제 (POST 사용 - DELETE에서 body 사용은 비표준) */
+  deleteBulk: (modelIds: string[]) =>
+    api.post<ApiResponse<BulkDeleteResponse>>('/ssot-models/bulk/delete', modelIds),
+  
+  // 히스토리 API
+  /** 모델별 가격 변경 히스토리 조회 */
+  getPriceHistory: (modelId: string, params?: { page?: number; page_size?: number }) =>
+    api.get<ApiResponse<PriceHistoryResponse>>(`/ssot-models/${modelId}/price-history`, { params }),
+  
+  /** 삭제된 모델 히스토리 조회 (경로: /history/deleted - /{model_id}와 충돌 방지) */
+  getDeletedHistory: (params?: {
+    page?: number;
+    page_size?: number;
+    device_type?: string;
+    manufacturer?: string;
+    search?: string;
+    start_date?: string;
+    end_date?: string;
+  }) =>
+    api.get<ApiResponse<DeletedHistoryResponse>>('/ssot-models/history/deleted', { params }),
 };
 
 export const gradesApi = {

@@ -56,6 +56,8 @@ class AuditAction(str, enum.Enum):
     MODEL_UPDATE = "model_update"
     MODEL_DEACTIVATE = "model_deactivate"
     MODEL_BULK_CREATE = "model_bulk_create"  # 일괄 등록 (다중 스토리지/JSON)
+    MODEL_DELETE = "model_delete"  # 모델 삭제 (연관 가격정보 포함)
+    MODEL_BULK_DELETE = "model_bulk_delete"  # 모델 일괄 삭제
     
     # 등급 관련
     GRADE_CREATE = "grade_create"

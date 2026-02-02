@@ -9,3 +9,5 @@ export { ModelPriceCard } from './ModelPriceCard';
 export { ChangeTracker } from './ChangeTracker';
 export { ModelPriceEditor } from './ModelPriceEditor';
 export { ModelsDashboard } from './ModelsDashboard';
+export { PriceHistoryModal } from './PriceHistoryModal';
+export { DeletedHistoryModal } from './DeletedHistoryModal';

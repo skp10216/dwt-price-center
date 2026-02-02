@@ -339,6 +339,194 @@ async def get_model(
     )
 
 
+@router.delete("/{model_id}", response_model=SuccessResponse[dict])
+async def delete_model(
+    model_id: UUID,
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    SSOT 모델 삭제 (관리자 전용)
+    
+    연관된 모든 데이터도 함께 삭제됩니다:
+    - 등급별 가격 (grade_prices)
+    - 기타 연관 데이터 (CASCADE)
+    
+    삭제된 모델의 정보는 감사로그에 기록되어 추적 가능합니다.
+    """
+    # 모델 조회 (가격 정보 포함)
+    result = await db.execute(
+        select(SSOTModel)
+        .where(SSOTModel.id == model_id)
+        .options(selectinload(SSOTModel.grade_prices).selectinload(GradePrice.grade))
+    )
+    model = result.scalar_one_or_none()
+    
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "MODEL_NOT_FOUND", "message": "모델을 찾을 수 없습니다"}
+        )
+    
+    # 삭제 전 데이터 저장 (감사로그용)
+    before_data = {
+        "id": str(model.id),
+        "model_key": model.model_key,
+        "model_code": model.model_code,
+        "device_type": model.device_type.value,
+        "manufacturer": model.manufacturer.value,
+        "series": model.series,
+        "model_name": model.model_name,
+        "storage_gb": model.storage_gb,
+        "full_name": model.full_name,
+        "connectivity": model.connectivity.value,
+        "is_active": model.is_active,
+        "grade_prices": [
+            {
+                "grade_id": str(gp.grade_id),
+                "grade_name": gp.grade.name if gp.grade else None,
+                "price": gp.price
+            }
+            for gp in model.grade_prices
+        ]
+    }
+    
+    # 모델 삭제 (CASCADE로 grade_prices도 자동 삭제)
+    await db.delete(model)
+    
+    # 감사로그 기록
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action=AuditAction.MODEL_DELETE,
+        target_type="ssot_model",
+        target_id=model_id,
+        before_data=before_data,
+        after_data=None,
+        description=f"모델 삭제: {model.full_name} (코드: {model.model_code})"
+    )
+    db.add(audit_log)
+    
+    await db.commit()
+    
+    return SuccessResponse(
+        data={
+            "deleted_id": str(model_id),
+            "deleted_model_code": model.model_code,
+            "deleted_full_name": model.full_name,
+            "deleted_grade_prices_count": len(before_data["grade_prices"])
+        }
+    )
+
+
+@router.post("/bulk/delete", response_model=SuccessResponse[dict])
+async def delete_models_bulk(
+    model_ids: list[UUID],
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    SSOT 모델 일괄 삭제 (관리자 전용)
+    
+    선택한 모델들과 연관된 모든 데이터를 삭제합니다.
+    삭제된 모델 정보는 감사로그에 기록됩니다.
+    
+    참고: DELETE 메서드에서 body 사용은 비표준이므로 POST 사용
+    """
+    if not model_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "EMPTY_MODEL_IDS", "message": "삭제할 모델을 선택해주세요"}
+        )
+    
+    # 모델 조회
+    result = await db.execute(
+        select(SSOTModel)
+        .where(SSOTModel.id.in_(model_ids))
+        .options(selectinload(SSOTModel.grade_prices).selectinload(GradePrice.grade))
+    )
+    models = result.scalars().all()
+    
+    if not models:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "MODELS_NOT_FOUND", "message": "삭제할 모델을 찾을 수 없습니다"}
+        )
+    
+    # 찾지 못한 모델 확인
+    found_ids = {m.id for m in models}
+    not_found_ids = set(model_ids) - found_ids
+    
+    # trace_id 생성 (일괄 삭제 작업 묶음)
+    trace_id = uuid_module.uuid4()
+    
+    # 삭제 전 데이터 저장 및 삭제 실행
+    deleted_models = []
+    total_grade_prices_count = 0
+    
+    for model in models:
+        before_data = {
+            "id": str(model.id),
+            "model_key": model.model_key,
+            "model_code": model.model_code,
+            "device_type": model.device_type.value,
+            "manufacturer": model.manufacturer.value,
+            "series": model.series,
+            "model_name": model.model_name,
+            "storage_gb": model.storage_gb,
+            "full_name": model.full_name,
+            "connectivity": model.connectivity.value,
+            "is_active": model.is_active,
+            "grade_prices": [
+                {
+                    "grade_id": str(gp.grade_id),
+                    "grade_name": gp.grade.name if gp.grade else None,
+                    "price": gp.price
+                }
+                for gp in model.grade_prices
+            ]
+        }
+        
+        deleted_models.append({
+            "model_code": model.model_code,
+            "full_name": model.full_name,
+            "grade_prices_count": len(model.grade_prices)
+        })
+        total_grade_prices_count += len(model.grade_prices)
+        
+        await db.delete(model)
+    
+    # 감사로그 기록
+    audit_log = AuditLog(
+        trace_id=trace_id,
+        user_id=current_user.id,
+        action=AuditAction.MODEL_BULK_DELETE,
+        target_type="ssot_model",
+        target_id=None,
+        before_data={
+            "deleted_count": len(models),
+            "deleted_models": [
+                {"model_code": dm["model_code"], "full_name": dm["full_name"]}
+                for dm in deleted_models
+            ]
+        },
+        after_data=None,
+        description=f"일괄 삭제: {len(models)}개 모델, {total_grade_prices_count}개 가격정보"
+    )
+    db.add(audit_log)
+    
+    await db.commit()
+    
+    return SuccessResponse(
+        data={
+            "trace_id": str(trace_id),
+            "deleted_count": len(models),
+            "deleted_models": deleted_models,
+            "total_grade_prices_deleted": total_grade_prices_count,
+            "not_found_ids": [str(i) for i in not_found_ids] if not_found_ids else []
+        }
+    )
+
+
 @router.patch("/{model_id}", response_model=SuccessResponse[SSOTModelResponse])
 async def update_model(
     model_id: UUID,
@@ -1224,4 +1412,223 @@ async def set_bulk_prices_by_ids(
             updated_prices=updated_count,
             model_codes=[m.model_code for m in models]
         )
+    )
+
+
+# ============================================================================
+# 가격 변경 히스토리 API
+# ============================================================================
+
+@router.get("/{model_id}/price-history", response_model=SuccessResponse[dict])
+async def get_model_price_history(
+    model_id: UUID,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    모델별 가격 변경 히스토리 조회
+    
+    해당 모델의 가격 변경 이력을 조회합니다.
+    - 누가 (user)
+    - 언제 (created_at)
+    - 어떤 등급을 (grade)
+    - 얼마에서 얼마로 변경했는지 (before/after)
+    """
+    # 모델 존재 여부 확인
+    model_result = await db.execute(
+        select(SSOTModel).where(SSOTModel.id == model_id)
+    )
+    model = model_result.scalar_one_or_none()
+    
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "MODEL_NOT_FOUND", "message": "모델을 찾을 수 없습니다"}
+        )
+    
+    # 해당 모델의 가격 변경 로그 조회
+    query = (
+        select(AuditLog)
+        .where(
+            AuditLog.target_type == "grade_price",
+            AuditLog.target_id == model_id,
+            AuditLog.action == AuditAction.PRICE_UPDATE
+        )
+        .options(selectinload(AuditLog.user))
+    )
+    
+    count_query = select(func.count(AuditLog.id)).where(
+        AuditLog.target_type == "grade_price",
+        AuditLog.target_id == model_id,
+        AuditLog.action == AuditAction.PRICE_UPDATE
+    )
+    
+    total_result = await db.execute(count_query)
+    total = total_result.scalar()
+    
+    offset = (page - 1) * page_size
+    query = query.order_by(AuditLog.created_at.desc()).offset(offset).limit(page_size)
+    
+    result = await db.execute(query)
+    logs = result.scalars().all()
+    
+    # 응답 변환
+    history = []
+    for log in logs:
+        changes = []
+        before_data = log.before_data or {}
+        after_data = log.after_data or {}
+        
+        # 등급별 변경사항 분석
+        for grade_id, new_price in after_data.items():
+            old_price = before_data.get(grade_id, 0)
+            if old_price != new_price:
+                changes.append({
+                    "grade_id": grade_id,
+                    "old_price": old_price,
+                    "new_price": new_price,
+                    "diff": new_price - old_price
+                })
+        
+        history.append({
+            "id": str(log.id),
+            "user_id": str(log.user_id),
+            "user_email": log.user.email if log.user else None,
+            "user_name": log.user.name if log.user else None,
+            "created_at": log.created_at.isoformat(),
+            "description": log.description,
+            "changes": changes
+        })
+    
+    return SuccessResponse(
+        data={
+            "model_id": str(model_id),
+            "model_code": model.model_code,
+            "model_name": model.full_name,
+            "history": history,
+            "total": total,
+            "page": page,
+            "page_size": page_size
+        }
+    )
+
+
+@router.get("/history/deleted", response_model=SuccessResponse[dict])
+async def get_deleted_models_history(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    device_type: Optional[DeviceType] = Query(None),
+    manufacturer: Optional[Manufacturer] = Query(None),
+    search: Optional[str] = Query(None),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    삭제된 모델 히스토리 조회 (관리자 전용)
+    
+    경로: /history/deleted (/{model_id}와 충돌 방지)
+    
+    삭제된 모델의 이력을 조회합니다.
+    - 삭제 일시
+    - 삭제한 사용자
+    - 삭제된 모델 정보 (복원용)
+    """
+    # 삭제 로그 조회 쿼리
+    query = (
+        select(AuditLog)
+        .where(
+            AuditLog.target_type == "ssot_model",
+            AuditLog.action.in_([AuditAction.MODEL_DELETE, AuditAction.MODEL_BULK_DELETE])
+        )
+        .options(selectinload(AuditLog.user))
+    )
+    
+    count_query = select(func.count(AuditLog.id)).where(
+        AuditLog.target_type == "ssot_model",
+        AuditLog.action.in_([AuditAction.MODEL_DELETE, AuditAction.MODEL_BULK_DELETE])
+    )
+    
+    # 날짜 필터
+    if start_date:
+        query = query.where(AuditLog.created_at >= start_date)
+        count_query = count_query.where(AuditLog.created_at >= start_date)
+    
+    if end_date:
+        query = query.where(AuditLog.created_at <= end_date)
+        count_query = count_query.where(AuditLog.created_at <= end_date)
+    
+    # 검색 필터 (description에서 검색)
+    if search:
+        query = query.where(AuditLog.description.ilike(f"%{search}%"))
+        count_query = count_query.where(AuditLog.description.ilike(f"%{search}%"))
+    
+    total_result = await db.execute(count_query)
+    total = total_result.scalar()
+    
+    offset = (page - 1) * page_size
+    query = query.order_by(AuditLog.created_at.desc()).offset(offset).limit(page_size)
+    
+    result = await db.execute(query)
+    logs = result.scalars().all()
+    
+    # 응답 변환
+    deleted_history = []
+    for log in logs:
+        before_data = log.before_data or {}
+        
+        # 단일 삭제 vs 일괄 삭제 처리
+        if log.action == AuditAction.MODEL_DELETE:
+            # 필터 적용
+            if device_type and before_data.get("device_type") != device_type.value:
+                continue
+            if manufacturer and before_data.get("manufacturer") != manufacturer.value:
+                continue
+                
+            deleted_history.append({
+                "id": str(log.id),
+                "trace_id": str(log.trace_id) if log.trace_id else None,
+                "action": "single",
+                "deleted_at": log.created_at.isoformat(),
+                "deleted_by": {
+                    "user_id": str(log.user_id),
+                    "email": log.user.email if log.user else None,
+                    "name": log.user.name if log.user else None
+                },
+                "model_data": before_data,
+                "description": log.description
+            })
+        else:
+            # 일괄 삭제
+            deleted_models = before_data.get("deleted_models", [])
+            
+            # 필터가 있으면 일괄 삭제는 표시하지 않음 (상세 필터 불가)
+            if device_type or manufacturer:
+                continue
+            
+            deleted_history.append({
+                "id": str(log.id),
+                "trace_id": str(log.trace_id) if log.trace_id else None,
+                "action": "bulk",
+                "deleted_at": log.created_at.isoformat(),
+                "deleted_by": {
+                    "user_id": str(log.user_id),
+                    "email": log.user.email if log.user else None,
+                    "name": log.user.name if log.user else None
+                },
+                "deleted_count": before_data.get("deleted_count", 0),
+                "deleted_models": deleted_models,
+                "description": log.description
+            })
+    
+    return SuccessResponse(
+        data={
+            "history": deleted_history,
+            "total": total,
+            "page": page,
+            "page_size": page_size
+        }
     )

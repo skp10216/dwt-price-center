@@ -6,6 +6,13 @@
  * - 통계 카드 3개
  * - 필터 + 모델 카드 목록
  * 
+ * 기능:
+ * - 가격 편집 및 저장
+ * - 선택/전체선택
+ * - 단일/일괄 삭제 (연관 가격정보 포함)
+ * - 가격 변경 히스토리 조회
+ * - 삭제 히스토리 조회
+ * 
  * 성능 최적화:
  * - 변경 추적은 Map으로 O(1) 접근
  * - 개별 카드는 memo로 최적화
@@ -40,6 +47,9 @@ import {
   Paper,
   Avatar,
   Grid,
+  Checkbox,
+  Badge,
+  Chip,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -53,12 +63,19 @@ import {
   PhoneAndroid as SamsungIcon,
   ArrowBack as ArrowBackIcon,
   Save as SaveIcon,
+  Delete as DeleteIcon,
+  DeleteForever as DeleteForeverIcon,
+  History as HistoryIcon,
+  SelectAll as SelectAllIcon,
+  Deselect as DeselectIcon,
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import { ssotModelsApi, gradesApi, GradePriceItem } from '@/lib/api';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { ChangeTracker } from './ChangeTracker';
 import { ModelPriceCard } from './ModelPriceCard';
+import { PriceHistoryModal } from './PriceHistoryModal';
+import { DeletedHistoryModal } from './DeletedHistoryModal';
 import {
   SSOTModel,
   Grade,
@@ -126,6 +143,21 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
   // 저장 상태
   const [saving, setSaving] = useState(false);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  
+  // 선택 상태
+  const [selectedModelKeys, setSelectedModelKeys] = useState<Set<string>>(new Set());
+  
+  // 삭제 관련 상태
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'single' | 'bulk'; modelId?: string; modelName?: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  
+  // 히스토리 모달 상태
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [historyTargetModel, setHistoryTargetModel] = useState<{ id: string; name: string } | null>(null);
+  
+  // 삭제 히스토리 모달 상태
+  const [deletedHistoryModalOpen, setDeletedHistoryModalOpen] = useState(false);
   
   // 모델 그룹화 (model_key 기준)
   const groupedModels = useMemo(() => {
@@ -228,6 +260,30 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
     };
   }, [models, grades, changes]);
   
+  // 전체 선택 여부 확인
+  const isAllSelected = useMemo(() => {
+    if (filteredModels.length === 0) return false;
+    return filteredModels.every((group) => selectedModelKeys.has(group.model_key));
+  }, [filteredModels, selectedModelKeys]);
+  
+  // 일부 선택 여부 확인
+  const isSomeSelected = useMemo(() => {
+    if (filteredModels.length === 0) return false;
+    const selectedCount = filteredModels.filter((group) => selectedModelKeys.has(group.model_key)).length;
+    return selectedCount > 0 && selectedCount < filteredModels.length;
+  }, [filteredModels, selectedModelKeys]);
+  
+  // 선택된 모델 ID 목록 (스토리지 변형 포함)
+  const selectedModelIds = useMemo(() => {
+    const ids: string[] = [];
+    groupedModels.forEach((group) => {
+      if (selectedModelKeys.has(group.model_key)) {
+        group.variants.forEach((v) => ids.push(v.id));
+      }
+    });
+    return ids;
+  }, [groupedModels, selectedModelKeys]);
+  
   // 데이터 로드
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -245,6 +301,7 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
       setModels(modelsRes.data.data.models as SSOTModel[]);
       setGrades((gradesRes.data.data.grades as Grade[]).sort((a, b) => a.sort_order - b.sort_order));
       setChanges(new Map());
+      setSelectedModelKeys(new Set());
     } catch (error) {
       enqueueSnackbar('데이터를 불러오는데 실패했습니다', { variant: 'error' });
     } finally {
@@ -260,6 +317,7 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
   // 필터 변경 시 페이지 리셋
   useEffect(() => {
     setPage(1);
+    setSelectedModelKeys(new Set());
   }, [filters]);
   
   // 가격 변경 핸들러
@@ -350,6 +408,93 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
     router.push('/admin/models');
   }, [router]);
   
+  // 선택 토글
+  const handleSelectChange = useCallback((modelKey: string, selected: boolean) => {
+    setSelectedModelKeys((prev) => {
+      const next = new Set(prev);
+      if (selected) {
+        next.add(modelKey);
+      } else {
+        next.delete(modelKey);
+      }
+      return next;
+    });
+  }, []);
+  
+  // 전체 선택/해제
+  const handleSelectAll = useCallback(() => {
+    if (isAllSelected) {
+      // 모두 해제
+      setSelectedModelKeys(new Set());
+    } else {
+      // 모두 선택
+      const allKeys = new Set(filteredModels.map((g) => g.model_key));
+      setSelectedModelKeys(allKeys);
+    }
+  }, [isAllSelected, filteredModels]);
+  
+  // 단일 모델 삭제 클릭 (변형 단위)
+  const handleDeleteVariant = useCallback((modelId: string) => {
+    const model = models.find((m) => m.id === modelId);
+    if (!model) return;
+    
+    setDeleteTarget({
+      type: 'single',
+      modelId,
+      modelName: model.full_name,
+    });
+    setDeleteDialogOpen(true);
+  }, [models]);
+  
+  // 선택된 모델 일괄 삭제 클릭
+  const handleBulkDeleteClick = useCallback(() => {
+    if (selectedModelIds.length === 0) return;
+    
+    setDeleteTarget({
+      type: 'bulk',
+    });
+    setDeleteDialogOpen(true);
+  }, [selectedModelIds]);
+  
+  // 삭제 실행
+  const handleDelete = useCallback(async () => {
+    if (!deleteTarget) return;
+    
+    setDeleting(true);
+    try {
+      if (deleteTarget.type === 'single' && deleteTarget.modelId) {
+        // 단일 삭제
+        await ssotModelsApi.delete(deleteTarget.modelId);
+        enqueueSnackbar(`${deleteTarget.modelName}이(가) 삭제되었습니다`, { variant: 'success' });
+      } else {
+        // 일괄 삭제
+        const res = await ssotModelsApi.deleteBulk(selectedModelIds);
+        const deletedCount = res.data.data.deleted_count;
+        enqueueSnackbar(`${deletedCount}개 모델이 삭제되었습니다`, { variant: 'success' });
+      }
+      
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
+      await loadData();
+    } catch (error) {
+      enqueueSnackbar('삭제에 실패했습니다', { variant: 'error' });
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleteTarget, selectedModelIds, loadData, enqueueSnackbar]);
+  
+  // 히스토리 보기
+  const handleViewHistory = useCallback((modelId: string) => {
+    const model = models.find((m) => m.id === modelId);
+    if (!model) return;
+    
+    setHistoryTargetModel({
+      id: modelId,
+      name: model.full_name,
+    });
+    setHistoryModalOpen(true);
+  }, [models]);
+  
   // 로딩 스켈레톤
   if (loading) {
     return (
@@ -419,6 +564,23 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
             >
               목록으로
             </Button>
+            <Tooltip title="삭제 히스토리 보기">
+              <Button
+                variant="outlined"
+                startIcon={<HistoryIcon />}
+                onClick={() => setDeletedHistoryModalOpen(true)}
+                sx={{
+                  color: 'white',
+                  borderColor: 'rgba(255,255,255,0.5)',
+                  '&:hover': {
+                    borderColor: 'white',
+                    bgcolor: 'rgba(255,255,255,0.1)',
+                  },
+                }}
+              >
+                삭제 기록
+              </Button>
+            </Tooltip>
             <Button
               variant="outlined"
               startIcon={<RefreshIcon />}
@@ -512,6 +674,31 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
       <Card sx={{ mb: 3, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
         <CardContent>
           <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap alignItems="center">
+            {/* 전체 선택 체크박스 */}
+            <Tooltip title={isAllSelected ? '전체 해제' : '전체 선택'}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
+                <Checkbox
+                  checked={isAllSelected}
+                  indeterminate={isSomeSelected}
+                  onChange={handleSelectAll}
+                  sx={{ p: 0.5 }}
+                />
+                <Typography variant="body2" sx={{ ml: 0.5 }}>
+                  전체
+                </Typography>
+              </Box>
+            </Tooltip>
+            
+            {/* 선택된 항목 수 표시 */}
+            {selectedModelKeys.size > 0 && (
+              <Chip
+                label={`${selectedModelKeys.size}개 선택`}
+                color="primary"
+                size="small"
+                onDelete={() => setSelectedModelKeys(new Set())}
+              />
+            )}
+            
             {/* 검색 */}
             <TextField
               size="small"
@@ -584,6 +771,19 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
             
             <Box sx={{ flex: 1 }} />
             
+            {/* 선택 삭제 버튼 */}
+            {selectedModelIds.length > 0 && (
+              <Button
+                variant="contained"
+                color="error"
+                startIcon={<DeleteForeverIcon />}
+                onClick={handleBulkDeleteClick}
+                size="small"
+              >
+                선택 삭제 ({selectedModelIds.length})
+              </Button>
+            )}
+            
             {/* 표시 정보 */}
             <Typography variant="body2" color="text.secondary">
               표시중: <strong>{filteredModels.length}</strong>개 모델 그룹
@@ -609,6 +809,10 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
                 grades={grades}
                 changes={changes}
                 onPriceChange={handlePriceChange}
+                onViewHistory={handleViewHistory}
+                onDeleteVariant={handleDeleteVariant}
+                selected={selectedModelKeys.has(group.model_key)}
+                onSelectChange={handleSelectChange}
               />
             ))}
           </Stack>
@@ -640,6 +844,47 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
         loading={saving}
         onConfirm={handleSave}
         onCancel={() => setConfirmDialogOpen(false)}
+      />
+      
+      {/* ========== 삭제 확인 다이얼로그 ========== */}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        title="모델 삭제"
+        message={
+          deleteTarget?.type === 'single'
+            ? `"${deleteTarget.modelName}"을(를) 삭제하시겠습니까?\n연관된 가격 정보도 함께 삭제됩니다.`
+            : `선택한 ${selectedModelIds.length}개 모델을 삭제하시겠습니까?\n연관된 모든 가격 정보도 함께 삭제됩니다.\n\n⚠️ 이 작업은 되돌릴 수 없습니다.`
+        }
+        confirmLabel="삭제"
+        confirmColor="error"
+        loading={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => {
+          setDeleteDialogOpen(false);
+          setDeleteTarget(null);
+        }}
+      />
+      
+      {/* ========== 가격 히스토리 모달 ========== */}
+      {historyTargetModel && (
+        <PriceHistoryModal
+          open={historyModalOpen}
+          onClose={() => {
+            setHistoryModalOpen(false);
+            setHistoryTargetModel(null);
+          }}
+          modelId={historyTargetModel.id}
+          modelName={historyTargetModel.name}
+          grades={grades}
+        />
+      )}
+      
+      {/* ========== 삭제 히스토리 모달 ========== */}
+      <DeletedHistoryModal
+        open={deletedHistoryModalOpen}
+        onClose={() => setDeletedHistoryModalOpen(false)}
+        deviceType={deviceType}
+        manufacturer={manufacturer}
       />
     </Box>
   );
