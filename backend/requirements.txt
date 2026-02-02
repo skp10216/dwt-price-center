@@ -1,0 +1,34 @@
+# 단가표 통합 관리 시스템 - Backend 의존성
+
+# FastAPI 프레임워크
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+
+# 데이터베이스 (PostgreSQL + 비동기)
+sqlalchemy==2.0.25
+asyncpg==0.29.0
+alembic==1.13.1
+psycopg2-binary==2.9.9
+
+# Redis (캐시 + Job Queue)
+redis==5.0.1
+rq==1.16.0
+
+# 인증/보안
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.1.2
+
+# 데이터 검증 및 설정
+pydantic==2.6.1
+pydantic-settings==2.1.0
+email-validator==2.1.0.post1
+
+# 엑셀 파싱
+openpyxl==3.1.2
+pandas==2.2.0
+
+# 유틸리티
+python-dateutil==2.8.2
+httpx==0.26.0

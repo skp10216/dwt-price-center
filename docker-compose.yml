@@ -1,0 +1,122 @@
+# 단가표 통합 관리 시스템 - Docker Compose 설정
+# 서버 1대, 50명 사용자 기준 최적화
+
+services:
+  # PostgreSQL 데이터베이스 - SSOT/가격/권한/감사로그/Job 상태 저장
+  postgres:
+    image: postgres:15-alpine
+    container_name: dwt-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dwt_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dwt_password}
+      POSTGRES_DB: ${POSTGRES_DB:-dwt_price_center}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # 외부 포트 매핑 제거 (충돌 방지, 내부 네트워크에서만 접근)
+    # ports:
+    #   - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dwt_user} -d ${POSTGRES_DB:-dwt_price_center}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis - Job Queue + Read Cache
+  redis:
+    image: redis:7-alpine
+    container_name: dwt-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    # 외부 포트 매핑 제거 (충돌 방지, 내부 네트워크에서만 접근)
+    # ports:
+    #   - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend - REST API + Upload Orchestrator
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dwt-backend
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-dwt_user}:${POSTGRES_PASSWORD:-dwt_password}@postgres:5432/${POSTGRES_DB:-dwt_price_center}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-your-super-secret-key-change-in-production}
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=1440
+      # CORS: 두 도메인 화이트리스트 (사용자 dwt.price, 관리자 admin.dwt.price)
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,https://dwt.price,https://admin.dwt.price}
+      - USER_DOMAIN=${USER_DOMAIN:-dwt.price}
+      - ADMIN_DOMAIN=${ADMIN_DOMAIN:-admin.dwt.price}
+    volumes:
+      - ./backend:/app
+      - upload_files:/app/uploads
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Python Worker - 엑셀 파싱, 이미지→테이블, 매칭 후보 생성
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: dwt-worker
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-dwt_user}:${POSTGRES_PASSWORD:-dwt_password}@postgres:5432/${POSTGRES_DB:-dwt_price_center}
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./worker:/app
+      - upload_files:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: rq worker --url redis://redis:6379/0 high default low
+
+  # Next.js Frontend - Admin/Viewer UI (단일 앱, Host 기반 도메인 분리)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: dwt-frontend
+    restart: unless-stopped
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      # 도메인 설정 (미들웨어에서 Host 기반 분기)
+      - NEXT_PUBLIC_USER_DOMAIN=${USER_DOMAIN:-dwt.price}
+      - NEXT_PUBLIC_ADMIN_DOMAIN=${ADMIN_DOMAIN:-admin.dwt.price}
+      # 도메인 전환 URL
+      - NEXT_PUBLIC_USER_URL=${NEXT_PUBLIC_USER_URL:-https://dwt.price}
+      - NEXT_PUBLIC_ADMIN_URL=${NEXT_PUBLIC_ADMIN_URL:-https://admin.dwt.price}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    command: npm run dev
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  upload_files:
+    driver: local

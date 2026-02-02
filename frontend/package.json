@@ -1,0 +1,39 @@
+{
+  "name": "dwt-price-center-frontend",
+  "version": "1.0.0",
+  "description": "단가표 통합 관리 시스템 - Frontend",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "14.1.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "@mui/material": "5.15.7",
+    "@mui/icons-material": "5.15.7",
+    "@mui/x-data-grid": "6.19.2",
+    "@emotion/react": "11.11.3",
+    "@emotion/styled": "11.11.0",
+    "axios": "1.6.7",
+    "zustand": "4.5.0",
+    "react-hook-form": "7.50.0",
+    "@hookform/resolvers": "3.3.4",
+    "zod": "3.22.4",
+    "date-fns": "3.3.1",
+    "notistack": "3.0.1",
+    "react-dropzone": "14.2.3"
+  },
+  "devDependencies": {
+    "typescript": "5.3.3",
+    "@types/node": "20.11.16",
+    "@types/react": "18.2.52",
+    "@types/react-dom": "18.2.18",
+    "eslint": "8.56.0",
+    "eslint-config-next": "14.1.0"
+  }
+}
