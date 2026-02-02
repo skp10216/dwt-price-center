@@ -16,6 +16,7 @@ class LoginRequest(BaseModel):
     """로그인 요청"""
     email: EmailStr = Field(..., description="이메일")
     password: str = Field(..., min_length=4, description="비밀번호")
+    remember_me: bool = Field(default=False, description="아이디 저장 (로그인 유지)")
 
 
 class TokenResponse(BaseModel):

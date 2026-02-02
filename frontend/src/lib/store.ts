@@ -8,6 +8,7 @@ import type { DomainType } from './domain';
 
 // 쿠키 설정 유틸리티
 function isLocalhost(): boolean {
+  if (typeof window === 'undefined') return false;
   const hostname = window.location.hostname;
   return hostname === 'localhost' || 
          hostname.endsWith('.localhost') || 
@@ -15,6 +16,7 @@ function isLocalhost(): boolean {
 }
 
 function setCookie(name: string, value: string, days: number = 7) {
+  if (typeof document === 'undefined') return;
   const expires = new Date(Date.now() + days * 864e5).toUTCString();
   // 개발 환경: localhost 계열, 프로덕션: dwt.price 도메인
   const domain = isLocalhost() ? '' : '; domain=.dwt.price';
@@ -22,8 +24,34 @@ function setCookie(name: string, value: string, days: number = 7) {
 }
 
 function deleteCookie(name: string) {
+  if (typeof document === 'undefined') return;
   const domain = isLocalhost() ? '' : '; domain=.dwt.price';
   document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/${domain}`;
+}
+
+// 아이디 저장 관련 유틸리티
+const SAVED_EMAIL_KEY = 'saved_email';
+const REMEMBER_ME_KEY = 'remember_me';
+
+export function getSavedEmail(): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  return localStorage.getItem(SAVED_EMAIL_KEY);
+}
+
+export function getRememberMe(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  return localStorage.getItem(REMEMBER_ME_KEY) === 'true';
+}
+
+export function saveEmailPreference(email: string, rememberMe: boolean) {
+  if (typeof localStorage === 'undefined') return;
+  if (rememberMe) {
+    localStorage.setItem(SAVED_EMAIL_KEY, email);
+    localStorage.setItem(REMEMBER_ME_KEY, 'true');
+  } else {
+    localStorage.removeItem(SAVED_EMAIL_KEY);
+    localStorage.removeItem(REMEMBER_ME_KEY);
+  }
 }
 
 // 사용자 타입
@@ -40,7 +68,8 @@ interface AuthState {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
-  setAuth: (user: User, token: string) => void;
+  /** 로그인 설정 (expiresIn: 토큰 만료 시간(초)) */
+  setAuth: (user: User, token: string, expiresIn?: number) => void;
   logout: () => void;
 }
 
@@ -50,15 +79,21 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       token: null,
       isAuthenticated: false,
-      setAuth: (user, token) => {
-        localStorage.setItem('access_token', token);
+      setAuth: (user, token, expiresIn) => {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('access_token', token);
+        }
+        // 쿠키 만료 기간 계산 (expiresIn이 있으면 해당 기간, 없으면 7일)
+        const cookieDays = expiresIn ? expiresIn / 86400 : 7;
         // 미들웨어에서 사용할 쿠키 설정
-        setCookie('token', token);
-        setCookie('user_role', user.role);
+        setCookie('token', token, cookieDays);
+        setCookie('user_role', user.role, cookieDays);
         set({ user, token, isAuthenticated: true });
       },
       logout: () => {
-        localStorage.removeItem('access_token');
+        if (typeof localStorage !== 'undefined') {
+          localStorage.removeItem('access_token');
+        }
         // 쿠키 삭제
         deleteCookie('token');
         deleteCookie('user_role');

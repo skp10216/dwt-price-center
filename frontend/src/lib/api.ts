@@ -63,8 +63,12 @@ export interface ApiError {
 
 // API 함수들
 export const authApi = {
-  login: (email: string, password: string) =>
-    api.post<ApiResponse<{ token: { access_token: string }; user: unknown }>>('/auth/login', { email, password }),
+  login: (email: string, password: string, rememberMe: boolean = false) =>
+    api.post<ApiResponse<{ token: { access_token: string; expires_in: number }; user: unknown }>>('/auth/login', { 
+      email, 
+      password,
+      remember_me: rememberMe,
+    }),
   
   logout: () => api.post('/auth/logout'),
   
@@ -73,6 +77,69 @@ export const authApi = {
   changePassword: (currentPassword: string, newPassword: string) =>
     api.put('/auth/password', { current_password: currentPassword, new_password: newPassword }),
 };
+
+// ============================================================================
+// 일괄 등록 (Bulk Registration) 타입
+// ============================================================================
+
+/** 다중 스토리지 일괄 생성 - 검증 요청 */
+export interface BulkStorageValidateRequest {
+  device_type: string;
+  manufacturer: string;
+  series: string;
+  model_name: string;
+  connectivity: string;
+  storage_list: number[];
+  model_code_prefix: string;
+}
+
+/** JSON 일괄 등록 - 검증 요청 */
+export interface JsonBulkValidateRequest {
+  models: {
+    model_code: string;
+    device_type: string;
+    manufacturer: string;
+    series: string;
+    model_name: string;
+    storage_gb: number;
+    connectivity: string;
+  }[];
+}
+
+/** 검증 결과 - 개별 행 */
+export interface ValidateRowResult {
+  row_index: number;
+  model_code: string;
+  full_name: string;
+  status: 'valid' | 'error' | 'duplicate';
+  error_message: string | null;
+  data: Record<string, unknown>;
+}
+
+/** 검증 결과 요약 */
+export interface BulkValidateSummary {
+  by_manufacturer: Record<string, number>;
+  by_series: Record<string, number>;
+}
+
+/** 일괄 등록 검증 응답 */
+export interface BulkValidateResponse {
+  validation_id: string;
+  total_count: number;
+  valid_count: number;
+  error_count: number;
+  duplicate_count: number;
+  preview: ValidateRowResult[];
+  summary: BulkValidateSummary;
+  expires_at: string;
+}
+
+/** 일괄 등록 커밋 응답 */
+export interface BulkCommitResponse {
+  trace_id: string;
+  created_count: number;
+  created_models: unknown[];
+}
 
 export const ssotModelsApi = {
   list: (params?: Record<string, unknown>) =>
@@ -89,6 +156,19 @@ export const ssotModelsApi = {
   
   updatePrices: (id: string, data: unknown) =>
     api.put<ApiResponse<unknown>>(`/ssot-models/${id}/prices`, data),
+  
+  // 일괄 등록 API
+  /** 다중 스토리지 일괄 생성 - 검증 */
+  validateBulkStorage: (data: BulkStorageValidateRequest) =>
+    api.post<ApiResponse<BulkValidateResponse>>('/ssot-models/bulk/storage/validate', data),
+  
+  /** JSON 일괄 등록 - 검증 */
+  validateBulkJson: (data: JsonBulkValidateRequest) =>
+    api.post<ApiResponse<BulkValidateResponse>>('/ssot-models/bulk/json/validate', data),
+  
+  /** 일괄 등록 커밋 */
+  commitBulk: (validationId: string) =>
+    api.post<ApiResponse<BulkCommitResponse>>('/ssot-models/bulk/commit', { validation_id: validationId }),
 };
 
 export const gradesApi = {

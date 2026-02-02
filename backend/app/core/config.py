@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     # JWT 인증 설정
     SECRET_KEY: str = "your-super-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24시간
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24시간 (기본)
+    REMEMBER_ME_EXPIRE_DAYS: int = 30  # 아이디 저장 시 30일
     
     # CORS 설정 - 두 도메인 화이트리스트
     # 사용자 도메인: dwt.price, 관리자 도메인: admin.dwt.price

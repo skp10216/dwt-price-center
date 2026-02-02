@@ -18,6 +18,8 @@ import {
   CircularProgress,
   InputAdornment,
   IconButton,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import EmailIcon from '@mui/icons-material/Email';
@@ -28,7 +30,14 @@ import ShieldIcon from '@mui/icons-material/Shield';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import { useSnackbar } from 'notistack';
 import { authApi } from '@/lib/api';
-import { useAuthStore, User, useDomainStore } from '@/lib/store';
+import { 
+  useAuthStore, 
+  User, 
+  useDomainStore,
+  getSavedEmail,
+  getRememberMe,
+  saveEmailPreference,
+} from '@/lib/store';
 import { getDomainType, getAfterLoginPath, requiresAdminRole, DomainType } from '@/lib/domain';
 
 export default function LoginPage() {
@@ -41,6 +50,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [domainDetected, setDomainDetected] = useState(false);
@@ -53,6 +63,14 @@ export default function LoginPage() {
       const detected = getDomainType(host, urlSearchParams);
       setDomainType(detected);
       setDomainDetected(true);
+      
+      // 저장된 이메일 및 아이디 저장 상태 복원
+      const savedEmail = getSavedEmail();
+      const savedRememberMe = getRememberMe();
+      if (savedEmail) {
+        setEmail(savedEmail);
+      }
+      setRememberMe(savedRememberMe);
     }
   }, [setDomainType]);
   
@@ -70,17 +88,21 @@ export default function LoginPage() {
     setLoading(true);
     
     try {
-      const response = await authApi.login(email, password);
+      const response = await authApi.login(email, password, rememberMe);
       const { token, user } = response.data.data;
       
       // 관리자 도메인에서 admin 권한 체크
-      if (requiresAdminRole(domainType) && user.role !== 'admin') {
+      if (requiresAdminRole(domainType) && (user as User).role !== 'admin') {
         setError('관리자 권한이 필요합니다. 관리자 계정으로 로그인해주세요.');
         setLoading(false);
         return;
       }
       
-      setAuth(user as User, token.access_token);
+      // 아이디 저장 설정 저장
+      saveEmailPreference(email, rememberMe);
+      
+      // 인증 상태 설정 (토큰 만료 시간 포함)
+      setAuth(user as User, token.access_token, token.expires_in);
       enqueueSnackbar('로그인 성공', { variant: 'success' });
       
       // 도메인별 리다이렉트 경로
@@ -120,6 +142,8 @@ export default function LoginPage() {
       setPassword={setPassword}
       showPassword={showPassword}
       setShowPassword={setShowPassword}
+      rememberMe={rememberMe}
+      setRememberMe={setRememberMe}
       loading={loading}
       error={error}
       handleSubmit={handleSubmit}
@@ -134,6 +158,8 @@ export default function LoginPage() {
     setPassword={setPassword}
     showPassword={showPassword}
     setShowPassword={setShowPassword}
+    rememberMe={rememberMe}
+    setRememberMe={setRememberMe}
     loading={loading}
     error={error}
     handleSubmit={handleSubmit}
@@ -148,6 +174,8 @@ interface LoginUIProps {
   setPassword: (v: string) => void;
   showPassword: boolean;
   setShowPassword: (v: boolean) => void;
+  rememberMe: boolean;
+  setRememberMe: (v: boolean) => void;
   loading: boolean;
   error: string | null;
   handleSubmit: (e: React.FormEvent) => void;
@@ -158,7 +186,8 @@ interface LoginUIProps {
  */
 function AdminLoginUI({
   email, setEmail, password, setPassword,
-  showPassword, setShowPassword, loading, error, handleSubmit
+  showPassword, setShowPassword, rememberMe, setRememberMe,
+  loading, error, handleSubmit
 }: LoginUIProps) {
   return (
     <Box
@@ -385,7 +414,7 @@ function AdminLoginUI({
                 ),
               }}
               sx={{
-                mb: 3,
+                mb: 2,
                 '& .MuiOutlinedInput-root': {
                   bgcolor: 'rgba(255, 255, 255, 0.03)',
                   borderRadius: 2,
@@ -407,6 +436,29 @@ function AdminLoginUI({
                     color: 'rgba(255, 255, 255, 0.4)',
                     opacity: 1,
                   },
+                },
+              }}
+            />
+            
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  sx={{
+                    color: 'rgba(212, 175, 55, 0.5)',
+                    '&.Mui-checked': {
+                      color: '#D4AF37',
+                    },
+                  }}
+                />
+              }
+              label="아이디 저장"
+              sx={{
+                mb: 2,
+                '& .MuiFormControlLabel-label': {
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  fontSize: '0.875rem',
                 },
               }}
             />
@@ -467,7 +519,8 @@ function AdminLoginUI({
  */
 function UserLoginUI({
   email, setEmail, password, setPassword,
-  showPassword, setShowPassword, loading, error, handleSubmit
+  showPassword, setShowPassword, rememberMe, setRememberMe,
+  loading, error, handleSubmit
 }: LoginUIProps) {
   return (
     <Box
@@ -615,7 +668,7 @@ function UserLoginUI({
                 ),
               }}
               sx={{
-                mb: 3,
+                mb: 2,
                 '& .MuiOutlinedInput-root': {
                   '&.Mui-focused fieldset': {
                     borderColor: '#10b981',
@@ -623,6 +676,29 @@ function UserLoginUI({
                 },
                 '& .MuiInputLabel-root.Mui-focused': {
                   color: '#10b981',
+                },
+              }}
+            />
+            
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  sx={{
+                    color: '#10b981',
+                    '&.Mui-checked': {
+                      color: '#10b981',
+                    },
+                  }}
+                />
+              }
+              label="아이디 저장"
+              sx={{
+                mb: 2,
+                '& .MuiFormControlLabel-label': {
+                  color: '#4b5563',
+                  fontSize: '0.875rem',
                 },
               }}
             />

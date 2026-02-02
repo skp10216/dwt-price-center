@@ -3,7 +3,7 @@
 로그인, 로그아웃, 토큰 갱신
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy import select
@@ -58,10 +58,19 @@ async def login(
             detail={"code": "USER_INACTIVE", "message": "비활성화된 계정입니다"}
         )
     
+    # 토큰 만료 시간 계산 (아이디 저장 시 30일, 기본 24시간)
+    if login_data.remember_me:
+        expires_delta = timedelta(days=settings.REMEMBER_ME_EXPIRE_DAYS)
+        expires_in_seconds = settings.REMEMBER_ME_EXPIRE_DAYS * 24 * 60 * 60
+    else:
+        expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expires_in_seconds = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    
     # 토큰 생성
     access_token = create_access_token(
         subject=str(user.id),
-        role=user.role.value
+        role=user.role.value,
+        expires_delta=expires_delta
     )
     
     # 마지막 로그인 시간 업데이트
@@ -75,6 +84,7 @@ async def login(
         target_id=user.id,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
+        description=f"로그인 (아이디 저장: {'Y' if login_data.remember_me else 'N'})"
     )
     db.add(audit_log)
     
@@ -86,7 +96,7 @@ async def login(
             token=TokenResponse(
                 access_token=access_token,
                 token_type="bearer",
-                expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+                expires_in=expires_in_seconds
             ),
             user=UserInfo.model_validate(user)
         )

@@ -55,6 +55,7 @@ class AuditAction(str, enum.Enum):
     MODEL_CREATE = "model_create"
     MODEL_UPDATE = "model_update"
     MODEL_DEACTIVATE = "model_deactivate"
+    MODEL_BULK_CREATE = "model_bulk_create"  # 일괄 등록 (다중 스토리지/JSON)
     
     # 등급 관련
     GRADE_CREATE = "grade_create"
