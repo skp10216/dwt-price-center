@@ -114,7 +114,7 @@ def generate_model_code(model_key: str, storage_gb: int) -> str:
 @router.get("", response_model=SuccessResponse[SSOTModelListResponse])
 async def list_models(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=1000),  # 관리자 대시보드용 대용량 조회 허용
     device_type: Optional[DeviceType] = Query(None),
     manufacturer: Optional[Manufacturer] = Query(None),
     series: Optional[str] = Query(None),

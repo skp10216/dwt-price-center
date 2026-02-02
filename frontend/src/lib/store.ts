@@ -2,6 +2,7 @@
  * 단가표 통합 관리 시스템 - 전역 상태 관리 (Zustand)
  */
 
+import { useState, useEffect } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { DomainType } from './domain';
@@ -73,6 +74,9 @@ interface AuthState {
   logout: () => void;
 }
 
+// Hydration 상태 추적용 (zustand persist의 hydration 완료 여부)
+let hasHydrated = false;
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
@@ -103,9 +107,38 @@ export const useAuthStore = create<AuthState>()(
     {
       name: 'auth-storage',
       partialize: (state) => ({ user: state.user, token: state.token, isAuthenticated: state.isAuthenticated }),
+      onRehydrateStorage: () => {
+        return () => {
+          hasHydrated = true;
+        };
+      },
     }
   )
 );
+
+// Hydration 완료 여부 확인 훅
+export const useAuthHydrated = () => {
+  const [hydrated, setHydrated] = useState(hasHydrated);
+  
+  useEffect(() => {
+    // 이미 hydration 완료된 경우
+    if (hasHydrated) {
+      setHydrated(true);
+      return;
+    }
+    
+    // hydration 완료 대기
+    const unsubscribe = useAuthStore.persist.onFinishHydration(() => {
+      setHydrated(true);
+    });
+    
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+  
+  return hydrated;
+};
 
 // UI 상태
 interface UIState {

@@ -171,7 +171,8 @@ const theme = createTheme({
       },
     },
     
-    // DataGrid 스타일
+    // DataGrid 스타일 (MUI X 컴포넌트 - 타입 단언 필요)
+    // @ts-ignore - MUI X DataGrid 컴포넌트
     MuiDataGrid: {
       styleOverrides: {
         root: {

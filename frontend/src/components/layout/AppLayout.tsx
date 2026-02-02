@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
   Box,
@@ -47,23 +47,73 @@ import {
   ExpandMore,
   Logout as LogoutIcon,
   AdminPanelSettings as AdminIcon,
+  Smartphone as SmartphoneIcon,
+  Tablet as TabletIcon,
+  Watch as WatchIcon,
+  Apple as AppleIcon,
+  PhoneAndroid as SamsungIcon,
+  Dashboard as DashboardIcon,
 } from '@mui/icons-material';
-import { useAuthStore, useUIStore, useDomainStore } from '@/lib/store';
+import { useAuthStore, useUIStore, useDomainStore, useAuthHydrated } from '@/lib/store';
 import { getDomainType, getDefaultPath } from '@/lib/domain';
 
-const DRAWER_WIDTH = 260;
+const DRAWER_WIDTH = 280;
+
+// 메뉴 아이템 타입
+interface MenuItemType {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  path?: string;
+  children?: MenuItemType[];
+}
 
 // 사용자 도메인 메뉴 (dwt.price)
-const userMenus = [
+const userMenus: MenuItemType[] = [
   { id: 'prices', label: '본사 판매 단가', icon: <PriceCheckIcon />, path: '/prices' },
   { id: 'compare', label: '업체별 단가 비교', icon: <CompareIcon />, path: '/compare' },
   { id: 'my-lists', label: '내 리스트', icon: <StarIcon />, path: '/my-lists' },
   { id: 'search', label: '모델 검색', icon: <SearchIcon />, path: '/search' },
 ];
 
-// 관리자 도메인 메뉴 (admin.dwt.price)
-const adminMenus = [
-  { id: 'ssot-models', label: 'SSOT 모델 관리', icon: <SettingsIcon />, path: '/admin/models' },
+// 관리자 도메인 메뉴 (admin.dwt.price) - 서브메뉴 구조
+const adminMenus: MenuItemType[] = [
+  {
+    id: 'ssot-models',
+    label: 'SSOT 모델 관리',
+    icon: <SettingsIcon />,
+    path: '/admin/models',
+    children: [
+      { id: 'models-dashboard', label: '대시보드', icon: <DashboardIcon />, path: '/admin/models' },
+      {
+        id: 'models-smartphone',
+        label: '스마트폰',
+        icon: <SmartphoneIcon />,
+        children: [
+          { id: 'smartphone-apple', label: 'Apple', icon: <AppleIcon />, path: '/admin/models/smartphone/apple' },
+          { id: 'smartphone-samsung', label: 'Samsung', icon: <SamsungIcon />, path: '/admin/models/smartphone/samsung' },
+        ],
+      },
+      {
+        id: 'models-tablet',
+        label: '태블릿',
+        icon: <TabletIcon />,
+        children: [
+          { id: 'tablet-apple', label: 'Apple', icon: <AppleIcon />, path: '/admin/models/tablet/apple' },
+          { id: 'tablet-samsung', label: 'Samsung', icon: <SamsungIcon />, path: '/admin/models/tablet/samsung' },
+        ],
+      },
+      {
+        id: 'models-wearable',
+        label: '웨어러블',
+        icon: <WatchIcon />,
+        children: [
+          { id: 'wearable-apple', label: 'Apple', icon: <AppleIcon />, path: '/admin/models/wearable/apple' },
+          { id: 'wearable-samsung', label: 'Samsung', icon: <SamsungIcon />, path: '/admin/models/wearable/samsung' },
+        ],
+      },
+    ],
+  },
   { id: 'hq-upload', label: '본사 단가표 업로드', icon: <UploadIcon />, path: '/admin/hq-upload' },
   { id: 'partners', label: '거래처 관리', icon: <BusinessIcon />, path: '/admin/partners' },
   { id: 'partner-upload', label: '거래처 단가표 업로드', icon: <UploadIcon />, path: '/admin/partner-upload' },
@@ -79,8 +129,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, logout, isAuthenticated } = useAuthStore();
   const { sidebarOpen, toggleSidebar } = useUIStore();
   const { domainType, isAdminDomain, setDomainType } = useDomainStore();
+  const isHydrated = useAuthHydrated();
   
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set(['ssot-models']));
   
   // 클라이언트에서 도메인 타입 감지
   useEffect(() => {
@@ -92,29 +144,59 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, [setDomainType]);
   
-  // 인증 체크
+  // 현재 경로에 맞는 메뉴 자동 확장
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (pathname.startsWith('/admin/models')) {
+      const newExpanded = new Set(expandedMenus);
+      newExpanded.add('ssot-models');
+      
+      if (pathname.includes('/smartphone')) {
+        newExpanded.add('models-smartphone');
+      }
+      if (pathname.includes('/tablet')) {
+        newExpanded.add('models-tablet');
+      }
+      if (pathname.includes('/wearable')) {
+        newExpanded.add('models-wearable');
+      }
+      
+      setExpandedMenus(newExpanded);
+    }
+  }, [pathname]);
+  
+  // 인증 체크 (hydration 완료 후에만)
+  useEffect(() => {
+    if (isHydrated && !isAuthenticated) {
       router.push('/login');
     }
-  }, [isAuthenticated, router]);
+  }, [isHydrated, isAuthenticated, router]);
   
-  // 관리자 도메인에서 admin 권한 강제
+  // 관리자 도메인에서 admin 권한 강제 (hydration 완료 후에만)
   useEffect(() => {
-    if (isAdminDomain && user?.role !== 'admin') {
-      // 권한 없음 -> 로그아웃 후 로그인 페이지
+    if (isHydrated && isAdminDomain && user?.role !== 'admin') {
       logout();
       router.push('/login?error=admin_required');
     }
-  }, [isAdminDomain, user, logout, router]);
+  }, [isHydrated, isAdminDomain, user, logout, router]);
+  
+  // Hydration 완료 전에는 로딩 표시 (깜빡임 방지)
+  if (!isHydrated) {
+    return (
+      <Box sx={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', bgcolor: '#f5f5f5' }}>
+        <Box sx={{ textAlign: 'center' }}>
+          <Typography variant="body2" color="text.secondary">
+            로딩 중...
+          </Typography>
+        </Box>
+      </Box>
+    );
+  }
   
   if (!isAuthenticated) {
     return null;
   }
   
   const isAdmin = user?.role === 'admin';
-  
-  // 도메인별 메뉴 결정
   const currentMenus = isAdminDomain ? adminMenus : userMenus;
   
   const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
@@ -132,6 +214,90 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   
   const handleNavigate = (path: string) => {
     router.push(path);
+  };
+  
+  const handleToggleExpand = (menuId: string) => {
+    setExpandedMenus((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(menuId)) {
+        newSet.delete(menuId);
+      } else {
+        newSet.add(menuId);
+      }
+      return newSet;
+    });
+  };
+  
+  // 메뉴가 현재 경로와 매칭되는지 확인
+  const isMenuActive = (menu: MenuItemType): boolean => {
+    if (menu.path && pathname === menu.path) return true;
+    if (menu.children) {
+      return menu.children.some(child => isMenuActive(child));
+    }
+    return false;
+  };
+  
+  // 재귀적 메뉴 렌더링
+  const renderMenuItem = (menu: MenuItemType, level: number = 0) => {
+    const hasChildren = menu.children && menu.children.length > 0;
+    const isExpanded = expandedMenus.has(menu.id);
+    const isActive = menu.path ? pathname === menu.path : isMenuActive(menu);
+    
+    return (
+      <Fragment key={menu.id}>
+        <ListItem disablePadding>
+          <ListItemButton
+            selected={!hasChildren && isActive}
+            onClick={() => {
+              if (hasChildren) {
+                handleToggleExpand(menu.id);
+              } else if (menu.path) {
+                handleNavigate(menu.path);
+              }
+            }}
+            sx={{
+              mx: 1,
+              borderRadius: 2,
+              pl: 2 + level * 2,
+              '&.Mui-selected': {
+                bgcolor: isAdminDomain ? 'error.light' : 'primary.light',
+                color: 'white',
+                '&:hover': {
+                  bgcolor: isAdminDomain ? 'error.main' : 'primary.main',
+                },
+                '& .MuiListItemIcon-root': {
+                  color: 'white',
+                },
+              },
+              ...(hasChildren && isActive && {
+                bgcolor: 'grey.100',
+                '& .MuiListItemText-primary': {
+                  fontWeight: 600,
+                },
+              }),
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: 36 }}>{menu.icon}</ListItemIcon>
+            <ListItemText 
+              primary={menu.label} 
+              primaryTypographyProps={{ 
+                fontSize: level > 0 ? '0.875rem' : '0.9rem',
+                fontWeight: isActive ? 600 : 400,
+              }}
+            />
+            {hasChildren && (isExpanded ? <ExpandLess /> : <ExpandMore />)}
+          </ListItemButton>
+        </ListItem>
+        
+        {hasChildren && (
+          <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+            <List component="div" disablePadding>
+              {menu.children!.map((child) => renderMenuItem(child, level + 1))}
+            </List>
+          </Collapse>
+        )}
+      </Fragment>
+    );
   };
   
   return (
@@ -220,31 +386,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <Box sx={{ overflow: 'auto', py: 2 }}>
           {/* 도메인별 메뉴 렌더링 */}
           <List>
-            {currentMenus.map((menu) => (
-              <ListItem key={menu.id} disablePadding>
-                <ListItemButton
-                  selected={pathname === menu.path}
-                  onClick={() => handleNavigate(menu.path)}
-                  sx={{
-                    mx: 1,
-                    borderRadius: 2,
-                    '&.Mui-selected': {
-                      bgcolor: isAdminDomain ? 'error.light' : 'primary.light',
-                      color: 'white',
-                      '&:hover': {
-                        bgcolor: isAdminDomain ? 'error.main' : 'primary.main',
-                      },
-                      '& .MuiListItemIcon-root': {
-                        color: 'white',
-                      },
-                    },
-                  }}
-                >
-                  <ListItemIcon sx={{ minWidth: 40 }}>{menu.icon}</ListItemIcon>
-                  <ListItemText primary={menu.label} />
-                </ListItemButton>
-              </ListItem>
-            ))}
+            {currentMenus.map((menu) => renderMenuItem(menu))}
           </List>
           
           {/* 도메인 전환 링크 (관리자만, 사용자 도메인에서만) */}
@@ -260,7 +402,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <ListItem disablePadding>
                   <ListItemButton
                     onClick={() => {
-                      // 관리자 도메인으로 이동
                       const adminUrl = process.env.NEXT_PUBLIC_ADMIN_URL || 'https://admin.dwt.price';
                       window.location.href = adminUrl;
                     }}
@@ -294,7 +435,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <ListItem disablePadding>
                   <ListItemButton
                     onClick={() => {
-                      // 사용자 도메인으로 이동
                       const userUrl = process.env.NEXT_PUBLIC_USER_URL || 'https://dwt.price';
                       window.location.href = userUrl;
                     }}
