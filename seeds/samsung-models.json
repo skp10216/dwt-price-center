@@ -1,0 +1,266 @@
+[
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S10",
+    "model_name": "Galaxy S10e",
+    "storage_gb": [128, 256],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S10",
+    "model_name": "Galaxy S10",
+    "storage_gb": [128, 512],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S10 Plus",
+    "model_name": "Galaxy S10 Plus",
+    "storage_gb": [128, 512, 1024],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S20",
+    "model_name": "Galaxy S20",
+    "storage_gb": [128],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S20 Plus",
+    "model_name": "Galaxy S20 Plus",
+    "storage_gb": [128, 256],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S20 Ultra",
+    "model_name": "Galaxy S20 Ultra",
+    "storage_gb": [128, 256, 512],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S21",
+    "model_name": "Galaxy S21",
+    "storage_gb": [128, 256],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S21 Plus",
+    "model_name": "Galaxy S21 Plus",
+    "storage_gb": [128, 256],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S21 Ultra",
+    "model_name": "Galaxy S21 Ultra",
+    "storage_gb": [128, 256, 512],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S22",
+    "model_name": "Galaxy S22",
+    "storage_gb": [128, 256],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S22 Plus",
+    "model_name": "Galaxy S22 Plus",
+    "storage_gb": [128, 256],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S22 Ultra",
+    "model_name": "Galaxy S22 Ultra",
+    "storage_gb": [128, 256, 512, 1024],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S23",
+    "model_name": "Galaxy S23",
+    "storage_gb": [128, 256],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S23 Plus",
+    "model_name": "Galaxy S23 Plus",
+    "storage_gb": [256, 512],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S23 Ultra",
+    "model_name": "Galaxy S23 Ultra",
+    "storage_gb": [256, 512, 1024],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S24",
+    "model_name": "Galaxy S24",
+    "storage_gb": [128, 256],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S24 Plus",
+    "model_name": "Galaxy S24 Plus",
+    "storage_gb": [256, 512],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy S24 Ultra",
+    "model_name": "Galaxy S24 Ultra",
+    "storage_gb": [256, 512, 1024],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy Note 10",
+    "model_name": "Galaxy Note 10",
+    "storage_gb": [256],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy Note 10 Plus",
+    "model_name": "Galaxy Note 10 Plus",
+    "storage_gb": [256, 512],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy Note 20",
+    "model_name": "Galaxy Note 20",
+    "storage_gb": [256],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy Note 20 Ultra",
+    "model_name": "Galaxy Note 20 Ultra",
+    "storage_gb": [256, 512],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy Z Fold",
+    "model_name": "Galaxy Z Fold",
+    "storage_gb": [512],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy Z Fold 2",
+    "model_name": "Galaxy Z Fold 2",
+    "storage_gb": [256],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy Z Fold 3",
+    "model_name": "Galaxy Z Fold 3",
+    "storage_gb": [256, 512],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy Z Fold 4",
+    "model_name": "Galaxy Z Fold 4",
+    "storage_gb": [256, 512, 1024],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy Z Fold 5",
+    "model_name": "Galaxy Z Fold 5",
+    "storage_gb": [256, 512, 1024],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy Z Fold 6",
+    "model_name": "Galaxy Z Fold 6",
+    "storage_gb": [256, 512, 1024],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy Z Flip",
+    "model_name": "Galaxy Z Flip",
+    "storage_gb": [256],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy Z Flip 3",
+    "model_name": "Galaxy Z Flip 3",
+    "storage_gb": [128, 256],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy Z Flip 4",
+    "model_name": "Galaxy Z Flip 4",
+    "storage_gb": [128, 256, 512],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy Z Flip 5",
+    "model_name": "Galaxy Z Flip 5",
+    "storage_gb": [256, 512],
+    "connectivity": "lte"
+  },
+  {
+    "device_type": "smartphone",
+    "manufacturer": "samsung",
+    "series": "Galaxy Z Flip 6",
+    "model_name": "Galaxy Z Flip 6",
+    "storage_gb": [256, 512],
+    "connectivity": "lte"
+  }
+]

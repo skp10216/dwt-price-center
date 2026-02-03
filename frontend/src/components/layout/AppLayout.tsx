@@ -481,7 +481,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       '&:hover': {
                         bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.12 : 0.2),
                       },
-                    }
+                    }}
                   >
                     <ListItemIcon sx={{ minWidth: 40 }}>
                       <PriceCheckIcon color="primary" />
