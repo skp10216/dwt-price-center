@@ -71,6 +71,26 @@ const manufacturerIcons: Record<Manufacturer, React.ReactNode> = {
   samsung: <SamsungIcon />,
 };
 
+// 제조사 브랜드 색상 (브랜드 아이덴티티 - 예외 허용)
+const manufacturerBrandColors: Record<Manufacturer, { light: string; dark: string; text: { light: string; dark: string } }> = {
+  apple: {
+    light: '#1d1d1f',
+    dark: '#f5f5f7',
+    text: {
+      light: '#f5f5f7',
+      dark: '#1d1d1f',
+    },
+  },
+  samsung: {
+    light: '#1428a0',
+    dark: '#1428a0',
+    text: {
+      light: '#ffffff',
+      dark: '#ffffff',
+    },
+  },
+};
+
 // 디바이스 타입별 그라데이션 (테마 기반)
 const getDeviceGradient = (deviceType: DeviceType, theme: ReturnType<typeof useTheme>) => {
   const colors = {
@@ -527,18 +547,12 @@ export function ModelsDashboard() {
                         {/* 브랜드 아이콘 */}
                         <Avatar
                           sx={{
-                            bgcolor:
-                              mfr.manufacturer === 'apple'
-                                ? theme.palette.mode === 'light'
-                                  ? '#1d1d1f'
-                                  : '#f5f5f7'
-                                : '#1428a0',
-                            color:
-                              mfr.manufacturer === 'apple'
-                                ? theme.palette.mode === 'light'
-                                  ? '#f5f5f7'
-                                  : '#1d1d1f'
-                                : 'white',
+                            bgcolor: theme.palette.mode === 'light'
+                              ? manufacturerBrandColors[mfr.manufacturer].light
+                              : manufacturerBrandColors[mfr.manufacturer].dark,
+                            color: theme.palette.mode === 'light'
+                              ? manufacturerBrandColors[mfr.manufacturer].text.light
+                              : manufacturerBrandColors[mfr.manufacturer].text.dark,
                             width: 48,
                             height: 48,
                             boxShadow: shadows.sm,

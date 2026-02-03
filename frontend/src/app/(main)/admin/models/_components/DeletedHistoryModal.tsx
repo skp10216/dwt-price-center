@@ -191,7 +191,7 @@ export function DeletedHistoryModal({
               max={999}
               sx={{
                 '& .MuiBadge-badge': {
-                  bgcolor: 'rgba(255,255,255,0.9)',
+                  bgcolor: alpha('#ffffff', 0.9),
                   color: theme.palette.error.main,
                   fontWeight: 700,
                 },
@@ -199,7 +199,7 @@ export function DeletedHistoryModal({
             >
               <Avatar
                 sx={{
-                  bgcolor: 'rgba(255,255,255,0.2)',
+                  bgcolor: alpha('#ffffff', 0.2),
                   backdropFilter: 'blur(10px)',
                 }}
               >
@@ -299,7 +299,10 @@ export function DeletedHistoryModal({
                           sx={{
                             width: 44,
                             height: 44,
-                            bgcolor: isBulk ? 'warning.100' : 'error.100',
+                            bgcolor: (theme) => alpha(
+                              isBulk ? theme.palette.warning.main : theme.palette.error.main,
+                              0.12
+                            ),
                             color: isBulk ? 'warning.main' : 'error.main',
                           }}
                         >

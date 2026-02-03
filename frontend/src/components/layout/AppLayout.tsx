@@ -58,6 +58,7 @@ import {
   DarkMode as DarkModeIcon,
   SettingsBrightness as AutoModeIcon,
   Add as AddIcon,
+  Palette as PaletteIcon,
 } from '@mui/icons-material';
 import { useAuthStore, useUIStore, useDomainStore, useAuthHydrated, useThemeStore, type ThemeMode } from '@/lib/store';
 import { getDomainType, getDefaultPath } from '@/lib/domain';
@@ -127,6 +128,7 @@ const adminMenus: MenuItemType[] = [
   { id: 'deductions', label: '차감 관리', icon: <RemoveCircleIcon />, path: '/admin/deductions' },
   { id: 'audit', label: '감사로그', icon: <HistoryIcon />, path: '/admin/audit' },
   { id: 'users', label: '사용자 관리', icon: <PeopleIcon />, path: '/admin/users' },
+  { id: 'appearance-settings', label: '외관 설정', icon: <PaletteIcon />, path: '/admin/settings/appearance' },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -303,10 +305,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             }}
           >
             <ListItemIcon sx={{ minWidth: 36 }}>{menu.icon}</ListItemIcon>
-            <ListItemText 
-              primary={menu.label} 
-              primaryTypographyProps={{ 
-                fontSize: level > 0 ? '0.875rem' : '0.9rem',
+            <ListItemText
+              primary={menu.label}
+              primaryTypographyProps={{
+                variant: level > 0 ? 'body2' : 'body1',
                 fontWeight: isActive ? 600 : 400,
               }}
             />
@@ -334,9 +336,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           zIndex: (theme) => theme.zIndex.drawer + 1,
           bgcolor: 'background.paper',
           color: 'text.primary',
-          boxShadow: (theme) => theme.palette.mode === 'light'
-            ? '0 1px 3px rgba(0,0,0,0.1)'
-            : '0 1px 3px rgba(0,0,0,0.3)',
+          boxShadow: 1,
         }}
       >
         <Toolbar>
@@ -444,9 +444,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     sx={{
                       mx: 1,
                       borderRadius: 2,
-                      bgcolor: (theme) => theme.palette.mode === 'light' ? 'error.50' : alpha('#d32f2f', 0.1),
+                      bgcolor: (theme) => alpha(theme.palette.error.main, theme.palette.mode === 'light' ? 0.08 : 0.1),
                       '&:hover': {
-                        bgcolor: (theme) => theme.palette.mode === 'light' ? 'error.100' : alpha('#d32f2f', 0.2),
+                        bgcolor: (theme) => alpha(theme.palette.error.main, theme.palette.mode === 'light' ? 0.12 : 0.2),
                       },
                     }}
                   >
@@ -477,11 +477,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     sx={{
                       mx: 1,
                       borderRadius: 2,
-                      bgcolor: (theme) => theme.palette.mode === 'light' ? 'primary.50' : alpha('#1976d2', 0.1),
+                      bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.08 : 0.1),
                       '&:hover': {
-                        bgcolor: (theme) => theme.palette.mode === 'light' ? 'primary.100' : alpha('#1976d2', 0.2),
+                        bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.12 : 0.2),
                       },
-                    }}
+                    }
                   >
                     <ListItemIcon sx={{ minWidth: 40 }}>
                       <PriceCheckIcon color="primary" />
