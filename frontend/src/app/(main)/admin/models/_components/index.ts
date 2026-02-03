@@ -11,3 +11,4 @@ export { ModelPriceEditor } from './ModelPriceEditor';
 export { ModelsDashboard } from './ModelsDashboard';
 export { PriceHistoryModal } from './PriceHistoryModal';
 export { DeletedHistoryModal } from './DeletedHistoryModal';
+export { ModelRegisterModal } from './ModelRegisterModal';

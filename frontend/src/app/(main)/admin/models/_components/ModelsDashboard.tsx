@@ -1,10 +1,12 @@
 /**
  * SSOT 모델 관리 대시보드
  * 
- * FAQ 관리 페이지 스타일 UI:
+ * 프리미엄 UI 특징:
  * - 그라데이션 헤더 (아이콘 + 제목 + 버튼)
- * - 통계 카드 3개
+ * - 통계 카드 3개 (애니메이션 카운터)
  * - 디바이스 타입별 카드 (스마트폰/태블릿/웨어러블)
+ * 
+ * SSOT: 모든 색상은 theme/tokens에서 가져옴
  */
 
 'use client';
@@ -26,6 +28,8 @@ import {
   Paper,
   Button,
   LinearProgress,
+  alpha,
+  useTheme,
 } from '@mui/material';
 import {
   Smartphone as SmartphoneIcon,
@@ -38,9 +42,13 @@ import {
   Warning as WarningIcon,
   Refresh as RefreshIcon,
   Inventory as InventoryIcon,
+  TrendingUp as TrendingUpIcon,
+  PriceCheck as PriceCheckIcon,
+  PriceChange as PriceChangeIcon,
 } from '@mui/icons-material';
 import { ssotModelsApi, gradesApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
+import { shadows, transitions } from '@/theme/tokens';
 import {
   DeviceType,
   Manufacturer,
@@ -63,10 +71,23 @@ const manufacturerIcons: Record<Manufacturer, React.ReactNode> = {
   samsung: <SamsungIcon />,
 };
 
-// 브랜드 색상
-const brandColors: Record<Manufacturer, string> = {
-  apple: '#333333',
-  samsung: '#1428a0',
+// 디바이스 타입별 그라데이션 (테마 기반)
+const getDeviceGradient = (deviceType: DeviceType, theme: ReturnType<typeof useTheme>) => {
+  const colors = {
+    smartphone: {
+      start: theme.palette.primary.main,
+      end: theme.palette.primary.dark,
+    },
+    tablet: {
+      start: theme.palette.secondary.main,
+      end: alpha(theme.palette.secondary.dark, 0.9),
+    },
+    wearable: {
+      start: theme.palette.info.main,
+      end: theme.palette.info.dark,
+    },
+  };
+  return `linear-gradient(135deg, ${colors[deviceType].start} 0%, ${colors[deviceType].end} 100%)`;
 };
 
 interface CategoryStats {
@@ -86,14 +107,114 @@ interface TotalStats {
   unconfiguredPrices: number;
 }
 
+// 통계 카드 컴포넌트
+function StatCard({
+  title,
+  value,
+  icon,
+  color,
+  loading,
+}: {
+  title: string;
+  value: number;
+  icon: React.ReactNode;
+  color: 'primary' | 'success' | 'warning';
+  loading?: boolean;
+}) {
+  const theme = useTheme();
+  const colorMap = {
+    primary: theme.palette.primary.main,
+    success: theme.palette.success.main,
+    warning: theme.palette.warning.main,
+  };
+  const bgColorMap = {
+    primary: alpha(theme.palette.primary.main, 0.08),
+    success: alpha(theme.palette.success.main, 0.08),
+    warning: alpha(theme.palette.warning.main, 0.08),
+  };
+
+  return (
+    <Card
+      sx={{
+        borderRadius: 3,
+        border: `1px solid ${theme.palette.divider}`,
+        boxShadow: shadows.sm,
+        transition: transitions.normal,
+        overflow: 'hidden',
+        position: 'relative',
+        '&:hover': {
+          boxShadow: shadows.md,
+          transform: 'translateY(-2px)',
+          '& .stat-icon': {
+            transform: 'scale(1.1) rotate(-5deg)',
+          },
+        },
+      }}
+    >
+      {/* 상단 컬러 라인 */}
+      <Box
+        sx={{
+          height: 4,
+          background: `linear-gradient(90deg, ${colorMap[color]}, ${alpha(colorMap[color], 0.6)})`,
+        }}
+      />
+      <CardContent sx={{ p: 3 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+          <Box>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              fontWeight={500}
+              gutterBottom
+            >
+              {title}
+            </Typography>
+            {loading ? (
+              <Skeleton width={80} height={48} />
+            ) : (
+              <Typography
+                variant="h3"
+                fontWeight={800}
+                sx={{
+                  color: colorMap[color],
+                  letterSpacing: '-0.02em',
+                }}
+              >
+                {value.toLocaleString()}
+              </Typography>
+            )}
+          </Box>
+          <Avatar
+            className="stat-icon"
+            sx={{
+              width: 52,
+              height: 52,
+              bgcolor: bgColorMap[color],
+              color: colorMap[color],
+              transition: transitions.normal,
+            }}
+          >
+            {icon}
+          </Avatar>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function ModelsDashboard() {
   const router = useRouter();
+  const theme = useTheme();
   const { enqueueSnackbar } = useSnackbar();
-  
+
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<CategoryStats[]>([]);
-  const [totals, setTotals] = useState<TotalStats>({ totalModels: 0, configuredPrices: 0, unconfiguredPrices: 0 });
-  
+  const [totals, setTotals] = useState<TotalStats>({
+    totalModels: 0,
+    configuredPrices: 0,
+    unconfiguredPrices: 0,
+  });
+
   // 통계 로드
   const loadStats = useCallback(async () => {
     setLoading(true);
@@ -102,28 +223,28 @@ export function ModelsDashboard() {
         ssotModelsApi.list({ page_size: 1000, is_active: true }),
         gradesApi.list({ is_active: true }),
       ]);
-      
+
       const models = modelsRes.data.data.models as SSOTModel[];
       const grades = (gradesRes.data.data.grades as Grade[]).filter((g) => g);
-      
+
       // 통계 계산
       const deviceTypes: DeviceType[] = ['smartphone', 'tablet', 'wearable'];
       const manufacturers: Manufacturer[] = ['apple', 'samsung'];
-      
+
       let totalConfigured = 0;
       let totalUnconfigured = 0;
       let totalModelsCount = 0;
-      
+
       const categoryStats: CategoryStats[] = deviceTypes.map((dt) => ({
         deviceType: dt,
         manufacturers: manufacturers.map((mfr) => {
           const filtered = models.filter(
             (m) => m.device_type === dt && m.manufacturer === mfr
           );
-          
+
           let configuredCount = 0;
           let unconfiguredCount = 0;
-          
+
           filtered.forEach((model) => {
             grades.forEach((grade) => {
               const gp = model.grade_prices?.find((p) => p.grade_id === grade.id);
@@ -134,13 +255,13 @@ export function ModelsDashboard() {
               }
             });
           });
-          
+
           const total = configuredCount + unconfiguredCount;
-          
+
           totalConfigured += configuredCount;
           totalUnconfigured += unconfiguredCount;
           totalModelsCount += filtered.length;
-          
+
           return {
             manufacturer: mfr,
             totalModels: filtered.length,
@@ -150,7 +271,7 @@ export function ModelsDashboard() {
           };
         }),
       }));
-      
+
       setStats(categoryStats);
       setTotals({
         totalModels: totalModelsCount,
@@ -163,81 +284,118 @@ export function ModelsDashboard() {
       setLoading(false);
     }
   }, [enqueueSnackbar]);
-  
+
   useEffect(() => {
     loadStats();
   }, [loadStats]);
-  
+
   // 페이지 이동
   const handleNavigate = (deviceType: DeviceType, manufacturer: Manufacturer) => {
     router.push(`/admin/models/${deviceType}/${manufacturer}`);
   };
-  
+
   if (loading) {
     return (
       <Box>
-        <Skeleton variant="rectangular" height={100} sx={{ borderRadius: 2, mb: 3 }} />
+        <Skeleton
+          variant="rectangular"
+          height={100}
+          sx={{ borderRadius: 3, mb: 3 }}
+        />
         <Grid container spacing={2} sx={{ mb: 3 }}>
           {[1, 2, 3].map((i) => (
             <Grid item xs={12} md={4} key={i}>
-              <Skeleton variant="rectangular" height={120} sx={{ borderRadius: 2 }} />
+              <Skeleton variant="rectangular" height={130} sx={{ borderRadius: 3 }} />
             </Grid>
           ))}
         </Grid>
         <Grid container spacing={3}>
           {[1, 2, 3].map((i) => (
             <Grid item xs={12} md={4} key={i}>
-              <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 3 }} />
+              <Skeleton variant="rectangular" height={340} sx={{ borderRadius: 3 }} />
             </Grid>
           ))}
         </Grid>
       </Box>
     );
   }
-  
+
   return (
     <Box>
       {/* ========== 그라데이션 헤더 ========== */}
       <Paper
         sx={{
           mb: 3,
-          borderRadius: 2,
+          borderRadius: 3,
           overflow: 'hidden',
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+          boxShadow: `0 8px 32px ${alpha(theme.palette.primary.main, 0.25)}`,
+          position: 'relative',
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            width: '40%',
+            height: '100%',
+            background: `radial-gradient(circle at 80% 50%, ${alpha('#ffffff', 0.1)} 0%, transparent 60%)`,
+          },
         }}
       >
-        <Box sx={{ p: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Stack direction="row" alignItems="center" spacing={2}>
+        <Box
+          sx={{
+            p: 3,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            position: 'relative',
+            zIndex: 1,
+          }}
+        >
+          <Stack direction="row" alignItems="center" spacing={2.5}>
             <Avatar
               sx={{
-                width: 48,
-                height: 48,
-                bgcolor: 'rgba(255,255,255,0.2)',
+                width: 56,
+                height: 56,
+                bgcolor: alpha('#ffffff', 0.15),
                 backdropFilter: 'blur(10px)',
+                border: `1px solid ${alpha('#ffffff', 0.2)}`,
               }}
             >
-              <InventoryIcon sx={{ color: 'white' }} />
+              <InventoryIcon sx={{ color: 'white', fontSize: 28 }} />
             </Avatar>
             <Box>
-              <Typography variant="h5" fontWeight={700} color="white">
+              <Typography
+                variant="h5"
+                fontWeight={700}
+                color="white"
+                sx={{ letterSpacing: '-0.01em' }}
+              >
                 SSOT 모델 관리
               </Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+              <Typography
+                variant="body2"
+                sx={{ color: alpha('#ffffff', 0.8), mt: 0.25 }}
+              >
                 디바이스 타입/브랜드별 모델 가격을 관리합니다
               </Typography>
             </Box>
           </Stack>
-          
+
           <Button
             variant="outlined"
             startIcon={<RefreshIcon />}
             onClick={loadStats}
             sx={{
               color: 'white',
-              borderColor: 'rgba(255,255,255,0.5)',
+              borderColor: alpha('#ffffff', 0.4),
+              borderWidth: 1.5,
+              fontWeight: 600,
+              px: 2.5,
               '&:hover': {
                 borderColor: 'white',
-                bgcolor: 'rgba(255,255,255,0.1)',
+                bgcolor: alpha('#ffffff', 0.1),
+                borderWidth: 1.5,
               },
             }}
           >
@@ -245,48 +403,39 @@ export function ModelsDashboard() {
           </Button>
         </Box>
       </Paper>
-      
+
       {/* ========== 통계 카드 3개 ========== */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
+      <Grid container spacing={2.5} sx={{ mb: 4 }}>
         <Grid item xs={12} md={4}>
-          <Card sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
-            <CardContent>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                전체 모델
-              </Typography>
-              <Typography variant="h3" fontWeight={700} color="primary.main">
-                {totals.totalModels}
-              </Typography>
-            </CardContent>
-          </Card>
+          <StatCard
+            title="전체 모델"
+            value={totals.totalModels}
+            icon={<TrendingUpIcon />}
+            color="primary"
+            loading={loading}
+          />
         </Grid>
         <Grid item xs={12} md={4}>
-          <Card sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
-            <CardContent>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                가격 설정됨
-              </Typography>
-              <Typography variant="h3" fontWeight={700} color="success.main">
-                {totals.configuredPrices}
-              </Typography>
-            </CardContent>
-          </Card>
+          <StatCard
+            title="가격 설정됨"
+            value={totals.configuredPrices}
+            icon={<PriceCheckIcon />}
+            color="success"
+            loading={loading}
+          />
         </Grid>
         <Grid item xs={12} md={4}>
-          <Card sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
-            <CardContent>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                가격 미설정
-              </Typography>
-              <Typography variant="h3" fontWeight={700} color="warning.main">
-                {totals.unconfiguredPrices}
-              </Typography>
-            </CardContent>
-          </Card>
+          <StatCard
+            title="가격 미설정"
+            value={totals.unconfiguredPrices}
+            icon={<PriceChangeIcon />}
+            color="warning"
+            loading={loading}
+          />
         </Grid>
       </Grid>
-      
-      {/* ========== 디바이스 타입별 카드 (이전 UI 원복) ========== */}
+
+      {/* ========== 디바이스 타입별 카드 ========== */}
       <Grid container spacing={3}>
         {stats.map((category) => (
           <Grid item xs={12} md={4} key={category.deviceType}>
@@ -294,23 +443,34 @@ export function ModelsDashboard() {
               sx={{
                 height: '100%',
                 borderRadius: 3,
-                border: '1px solid',
-                borderColor: 'divider',
+                border: `1px solid ${theme.palette.divider}`,
                 overflow: 'hidden',
+                boxShadow: shadows.sm,
+                transition: transitions.normal,
+                '&:hover': {
+                  boxShadow: shadows.lg,
+                  transform: 'translateY(-4px)',
+                },
               }}
             >
               {/* 헤더 */}
               <Box
                 sx={{
                   p: 3,
-                  background: `linear-gradient(135deg, ${
-                    category.deviceType === 'smartphone'
-                      ? '#667eea, #764ba2'
-                      : category.deviceType === 'tablet'
-                      ? '#f093fb, #f5576c'
-                      : '#4facfe, #00f2fe'
-                  })`,
+                  background: getDeviceGradient(category.deviceType, theme),
                   color: 'white',
+                  position: 'relative',
+                  '&::after': {
+                    content: '""',
+                    position: 'absolute',
+                    bottom: 0,
+                    right: 0,
+                    width: 120,
+                    height: 120,
+                    borderRadius: '50%',
+                    background: alpha('#ffffff', 0.08),
+                    transform: 'translate(30%, 30%)',
+                  },
                 }}
               >
                 <Stack direction="row" alignItems="center" spacing={2}>
@@ -318,8 +478,9 @@ export function ModelsDashboard() {
                     sx={{
                       width: 64,
                       height: 64,
-                      bgcolor: 'rgba(255,255,255,0.2)',
+                      bgcolor: alpha('#ffffff', 0.15),
                       backdropFilter: 'blur(10px)',
+                      border: `1px solid ${alpha('#ffffff', 0.2)}`,
                     }}
                   >
                     {deviceIcons[category.deviceType]}
@@ -328,25 +489,37 @@ export function ModelsDashboard() {
                     <Typography variant="h5" fontWeight={700}>
                       {deviceTypeLabels[category.deviceType]}
                     </Typography>
-                    <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                    <Typography
+                      variant="body2"
+                      sx={{ opacity: 0.9, fontWeight: 500 }}
+                    >
                       SSOT 모델 가격 관리
                     </Typography>
                   </Box>
                 </Stack>
               </Box>
-              
+
               <CardContent sx={{ p: 0 }}>
                 {/* 브랜드별 카드 */}
                 {category.manufacturers.map((mfr, idx) => (
                   <Box key={mfr.manufacturer}>
                     {idx > 0 && <Divider />}
                     <CardActionArea
-                      onClick={() => handleNavigate(category.deviceType, mfr.manufacturer)}
+                      onClick={() =>
+                        handleNavigate(category.deviceType, mfr.manufacturer)
+                      }
                       sx={{
                         p: 2.5,
-                        transition: 'all 0.2s',
+                        transition: transitions.fast,
                         '&:hover': {
-                          bgcolor: 'grey.50',
+                          bgcolor:
+                            theme.palette.mode === 'light'
+                              ? alpha(theme.palette.primary.main, 0.04)
+                              : alpha(theme.palette.primary.main, 0.08),
+                          '& .arrow-icon': {
+                            transform: 'translateX(4px)',
+                            color: theme.palette.primary.main,
+                          },
                         },
                       }}
                     >
@@ -354,15 +527,26 @@ export function ModelsDashboard() {
                         {/* 브랜드 아이콘 */}
                         <Avatar
                           sx={{
-                            bgcolor: brandColors[mfr.manufacturer],
-                            color: 'white',
-                            width: 44,
-                            height: 44,
+                            bgcolor:
+                              mfr.manufacturer === 'apple'
+                                ? theme.palette.mode === 'light'
+                                  ? '#1d1d1f'
+                                  : '#f5f5f7'
+                                : '#1428a0',
+                            color:
+                              mfr.manufacturer === 'apple'
+                                ? theme.palette.mode === 'light'
+                                  ? '#f5f5f7'
+                                  : '#1d1d1f'
+                                : 'white',
+                            width: 48,
+                            height: 48,
+                            boxShadow: shadows.sm,
                           }}
                         >
                           {manufacturerIcons[mfr.manufacturer]}
                         </Avatar>
-                        
+
                         {/* 브랜드 정보 */}
                         <Box sx={{ flex: 1 }}>
                           <Typography variant="subtitle1" fontWeight={600}>
@@ -371,48 +555,58 @@ export function ModelsDashboard() {
                           <Typography variant="caption" color="text.secondary">
                             {mfr.totalModels}개 모델
                           </Typography>
-                          
+
                           {/* 진행률 바 */}
                           {mfr.totalModels > 0 && (
-                            <Box sx={{ mt: 1 }}>
+                            <Box sx={{ mt: 1.5 }}>
                               <LinearProgress
                                 variant="determinate"
                                 value={mfr.configurationRate}
                                 sx={{
                                   height: 6,
                                   borderRadius: 3,
-                                  bgcolor: 'grey.200',
+                                  bgcolor:
+                                    theme.palette.mode === 'light'
+                                      ? alpha(theme.palette.divider, 0.5)
+                                      : alpha(theme.palette.divider, 0.3),
                                   '& .MuiLinearProgress-bar': {
                                     bgcolor:
                                       mfr.configurationRate === 100
-                                        ? 'success.main'
+                                        ? theme.palette.success.main
                                         : mfr.configurationRate > 50
-                                        ? 'warning.main'
-                                        : 'error.main',
+                                        ? theme.palette.warning.main
+                                        : theme.palette.error.main,
                                     borderRadius: 3,
+                                    transition: transitions.slow,
                                   },
                                 }}
                               />
-                              <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5 }}>
+                              <Stack
+                                direction="row"
+                                justifyContent="space-between"
+                                sx={{ mt: 0.75 }}
+                              >
                                 <Typography variant="caption" color="text.secondary">
                                   {mfr.configurationRate}% 설정됨
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary">
-                                  {mfr.configuredCount}/{mfr.configuredCount + mfr.unconfiguredCount}
+                                  {mfr.configuredCount}/
+                                  {mfr.configuredCount + mfr.unconfiguredCount}
                                 </Typography>
                               </Stack>
                             </Box>
                           )}
                         </Box>
-                        
+
                         {/* 상태 배지 */}
-                        <Stack direction="column" spacing={0.5} alignItems="flex-end">
+                        <Stack direction="column" spacing={1} alignItems="flex-end">
                           {mfr.unconfiguredCount === 0 && mfr.totalModels > 0 ? (
                             <Chip
                               icon={<CheckCircleIcon />}
                               label="완료"
                               size="small"
                               color="success"
+                              sx={{ fontWeight: 600 }}
                             />
                           ) : mfr.unconfiguredCount > 0 ? (
                             <Chip
@@ -420,9 +614,17 @@ export function ModelsDashboard() {
                               label={`미설정 ${mfr.unconfiguredCount}`}
                               size="small"
                               color="warning"
+                              sx={{ fontWeight: 600 }}
                             />
                           ) : null}
-                          <ArrowIcon color="action" sx={{ fontSize: 20 }} />
+                          <ArrowIcon
+                            className="arrow-icon"
+                            sx={{
+                              fontSize: 20,
+                              color: 'text.secondary',
+                              transition: transitions.fast,
+                            }}
+                          />
                         </Stack>
                       </Stack>
                     </CardActionArea>

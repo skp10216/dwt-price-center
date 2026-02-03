@@ -28,6 +28,7 @@ import {
   Divider,
   Collapse,
   Chip,
+  alpha,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -53,9 +54,14 @@ import {
   Apple as AppleIcon,
   PhoneAndroid as SamsungIcon,
   Dashboard as DashboardIcon,
+  LightMode as LightModeIcon,
+  DarkMode as DarkModeIcon,
+  SettingsBrightness as AutoModeIcon,
+  Add as AddIcon,
 } from '@mui/icons-material';
-import { useAuthStore, useUIStore, useDomainStore, useAuthHydrated } from '@/lib/store';
+import { useAuthStore, useUIStore, useDomainStore, useAuthHydrated, useThemeStore, type ThemeMode } from '@/lib/store';
 import { getDomainType, getDefaultPath } from '@/lib/domain';
+import { Logo } from '@/components/ui/Logo';
 
 const DRAWER_WIDTH = 280;
 
@@ -129,10 +135,29 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, logout, isAuthenticated } = useAuthStore();
   const { sidebarOpen, toggleSidebar } = useUIStore();
   const { domainType, isAdminDomain, setDomainType } = useDomainStore();
+  const { mode, setMode } = useThemeStore();
   const isHydrated = useAuthHydrated();
-  
+
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set(['ssot-models']));
+
+  // 테마 전환 핸들러
+  const handleThemeToggle = () => {
+    const nextMode: ThemeMode = mode === 'light' ? 'dark' : mode === 'dark' ? 'auto' : 'light';
+    setMode(nextMode);
+  };
+
+  // 테마 아이콘
+  const getThemeIcon = () => {
+    switch (mode) {
+      case 'light':
+        return <LightModeIcon />;
+      case 'dark':
+        return <DarkModeIcon />;
+      case 'auto':
+        return <AutoModeIcon />;
+    }
+  };
   
   // 클라이언트에서 도메인 타입 감지
   useEffect(() => {
@@ -182,7 +207,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // Hydration 완료 전에는 로딩 표시 (깜빡임 방지)
   if (!isHydrated) {
     return (
-      <Box sx={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', bgcolor: '#f5f5f5' }}>
+      <Box sx={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', bgcolor: 'background.default' }}>
         <Box sx={{ textAlign: 'center' }}>
           <Typography variant="body2" color="text.secondary">
             로딩 중...
@@ -270,7 +295,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 },
               },
               ...(hasChildren && isActive && {
-                bgcolor: 'grey.100',
+                bgcolor: (theme) => theme.palette.mode === 'light' ? 'grey.100' : 'grey.800',
                 '& .MuiListItemText-primary': {
                   fontWeight: 600,
                 },
@@ -301,15 +326,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   };
   
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+    <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       {/* AppBar */}
       <AppBar
         position="fixed"
         sx={{
           zIndex: (theme) => theme.zIndex.drawer + 1,
-          bgcolor: 'white',
+          bgcolor: 'background.paper',
           color: 'text.primary',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+          boxShadow: (theme) => theme.palette.mode === 'light'
+            ? '0 1px 3px rgba(0,0,0,0.1)'
+            : '0 1px 3px rgba(0,0,0,0.3)',
         }}
       >
         <Toolbar>
@@ -321,8 +348,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             {sidebarOpen ? <ChevronLeftIcon /> : <MenuIcon />}
           </IconButton>
           
-          <Typography variant="h6" noWrap component="div" fontWeight={700} sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-            단가표 통합 관리
+          <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Logo size="small" variant="auto" />
             {isAdminDomain && (
               <Chip
                 icon={<AdminIcon sx={{ fontSize: 16 }} />}
@@ -332,8 +359,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 sx={{ fontWeight: 600 }}
               />
             )}
-          </Typography>
-          
+          </Box>
+
+          <IconButton
+            onClick={handleThemeToggle}
+            sx={{ mr: 1 }}
+            title={`현재: ${mode === 'light' ? '라이트' : mode === 'dark' ? '다크' : '자동'} 모드 (클릭하여 변경)`}
+          >
+            {getThemeIcon()}
+          </IconButton>
+
           <IconButton onClick={handleUserMenuOpen}>
             <Avatar sx={{ width: 36, height: 36, bgcolor: 'primary.main' }}>
               {user?.name?.[0] || 'U'}
@@ -378,7 +413,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           '& .MuiDrawer-paper': {
             width: DRAWER_WIDTH,
             boxSizing: 'border-box',
-            borderRight: '1px solid #e0e0e0',
+            borderRight: (theme) => `1px solid ${theme.palette.divider}`,
+            bgcolor: 'background.paper',
           },
         }}
       >
@@ -408,9 +444,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     sx={{
                       mx: 1,
                       borderRadius: 2,
-                      bgcolor: 'error.50',
+                      bgcolor: (theme) => theme.palette.mode === 'light' ? 'error.50' : alpha('#d32f2f', 0.1),
                       '&:hover': {
-                        bgcolor: 'error.100',
+                        bgcolor: (theme) => theme.palette.mode === 'light' ? 'error.100' : alpha('#d32f2f', 0.2),
                       },
                     }}
                   >
@@ -441,9 +477,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     sx={{
                       mx: 1,
                       borderRadius: 2,
-                      bgcolor: 'primary.50',
+                      bgcolor: (theme) => theme.palette.mode === 'light' ? 'primary.50' : alpha('#1976d2', 0.1),
                       '&:hover': {
-                        bgcolor: 'primary.100',
+                        bgcolor: (theme) => theme.palette.mode === 'light' ? 'primary.100' : alpha('#1976d2', 0.2),
                       },
                     }}
                   >
@@ -467,15 +503,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         component="main"
         sx={{
           flexGrow: 1,
-          p: 3,
+          display: 'flex',
+          flexDirection: 'column',
           width: `calc(100% - ${sidebarOpen ? DRAWER_WIDTH : 0}px)`,
           transition: 'width 0.3s',
-          bgcolor: '#f5f5f5',
-          minHeight: '100vh',
+          bgcolor: 'background.default',
+          height: '100vh',
+          overflow: 'hidden',
         }}
       >
-        <Toolbar />
-        {children}
+        <Toolbar /> {/* AppBar 높이만큼 공간 확보 */}
+        <Box
+          sx={{
+            flex: 1,
+            overflow: 'auto',
+            p: 3,
+          }}
+        >
+          {children}
+        </Box>
       </Box>
     </Box>
   );

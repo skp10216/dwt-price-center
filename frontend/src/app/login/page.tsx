@@ -1,8 +1,11 @@
 /**
  * 단가표 통합 관리 시스템 - 로그인 페이지
+ * 
  * 도메인별 분기 처리:
- * - admin.dwt.price: admin 권한 필수, 프리미엄 다크 + 골드 UI
- * - dwt.price: 일반 사용자, 클린 그린 UI
+ * - admin.dwt.price: 프리미엄 다크 + 골드 UI (관리자 권한 필수)
+ * - dwt.price: 클린 그린 UI (일반 사용자)
+ * 
+ * SSOT: 모든 색상은 theme/tokens에서 가져옴
  */
 
 'use client';
@@ -20,15 +23,16 @@ import {
   IconButton,
   FormControlLabel,
   Checkbox,
+  alpha,
+  useTheme,
 } from '@mui/material';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import EmailIcon from '@mui/icons-material/Email';
 import LockIcon from '@mui/icons-material/Lock';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
-import ShieldIcon from '@mui/icons-material/Shield';
-import BarChartIcon from '@mui/icons-material/BarChart';
 import { useSnackbar } from 'notistack';
+import { Logo } from '@/components/ui/Logo';
 import { authApi } from '@/lib/api';
 import { 
   useAuthStore, 
@@ -38,7 +42,8 @@ import {
   getRememberMe,
   saveEmailPreference,
 } from '@/lib/store';
-import { getDomainType, getAfterLoginPath, requiresAdminRole, DomainType } from '@/lib/domain';
+import { getDomainType, getAfterLoginPath, requiresAdminRole } from '@/lib/domain';
+import { adminGoldTheme, userGreenTheme, shadows, transitions } from '@/theme/tokens';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -108,8 +113,9 @@ export default function LoginPage() {
       // 도메인별 리다이렉트 경로
       const redirectPath = searchParams.get('redirect') || getAfterLoginPath(domainType);
       router.push(redirectPath);
-    } catch (err: any) {
-      const message = err.response?.data?.error?.message || '로그인에 실패했습니다';
+    } catch (err: unknown) {
+      const axiosError = err as { response?: { data?: { error?: { message?: string } } } };
+      const message = axiosError.response?.data?.error?.message || '로그인에 실패했습니다';
       setError(message);
     } finally {
       setLoading(false);
@@ -125,10 +131,10 @@ export default function LoginPage() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          bgcolor: '#0f0f14',
+          bgcolor: adminGoldTheme.background.primary,
         }}
       >
-        <CircularProgress sx={{ color: '#D4AF37' }} />
+        <CircularProgress sx={{ color: adminGoldTheme.gold.main }} />
       </Box>
     );
   }
@@ -181,14 +187,49 @@ interface LoginUIProps {
   handleSubmit: (e: React.FormEvent) => void;
 }
 
+// 공통 입력 필드 스타일 생성 함수
+const createAdminInputStyles = () => ({
+  mb: 2.5,
+  '& .MuiOutlinedInput-root': {
+    bgcolor: alpha('#ffffff', 0.03),
+    borderRadius: 2,
+    transition: transitions.fast,
+    '& fieldset': {
+      borderColor: alpha('#ffffff', 0.1),
+      transition: transitions.fast,
+    },
+    '&:hover fieldset': {
+      borderColor: alpha(adminGoldTheme.gold.main, 0.4),
+    },
+    '&.Mui-focused fieldset': {
+      borderColor: adminGoldTheme.gold.main,
+      borderWidth: 2,
+    },
+  },
+  '& .MuiOutlinedInput-input': {
+    color: adminGoldTheme.text.primary,
+    py: 1.75,
+    '&::placeholder': {
+      color: alpha('#ffffff', 0.4),
+      opacity: 1,
+    },
+  },
+});
+
 /**
  * 관리자 로그인 UI - 프리미엄 다크 + 골드 테마
+ * 고급스럽고 권위있는 느낌의 관리자 전용 인터페이스
  */
 function AdminLoginUI({
   email, setEmail, password, setPassword,
   showPassword, setShowPassword, rememberMe, setRememberMe,
   loading, error, handleSubmit
 }: LoginUIProps) {
+  const theme = useTheme();
+  const gold = adminGoldTheme.gold;
+  const bg = adminGoldTheme.background;
+  const text = adminGoldTheme.text;
+
   return (
     <Box
       sx={{
@@ -200,13 +241,13 @@ function AdminLoginUI({
         overflow: 'hidden',
         // 프리미엄 다크 그라데이션 배경
         background: `
-          radial-gradient(ellipse at 20% 0%, rgba(45, 45, 58, 0.9) 0%, transparent 50%),
-          radial-gradient(ellipse at 80% 100%, rgba(30, 30, 40, 0.8) 0%, transparent 50%),
-          linear-gradient(180deg, #0f0f14 0%, #1a1a24 50%, #0d0d12 100%)
+          radial-gradient(ellipse at 20% 0%, ${alpha(bg.secondary, 0.9)} 0%, transparent 50%),
+          radial-gradient(ellipse at 80% 100%, ${alpha(bg.tertiary, 0.8)} 0%, transparent 50%),
+          linear-gradient(180deg, ${bg.primary} 0%, ${bg.secondary} 50%, ${bg.tertiary} 100%)
         `,
       }}
     >
-      {/* 배경 장식 요소 */}
+      {/* 배경 장식 요소 - 골드 글로우 */}
       <Box
         sx={{
           position: 'absolute',
@@ -215,8 +256,13 @@ function AdminLoginUI({
           width: 300,
           height: 300,
           borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(212, 175, 55, 0.08) 0%, transparent 70%)',
+          background: `radial-gradient(circle, ${alpha(gold.main, 0.08)} 0%, transparent 70%)`,
           filter: 'blur(60px)',
+          animation: 'pulse 8s ease-in-out infinite',
+          '@keyframes pulse': {
+            '0%, 100%': { opacity: 0.5, transform: 'scale(1)' },
+            '50%': { opacity: 0.8, transform: 'scale(1.1)' },
+          },
         }}
       />
       <Box
@@ -227,8 +273,9 @@ function AdminLoginUI({
           width: 400,
           height: 400,
           borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(212, 175, 55, 0.05) 0%, transparent 70%)',
+          background: `radial-gradient(circle, ${alpha(gold.main, 0.05)} 0%, transparent 70%)`,
           filter: 'blur(80px)',
+          animation: 'pulse 10s ease-in-out infinite reverse',
         }}
       />
       
@@ -236,7 +283,7 @@ function AdminLoginUI({
       <Box
         sx={{
           width: '100%',
-          maxWidth: 440,
+          maxWidth: 460,
           mx: 2,
           position: 'relative',
           zIndex: 1,
@@ -245,52 +292,39 @@ function AdminLoginUI({
         {/* 글래스모피즘 카드 */}
         <Box
           sx={{
-            background: 'linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)',
-            backdropFilter: 'blur(20px)',
+            background: `linear-gradient(145deg, ${alpha('#ffffff', 0.06)} 0%, ${alpha('#ffffff', 0.02)} 100%)`,
+            backdropFilter: 'blur(24px)',
             borderRadius: 4,
-            border: '1px solid rgba(212, 175, 55, 0.15)',
+            border: `1px solid ${alpha(gold.main, 0.15)}`,
             boxShadow: `
-              0 25px 50px -12px rgba(0, 0, 0, 0.5),
-              inset 0 1px 0 rgba(255, 255, 255, 0.05)
+              0 32px 64px -12px ${alpha('#000000', 0.5)},
+              inset 0 1px 0 ${alpha('#ffffff', 0.05)}
             `,
-            p: 5,
+            p: { xs: 4, sm: 5 },
+            transition: transitions.normal,
+            '&:hover': {
+              border: `1px solid ${alpha(gold.main, 0.25)}`,
+              boxShadow: `
+                0 32px 64px -12px ${alpha('#000000', 0.6)},
+                inset 0 1px 0 ${alpha('#ffffff', 0.08)},
+                0 0 0 1px ${alpha(gold.main, 0.1)}
+              `,
+            },
           }}
         >
           {/* 로고/아이콘 영역 */}
           <Box sx={{ textAlign: 'center', mb: 4 }}>
-            <Box
-              sx={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 72,
-                height: 72,
-                borderRadius: '20px',
-                background: 'linear-gradient(135deg, #D4AF37 0%, #B8860B 50%, #8B6914 100%)',
-                boxShadow: '0 10px 30px rgba(212, 175, 55, 0.3)',
-                mb: 3,
-              }}
-            >
-              <ShieldIcon sx={{ fontSize: 36, color: '#0f0f14' }} />
+            {/* DWT 로고 */}
+            <Box sx={{ mb: 2 }}>
+              <Logo size="large" showCompanyName variant="dark" />
             </Box>
-            
-            <Typography
-              variant="h4"
-              sx={{
-                fontWeight: 700,
-                color: '#ffffff',
-                letterSpacing: '-0.02em',
-                mb: 0.5,
-              }}
-            >
-              Admin Console
-            </Typography>
             
             <Typography
               variant="body2"
               sx={{
-                color: 'rgba(255, 255, 255, 0.5)',
+                color: alpha('#ffffff', 0.5),
                 fontWeight: 500,
+                mt: 1,
               }}
             >
               단가표 통합 관리 시스템
@@ -310,22 +344,12 @@ function AdminLoginUI({
               mx: 'auto',
               width: 'fit-content',
               borderRadius: 2,
-              background: 'rgba(212, 175, 55, 0.1)',
-              border: '1px solid rgba(212, 175, 55, 0.2)',
+              background: alpha(gold.main, 0.1),
+              border: `1px solid ${alpha(gold.main, 0.2)}`,
+              backdropFilter: 'blur(8px)',
             }}
           >
-            <AdminPanelSettingsIcon sx={{ fontSize: 18, color: '#D4AF37' }} />
-            <Typography
-              variant="caption"
-              sx={{
-                color: '#D4AF37',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.1em',
-              }}
-            >
-              Administrator Access Only
-            </Typography>
+            
           </Box>
           
           {error && (
@@ -333,10 +357,11 @@ function AdminLoginUI({
               severity="error"
               sx={{
                 mb: 3,
-                bgcolor: 'rgba(211, 47, 47, 0.1)',
-                border: '1px solid rgba(211, 47, 47, 0.3)',
-                color: '#ff6b6b',
-                '& .MuiAlert-icon': { color: '#ff6b6b' },
+                bgcolor: alpha(theme.palette.error.main, 0.1),
+                border: `1px solid ${alpha(theme.palette.error.main, 0.3)}`,
+                color: theme.palette.error.light,
+                borderRadius: 2,
+                '& .MuiAlert-icon': { color: theme.palette.error.light },
               }}
             >
               {error}
@@ -356,35 +381,11 @@ function AdminLoginUI({
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
-                    <EmailIcon sx={{ color: 'rgba(255, 255, 255, 0.3)' }} />
+                    <EmailIcon sx={{ color: alpha('#ffffff', 0.35) }} />
                   </InputAdornment>
                 ),
               }}
-              sx={{
-                mb: 2,
-                '& .MuiOutlinedInput-root': {
-                  bgcolor: 'rgba(255, 255, 255, 0.03)',
-                  borderRadius: 2,
-                  '& fieldset': {
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
-                  },
-                  '&:hover fieldset': {
-                    borderColor: 'rgba(212, 175, 55, 0.3)',
-                  },
-                  '&.Mui-focused fieldset': {
-                    borderColor: '#D4AF37',
-                    borderWidth: 1,
-                  },
-                },
-                '& .MuiOutlinedInput-input': {
-                  color: '#ffffff',
-                  py: 1.75,
-                  '&::placeholder': {
-                    color: 'rgba(255, 255, 255, 0.4)',
-                    opacity: 1,
-                  },
-                },
-              }}
+              sx={createAdminInputStyles()}
             />
             
             <TextField
@@ -398,7 +399,7 @@ function AdminLoginUI({
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
-                    <LockIcon sx={{ color: 'rgba(255, 255, 255, 0.3)' }} />
+                    <LockIcon sx={{ color: alpha('#ffffff', 0.35) }} />
                   </InputAdornment>
                 ),
                 endAdornment: (
@@ -406,38 +407,17 @@ function AdminLoginUI({
                     <IconButton
                       onClick={() => setShowPassword(!showPassword)}
                       edge="end"
-                      sx={{ color: 'rgba(255, 255, 255, 0.3)' }}
+                      sx={{ 
+                        color: alpha('#ffffff', 0.35),
+                        '&:hover': { color: gold.main },
+                      }}
                     >
                       {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
                     </IconButton>
                   </InputAdornment>
                 ),
               }}
-              sx={{
-                mb: 2,
-                '& .MuiOutlinedInput-root': {
-                  bgcolor: 'rgba(255, 255, 255, 0.03)',
-                  borderRadius: 2,
-                  '& fieldset': {
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
-                  },
-                  '&:hover fieldset': {
-                    borderColor: 'rgba(212, 175, 55, 0.3)',
-                  },
-                  '&.Mui-focused fieldset': {
-                    borderColor: '#D4AF37',
-                    borderWidth: 1,
-                  },
-                },
-                '& .MuiOutlinedInput-input': {
-                  color: '#ffffff',
-                  py: 1.75,
-                  '&::placeholder': {
-                    color: 'rgba(255, 255, 255, 0.4)',
-                    opacity: 1,
-                  },
-                },
-              }}
+              sx={createAdminInputStyles()}
             />
             
             <FormControlLabel
@@ -446,19 +426,19 @@ function AdminLoginUI({
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
                   sx={{
-                    color: 'rgba(212, 175, 55, 0.5)',
+                    color: alpha(gold.main, 0.5),
                     '&.Mui-checked': {
-                      color: '#D4AF37',
+                      color: gold.main,
                     },
                   }}
                 />
               }
               label="아이디 저장"
               sx={{
-                mb: 2,
+                mb: 3,
                 '& .MuiFormControlLabel-label': {
-                  color: 'rgba(255, 255, 255, 0.7)',
-                  fontSize: '0.875rem',
+                  color: alpha('#ffffff', 0.7),
+                  fontSize: theme.typography.body2.fontSize,
                 },
               }}
             />
@@ -472,24 +452,44 @@ function AdminLoginUI({
               sx={{
                 py: 1.75,
                 borderRadius: 2,
-                background: 'linear-gradient(135deg, #D4AF37 0%, #B8860B 100%)',
-                color: '#0f0f14',
+                background: `linear-gradient(135deg, ${gold.main} 0%, ${gold.dark} 100%)`,
+                color: bg.primary,
                 fontWeight: 700,
-                fontSize: '1rem',
-                textTransform: 'none',
-                boxShadow: '0 8px 24px rgba(212, 175, 55, 0.25)',
+                fontSize: theme.typography.button.fontSize,
+                boxShadow: `0 8px 24px ${alpha(gold.main, 0.3)}`,
+                transition: transitions.fast,
+                position: 'relative',
+                overflow: 'hidden',
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  left: '-100%',
+                  width: '100%',
+                  height: '100%',
+                  background: `linear-gradient(90deg, transparent, ${alpha('#ffffff', 0.2)}, transparent)`,
+                  transition: transitions.slow,
+                },
                 '&:hover': {
-                  background: 'linear-gradient(135deg, #E5C158 0%, #C9971C 100%)',
-                  boxShadow: '0 12px 32px rgba(212, 175, 55, 0.35)',
+                  background: `linear-gradient(135deg, ${gold.light} 0%, ${gold.main} 100%)`,
+                  boxShadow: `0 12px 32px ${alpha(gold.main, 0.4)}`,
+                  transform: 'translateY(-2px)',
+                  '&::before': {
+                    left: '100%',
+                  },
+                },
+                '&:active': {
+                  transform: 'translateY(0)',
                 },
                 '&:disabled': {
-                  background: 'rgba(212, 175, 55, 0.3)',
-                  color: 'rgba(0, 0, 0, 0.5)',
+                  background: alpha(gold.main, 0.3),
+                  color: alpha('#000000', 0.5),
+                  boxShadow: 'none',
                 },
               }}
             >
               {loading ? (
-                <CircularProgress size={24} sx={{ color: '#0f0f14' }} />
+                <CircularProgress size={24} sx={{ color: bg.primary }} />
               ) : (
                 '관리자 로그인'
               )}
@@ -504,7 +504,7 @@ function AdminLoginUI({
             display: 'block',
             textAlign: 'center',
             mt: 3,
-            color: 'rgba(255, 255, 255, 0.3)',
+            color: alpha('#ffffff', 0.35),
           }}
         >
           권한이 없는 접근은 기록됩니다
@@ -516,12 +516,18 @@ function AdminLoginUI({
 
 /**
  * 사용자 로그인 UI - 클린 그린 테마
+ * 친근하고 전문적인 일반 사용자 인터페이스
  */
 function UserLoginUI({
   email, setEmail, password, setPassword,
   showPassword, setShowPassword, rememberMe, setRememberMe,
   loading, error, handleSubmit
 }: LoginUIProps) {
+  const theme = useTheme();
+  const green = userGreenTheme.green;
+  const bg = userGreenTheme.background;
+  const text = userGreenTheme.text;
+
   return (
     <Box
       sx={{
@@ -532,9 +538,7 @@ function UserLoginUI({
         position: 'relative',
         overflow: 'hidden',
         // 자연스러운 그린 그라데이션
-        background: `
-          linear-gradient(135deg, #0d9488 0%, #059669 50%, #047857 100%)
-        `,
+        background: bg.gradient,
       }}
     >
       {/* 배경 장식 */}
@@ -543,11 +547,16 @@ function UserLoginUI({
           position: 'absolute',
           top: '-10%',
           right: '-5%',
-          width: 400,
-          height: 400,
+          width: 450,
+          height: 450,
           borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%)',
+          background: `radial-gradient(circle, ${alpha('#ffffff', 0.12)} 0%, transparent 70%)`,
           filter: 'blur(40px)',
+          animation: 'float 12s ease-in-out infinite',
+          '@keyframes float': {
+            '0%, 100%': { transform: 'translate(0, 0)' },
+            '50%': { transform: 'translate(-20px, 20px)' },
+          },
         }}
       />
       <Box
@@ -555,11 +564,12 @@ function UserLoginUI({
           position: 'absolute',
           bottom: '-5%',
           left: '-5%',
-          width: 300,
-          height: 300,
+          width: 350,
+          height: 350,
           borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(16, 185, 129, 0.3) 0%, transparent 70%)',
+          background: `radial-gradient(circle, ${alpha(green.main, 0.3)} 0%, transparent 70%)`,
           filter: 'blur(60px)',
+          animation: 'float 15s ease-in-out infinite reverse',
         }}
       />
       
@@ -567,7 +577,7 @@ function UserLoginUI({
       <Box
         sx={{
           width: '100%',
-          maxWidth: 420,
+          maxWidth: 440,
           mx: 2,
           position: 'relative',
           zIndex: 1,
@@ -575,51 +585,40 @@ function UserLoginUI({
       >
         <Box
           sx={{
-            bgcolor: '#ffffff',
+            bgcolor: bg.paper,
             borderRadius: 4,
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-            p: 5,
+            boxShadow: shadows.xl,
+            p: { xs: 4, sm: 5 },
+            transition: transitions.normal,
+            '&:hover': {
+              boxShadow: shadows['2xl'],
+              transform: 'translateY(-4px)',
+            },
           }}
         >
           {/* 로고 영역 */}
           <Box sx={{ textAlign: 'center', mb: 4 }}>
-            <Box
-              sx={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 64,
-                height: 64,
-                borderRadius: '16px',
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                boxShadow: '0 8px 24px rgba(16, 185, 129, 0.35)',
-                mb: 3,
-              }}
-            >
-              <BarChartIcon sx={{ fontSize: 32, color: '#fff' }} />
+            {/* DWT 로고 */}
+            <Box sx={{ mb: 2 }}>
+              <Logo size="large" showCompanyName variant="light" />
             </Box>
             
             <Typography
-              variant="h5"
-              sx={{
-                fontWeight: 700,
-                color: '#1f2937',
-                mb: 0.5,
-              }}
-            >
-              단가표 통합 관리
-            </Typography>
-            
-            <Typography
               variant="body2"
-              sx={{ color: '#6b7280' }}
+              sx={{ color: text.secondary, mt: 1 }}
             >
               시스템에 로그인하세요
             </Typography>
           </Box>
           
           {error && (
-            <Alert severity="error" sx={{ mb: 3 }}>
+            <Alert 
+              severity="error" 
+              sx={{ 
+                mb: 3,
+                borderRadius: 2,
+              }}
+            >
               {error}
             </Alert>
           )}
@@ -635,14 +634,17 @@ function UserLoginUI({
               autoFocus
               autoComplete="email"
               sx={{
-                mb: 2,
+                mb: 2.5,
                 '& .MuiOutlinedInput-root': {
+                  borderRadius: 2,
+                  transition: transitions.fast,
                   '&.Mui-focused fieldset': {
-                    borderColor: '#10b981',
+                    borderColor: green.main,
+                    borderWidth: 2,
                   },
                 },
                 '& .MuiInputLabel-root.Mui-focused': {
-                  color: '#10b981',
+                  color: green.main,
                 },
               }}
             />
@@ -661,6 +663,9 @@ function UserLoginUI({
                     <IconButton
                       onClick={() => setShowPassword(!showPassword)}
                       edge="end"
+                      sx={{
+                        '&:hover': { color: green.main },
+                      }}
                     >
                       {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
                     </IconButton>
@@ -668,14 +673,17 @@ function UserLoginUI({
                 ),
               }}
               sx={{
-                mb: 2,
+                mb: 2.5,
                 '& .MuiOutlinedInput-root': {
+                  borderRadius: 2,
+                  transition: transitions.fast,
                   '&.Mui-focused fieldset': {
-                    borderColor: '#10b981',
+                    borderColor: green.main,
+                    borderWidth: 2,
                   },
                 },
                 '& .MuiInputLabel-root.Mui-focused': {
-                  color: '#10b981',
+                  color: green.main,
                 },
               }}
             />
@@ -686,19 +694,19 @@ function UserLoginUI({
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
                   sx={{
-                    color: '#10b981',
+                    color: green.main,
                     '&.Mui-checked': {
-                      color: '#10b981',
+                      color: green.main,
                     },
                   }}
                 />
               }
               label="아이디 저장"
               sx={{
-                mb: 2,
+                mb: 3,
                 '& .MuiFormControlLabel-label': {
-                  color: '#4b5563',
-                  fontSize: '0.875rem',
+                  color: text.secondary,
+                  fontSize: theme.typography.body2.fontSize,
                 },
               }}
             />
@@ -712,14 +720,17 @@ function UserLoginUI({
               sx={{
                 py: 1.5,
                 borderRadius: 2,
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                background: `linear-gradient(135deg, ${green.main} 0%, ${green.dark} 100%)`,
                 fontWeight: 600,
-                fontSize: '1rem',
-                textTransform: 'none',
-                boxShadow: '0 8px 24px rgba(16, 185, 129, 0.35)',
+                boxShadow: `0 8px 24px ${alpha(green.main, 0.35)}`,
+                transition: transitions.fast,
                 '&:hover': {
-                  background: 'linear-gradient(135deg, #34d399 0%, #10b981 100%)',
-                  boxShadow: '0 12px 28px rgba(16, 185, 129, 0.4)',
+                  background: `linear-gradient(135deg, ${green.light} 0%, ${green.main} 100%)`,
+                  boxShadow: `0 12px 28px ${alpha(green.main, 0.45)}`,
+                  transform: 'translateY(-2px)',
+                },
+                '&:active': {
+                  transform: 'translateY(0)',
                 },
               }}
             >
@@ -727,6 +738,19 @@ function UserLoginUI({
             </Button>
           </Box>
         </Box>
+        
+        {/* 하단 안내 */}
+        <Typography
+          variant="caption"
+          sx={{
+            display: 'block',
+            textAlign: 'center',
+            mt: 3,
+            color: alpha('#ffffff', 0.7),
+          }}
+        >
+          DWT Price Center © 2024
+        </Typography>
       </Box>
     </Box>
   );

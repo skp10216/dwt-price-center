@@ -187,3 +187,115 @@ export const useDomainStore = create<DomainState>((set) => ({
   isAdminDomain: false,
   setDomainType: (type) => set({ domainType: type, isAdminDomain: type === 'admin' }),
 }));
+
+// 외관 설정 타입 import
+import type { 
+  AppearanceSettings, 
+  ThemeMode,
+  FontScale, 
+  Density, 
+  AccentColor 
+} from '@/theme/settings';
+import { DEFAULT_SETTINGS, isValidSettings } from '@/theme/settings';
+
+// 외관 설정 상태 (확장된 테마 시스템)
+interface AppearanceState {
+  settings: AppearanceSettings;
+  // 개별 설정 변경
+  setFontScale: (fontScale: FontScale) => void;
+  setDensity: (density: Density) => void;
+  setAccentColor: (accentColor: AccentColor) => void;
+  setMode: (mode: ThemeMode) => void;
+  // 전체 설정 변경
+  setSettings: (settings: Partial<AppearanceSettings>) => void;
+  // 초기화
+  resetSettings: () => void;
+}
+
+// 외관 설정 hydration 추적
+let appearanceHydrated = false;
+
+export const useAppearanceStore = create<AppearanceState>()(
+  persist(
+    (set) => ({
+      settings: DEFAULT_SETTINGS,
+      setFontScale: (fontScale) => 
+        set((state) => ({ settings: { ...state.settings, fontScale } })),
+      setDensity: (density) => 
+        set((state) => ({ settings: { ...state.settings, density } })),
+      setAccentColor: (accentColor) => 
+        set((state) => ({ settings: { ...state.settings, accentColor } })),
+      setMode: (mode) => 
+        set((state) => ({ settings: { ...state.settings, mode } })),
+      setSettings: (partial) => 
+        set((state) => ({ settings: { ...state.settings, ...partial } })),
+      resetSettings: () => set({ settings: DEFAULT_SETTINGS }),
+    }),
+    {
+      name: 'appearance-storage',
+      partialize: (state) => ({ settings: state.settings }),
+      onRehydrateStorage: () => {
+        return (state) => {
+          appearanceHydrated = true;
+          // 저장된 설정이 유효하지 않으면 기본값으로 복원
+          if (state && !isValidSettings(state.settings)) {
+            state.settings = DEFAULT_SETTINGS;
+          }
+        };
+      },
+    }
+  )
+);
+
+// 외관 설정 hydration 완료 확인 훅
+export const useAppearanceHydrated = () => {
+  const [hydrated, setHydrated] = useState(appearanceHydrated);
+  
+  useEffect(() => {
+    if (appearanceHydrated) {
+      setHydrated(true);
+      return;
+    }
+    
+    const unsubscribe = useAppearanceStore.persist.onFinishHydration(() => {
+      setHydrated(true);
+    });
+    
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+  
+  return hydrated;
+};
+
+// 하위 호환성을 위한 useThemeStore (deprecated - useAppearanceStore 사용 권장)
+export { type ThemeMode };
+
+interface ThemeState {
+  mode: ThemeMode;
+  setMode: (mode: ThemeMode) => void;
+  toggleMode: () => void;
+}
+
+export const useThemeStore = create<ThemeState>()(
+  persist(
+    (set, get) => ({
+      mode: 'light',
+      setMode: (mode) => {
+        set({ mode });
+        // 외관 설정과 동기화
+        useAppearanceStore.getState().setMode(mode);
+      },
+      toggleMode: () => {
+        const current = get().mode;
+        const next: ThemeMode = current === 'light' ? 'dark' : current === 'dark' ? 'auto' : 'light';
+        set({ mode: next });
+        useAppearanceStore.getState().setMode(next);
+      },
+    }),
+    {
+      name: 'theme-storage',
+    }
+  )
+);
