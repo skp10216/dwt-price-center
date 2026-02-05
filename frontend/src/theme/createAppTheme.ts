@@ -8,7 +8,8 @@
 
 'use client';
 
-import { createTheme, alpha, type PaletteMode, type Theme } from '@mui/material/styles';
+import { createTheme, alpha, type Theme } from '@mui/material/styles';
+import type { PaletteMode } from '@mui/material';
 import {
   accentPalettes,
   semanticColors,

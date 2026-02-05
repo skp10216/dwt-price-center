@@ -108,8 +108,14 @@ export const useAuthStore = create<AuthState>()(
       name: 'auth-storage',
       partialize: (state) => ({ user: state.user, token: state.token, isAuthenticated: state.isAuthenticated }),
       onRehydrateStorage: () => {
-        return () => {
+        return (state) => {
           hasHydrated = true;
+          // 새로고침 시 localStorage에서 복원된 인증 정보를 쿠키에도 동기화
+          if (state && state.isAuthenticated && state.user && state.token) {
+            // 쿠키가 없거나 만료된 경우를 대비하여 다시 설정 (7일 기본)
+            setCookie('token', state.token, 7);
+            setCookie('user_role', state.user.role, 7);
+          }
         };
       },
     }

@@ -46,6 +46,7 @@ import {
   Chip,
   alpha,
   useTheme,
+  Theme,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -74,6 +75,7 @@ import { ModelPriceCard } from './ModelPriceCard';
 import { PriceHistoryModal } from './PriceHistoryModal';
 import { DeletedHistoryModal } from './DeletedHistoryModal';
 import { ModelRegisterModal } from './ModelRegisterModal';
+import { ModelEditModal } from './ModelEditModal';
 import { shadows, transitions } from '@/theme/tokens';
 import {
   SSOTModel,
@@ -97,6 +99,44 @@ interface ModelPriceEditorProps {
 // 페이지당 모델 수
 const MODELS_PER_PAGE = 20;
 
+// ============================================================================
+// 시리즈 필터 그룹 정의
+// ============================================================================
+
+interface SeriesGroup {
+  label: string;       // 표시 이름
+  matchPrefix: string; // 시리즈 매칭 프리픽스 (대소문자 무시)
+  color: string;       // Chip 색상
+}
+
+/** Samsung 시리즈 그룹 (대분류) */
+const SAMSUNG_SERIES_GROUPS: SeriesGroup[] = [
+  { label: 'Galaxy S', matchPrefix: 'Galaxy S', color: '#1428A0' },
+  { label: 'Galaxy Note', matchPrefix: 'Galaxy Note', color: '#FF6F00' },
+  { label: 'Galaxy Z Fold', matchPrefix: 'Galaxy Z Fold', color: '#6A1B9A' },
+  { label: 'Galaxy Z Flip', matchPrefix: 'Galaxy Z Flip', color: '#00838F' },
+];
+
+/** Apple 시리즈 그룹 (세대별) */
+const APPLE_SERIES_GROUPS: SeriesGroup[] = [
+  { label: 'iPhone 16', matchPrefix: 'iPhone 16', color: '#5E5CE6' },
+  { label: 'iPhone 15', matchPrefix: 'iPhone 15', color: '#BF5AF2' },
+  { label: 'iPhone 14', matchPrefix: 'iPhone 14', color: '#FF375F' },
+  { label: 'iPhone 13', matchPrefix: 'iPhone 13', color: '#FF9F0A' },
+  { label: 'iPhone 12', matchPrefix: 'iPhone 12', color: '#30D158' },
+  { label: 'iPhone 11', matchPrefix: 'iPhone 11', color: '#64D2FF' },
+  { label: 'iPhone X', matchPrefix: 'iPhone X', color: '#AC8E68' },
+  { label: 'iPhone SE', matchPrefix: 'iPhone SE', color: '#8E8E93' },
+  { label: 'iPhone 8', matchPrefix: 'iPhone 8', color: '#636366' },
+  { label: 'iPhone 7', matchPrefix: 'iPhone 7', color: '#48484A' },
+];
+
+/** 제조사별 시리즈 그룹 매핑 */
+const SERIES_GROUPS_BY_MANUFACTURER: Record<Manufacturer, SeriesGroup[]> = {
+  samsung: SAMSUNG_SERIES_GROUPS,
+  apple: APPLE_SERIES_GROUPS,
+};
+
 // 디바이스 타입 아이콘
 const deviceIcons: Record<DeviceType, React.ReactNode> = {
   smartphone: <SmartphoneIcon />,
@@ -111,7 +151,7 @@ const manufacturerIcons: Record<Manufacturer, React.ReactNode> = {
 };
 
 // 디바이스 타입별 그라데이션 (테마 기반)
-const getDeviceGradient = (deviceType: DeviceType, theme: ReturnType<typeof useTheme>) => {
+const getDeviceGradient = (deviceType: DeviceType, theme: Theme) => {
   const colors = {
     smartphone: {
       start: theme.palette.primary.main,
@@ -260,6 +300,10 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
   // 모델 등록 모달 상태
   const [registerModalOpen, setRegisterModalOpen] = useState(false);
 
+  // 모델 수정 모달 상태
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editTargetModel, setEditTargetModel] = useState<GroupedModel | null>(null);
+
   // 모델 그룹화 (model_key 기준)
   const groupedModels = useMemo(() => {
     const groups = new Map<string, GroupedModel>();
@@ -300,8 +344,14 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
         if (!matchesSearch) return false;
       }
 
-      if (filters.series && group.series !== filters.series) {
-        return false;
+      // 시리즈 필터: prefix 매칭 (시리즈 그룹 Chip 지원)
+      if (filters.series) {
+        const seriesLower = group.series.toLowerCase();
+        const filterLower = filters.series.toLowerCase();
+        // 정확히 일치하거나 prefix로 시작하는 경우
+        if (!seriesLower.startsWith(filterLower) && seriesLower !== filterLower) {
+          return false;
+        }
       }
 
       if (filters.priceStatus !== 'all') {
@@ -607,6 +657,12 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
     [models]
   );
 
+  // 모델 수정 핸들러
+  const handleEditModel = useCallback((groupedModel: GroupedModel) => {
+    setEditTargetModel(groupedModel);
+    setEditModalOpen(true);
+  }, []);
+
   // 로딩 스켈레톤
   if (loading) {
     return (
@@ -815,6 +871,74 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
         saving={saving}
       />
 
+      {/* ========== 시리즈 빠른 필터 (Chip) ========== */}
+      <Card
+        sx={{
+          mb: 2,
+          borderRadius: 3,
+          border: `1px solid ${theme.palette.divider}`,
+          boxShadow: shadows.sm,
+          background: theme.palette.mode === 'dark'
+            ? `linear-gradient(135deg, ${alpha(theme.palette.primary.dark, 0.08)} 0%, ${alpha(theme.palette.background.paper, 0.95)} 100%)`
+            : `linear-gradient(135deg, ${alpha(theme.palette.primary.light, 0.06)} 0%, ${theme.palette.background.paper} 100%)`,
+        }}
+      >
+        <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
+          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1.5 }}>
+            <FilterIcon fontSize="small" color="primary" />
+            <Typography variant="subtitle2" fontWeight={600} color="text.secondary">
+              시리즈 빠른 필터
+            </Typography>
+            {filters.series && (
+              <Chip
+                label="전체 보기"
+                size="small"
+                variant="outlined"
+                onClick={() => setFilters((prev) => ({ ...prev, series: '' }))}
+                sx={{ ml: 1, fontWeight: 500 }}
+              />
+            )}
+          </Stack>
+          <Stack direction="row" flexWrap="wrap" gap={1}>
+            {SERIES_GROUPS_BY_MANUFACTURER[manufacturer].map((group) => {
+              const isSelected = filters.series.toLowerCase() === group.matchPrefix.toLowerCase();
+              return (
+                <Chip
+                  key={group.matchPrefix}
+                  label={group.label}
+                  onClick={() => {
+                    if (isSelected) {
+                      setFilters((prev) => ({ ...prev, series: '' }));
+                    } else {
+                      setFilters((prev) => ({ ...prev, series: group.matchPrefix }));
+                    }
+                  }}
+                  variant={isSelected ? 'filled' : 'outlined'}
+                  sx={{
+                    fontWeight: 600,
+                    fontSize: '0.875rem',
+                    py: 2.5,
+                    px: 0.5,
+                    borderRadius: '16px',
+                    transition: 'all 0.2s ease-in-out',
+                    borderColor: group.color,
+                    color: isSelected ? '#fff' : group.color,
+                    bgcolor: isSelected ? group.color : 'transparent',
+                    '&:hover': {
+                      bgcolor: isSelected
+                        ? group.color
+                        : alpha(group.color, 0.1),
+                      transform: 'translateY(-2px)',
+                      boxShadow: `0 4px 12px ${alpha(group.color, 0.3)}`,
+                    },
+                  }}
+                />
+              );
+            })}
+          </Stack>
+        </CardContent>
+      </Card>
+
       {/* ========== 필터 카드 ========== */}
       <Card
         sx={{
@@ -977,6 +1101,7 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
                 onPriceChange={handlePriceChange}
                 onViewHistory={handleViewHistory}
                 onDeleteVariant={handleDeleteVariant}
+                onEdit={handleEditModel}
                 selected={selectedModelKeys.has(group.model_key)}
                 onSelectChange={handleSelectChange}
               />
@@ -1060,6 +1185,22 @@ export function ModelPriceEditor({ deviceType, manufacturer }: ModelPriceEditorP
         deviceType={deviceType}
         manufacturer={manufacturer}
         onSuccess={loadData}
+      />
+
+      {/* ========== 모델 수정 모달 ========== */}
+      <ModelEditModal
+        open={editModalOpen}
+        onClose={(shouldRefresh?: boolean) => {
+          setEditModalOpen(false);
+          setEditTargetModel(null);
+          // 용량 추가/삭제 후 닫힐 때 데이터 새로고침
+          if (shouldRefresh) {
+            loadData();
+          }
+        }}
+        groupedModel={editTargetModel}
+        deviceType={deviceType}
+        manufacturer={manufacturer}
       />
     </Box>
   );

@@ -82,7 +82,7 @@ export default function AppearanceSettingsPage() {
       {/* 페이지 헤더 */}
       <PageHeader
         title="외관 설정"
-        subtitle="UI 테마를 커스터마이징하여 작업 환경을 최적화하세요"
+        description="UI 테마를 커스터마이징하여 작업 환경을 최적화하세요"
       />
 
       {/* 안내 메시지 */}

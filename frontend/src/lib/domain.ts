@@ -23,18 +23,24 @@ const ADMIN_DOMAIN_PATTERNS = [
 /**
  * Host 헤더에서 도메인 타입 추출
  * 개발 환경: ?domain=admin 쿼리 파라미터로 강제 설정 가능
+ * localhost에서 /admin/* 경로 접근 시 자동으로 admin 도메인으로 인식
  */
-export function getDomainType(host: string | null, searchParams?: URLSearchParams): DomainType {
+export function getDomainType(host: string | null, searchParams?: URLSearchParams, pathname?: string): DomainType {
   // 개발 환경: 쿼리 파라미터로 도메인 강제 설정
   if (searchParams?.get('domain') === 'admin') {
     return 'admin';
   }
-  
+
+  // localhost 개발 환경에서 /admin/* 경로 접근 시 admin 도메인으로 인식
+  if (pathname?.startsWith('/admin')) {
+    return 'admin';
+  }
+
   if (!host) return 'user';
-  
+
   // admin 도메인 패턴 매칭
   const hostname = host.split(':')[0]; // 포트 제거
-  
+
   for (const pattern of ADMIN_DOMAIN_PATTERNS) {
     if (typeof pattern === 'string') {
       if (hostname === pattern) return 'admin';
@@ -42,7 +48,7 @@ export function getDomainType(host: string | null, searchParams?: URLSearchParam
       if (pattern.test(hostname)) return 'admin';
     }
   }
-  
+
   return 'user';
 }
 
@@ -53,6 +59,7 @@ export const DOMAIN_ROUTES = {
   admin: {
     // 관리자 도메인에서 허용되는 경로
     allowed: [
+      '/admin/price-dashboard',
       '/admin/models',
       '/admin/hq-upload',
       '/admin/partners',
@@ -61,6 +68,7 @@ export const DOMAIN_ROUTES = {
       '/admin/deductions',
       '/admin/audit',
       '/admin/users',
+      '/admin/settings',
       '/login',
     ],
     // 기본 리다이렉트 경로

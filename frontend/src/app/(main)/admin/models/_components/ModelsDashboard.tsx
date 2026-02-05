@@ -30,6 +30,7 @@ import {
   LinearProgress,
   alpha,
   useTheme,
+  Theme,
 } from '@mui/material';
 import {
   Smartphone as SmartphoneIcon,
@@ -92,7 +93,7 @@ const manufacturerBrandColors: Record<Manufacturer, { light: string; dark: strin
 };
 
 // 디바이스 타입별 그라데이션 (테마 기반)
-const getDeviceGradient = (deviceType: DeviceType, theme: ReturnType<typeof useTheme>) => {
+const getDeviceGradient = (deviceType: DeviceType, theme: Theme) => {
   const colors = {
     smartphone: {
       start: theme.palette.primary.main,
@@ -391,7 +392,7 @@ export function ModelsDashboard() {
                 color="white"
                 sx={{ letterSpacing: '-0.01em' }}
               >
-                SSOT 모델 관리
+                모델 관리
               </Typography>
               <Typography
                 variant="body2"

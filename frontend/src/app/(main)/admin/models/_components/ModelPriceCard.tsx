@@ -21,12 +21,15 @@ import {
   Checkbox,
   Avatar,
   Skeleton,
+  IconButton,
+  Tooltip,
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
   Smartphone as SmartphoneIcon,
   Settings as SettingsIcon,
   CheckCircle as CheckCircleIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import { PriceTable } from './PriceTable';
 import { GroupedModel, Grade, PriceChange } from './types';
@@ -38,6 +41,7 @@ interface ModelPriceCardProps {
   onPriceChange: (modelId: string, gradeId: string, gradeName: string, originalPrice: number, newPrice: number) => void;
   onViewHistory?: (modelId: string) => void;
   onDeleteVariant?: (modelId: string) => void;
+  onEdit?: (groupedModel: GroupedModel) => void;
   selected?: boolean;
   onSelectChange?: (modelKey: string, selected: boolean) => void;
   disabled?: boolean;
@@ -50,6 +54,7 @@ function ModelPriceCardComponent({
   onPriceChange,
   onViewHistory,
   onDeleteVariant,
+  onEdit,
   selected = false,
   onSelectChange,
   disabled = false,
@@ -178,6 +183,28 @@ function ModelPriceCardComponent({
             );
           })}
         </Stack>
+
+        {/* 수정 버튼 */}
+        {onEdit && (
+          <Tooltip title="모델 수정">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit(groupedModel);
+              }}
+              sx={{
+                bgcolor: 'primary.50',
+                color: 'primary.main',
+                '&:hover': {
+                  bgcolor: 'primary.100',
+                },
+              }}
+            >
+              <EditIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
         
         {/* 변경 표시 */}
         {changedCount > 0 && (

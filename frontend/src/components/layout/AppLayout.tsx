@@ -59,6 +59,7 @@ import {
   SettingsBrightness as AutoModeIcon,
   Add as AddIcon,
   Palette as PaletteIcon,
+  TableChart as TableChartIcon,
 } from '@mui/icons-material';
 import { useAuthStore, useUIStore, useDomainStore, useAuthHydrated, useThemeStore, type ThemeMode } from '@/lib/store';
 import { getDomainType, getDefaultPath } from '@/lib/domain';
@@ -85,9 +86,10 @@ const userMenus: MenuItemType[] = [
 
 // 관리자 도메인 메뉴 (admin.dwt.price) - 서브메뉴 구조
 const adminMenus: MenuItemType[] = [
+  { id: 'price-dashboard', label: '판매가 대시보드', icon: <TableChartIcon />, path: '/admin/price-dashboard' },
   {
     id: 'ssot-models',
-    label: 'SSOT 모델 관리',
+    label: '모델 관리',
     icon: <SettingsIcon />,
     path: '/admin/models',
     children: [
@@ -166,10 +168,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (typeof window !== 'undefined') {
       const host = window.location.host;
       const urlSearchParams = new URLSearchParams(window.location.search);
-      const detected = getDomainType(host, urlSearchParams);
+      const detected = getDomainType(host, urlSearchParams, pathname);
       setDomainType(detected);
     }
-  }, [setDomainType]);
+  }, [setDomainType, pathname]);
   
   // 현재 경로에 맞는 메뉴 자동 확장
   useEffect(() => {

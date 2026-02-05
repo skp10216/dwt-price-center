@@ -1,7 +1,19 @@
 {
   "permissions": {
     "allow": [
-      "Bash(powershell -ExecutionPolicy Bypass -File dev.ps1 restart fe)"
+      "Bash(powershell -ExecutionPolicy Bypass -File dev.ps1 restart fe)",
+      "Bash(ls:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run type-check:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx next:*)",
+      "Bash(docker-compose build:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(docker-compose exec:*)",
+      "Bash(docker-compose stop:*)",
+      "Bash(docker-compose rm:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run dev:*)"
     ]
   }
 }

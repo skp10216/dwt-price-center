@@ -7,6 +7,11 @@ import type { FontScale } from './tokens/typography';
 import type { Density } from './tokens/spacing';
 import type { AccentColor } from './tokens/palette';
 
+// Re-export types for external use
+export type { FontScale } from './tokens/typography';
+export type { Density } from './tokens/spacing';
+export type { AccentColor } from './tokens/palette';
+
 // 테마 모드
 export type ThemeMode = 'light' | 'dark' | 'auto';
 
