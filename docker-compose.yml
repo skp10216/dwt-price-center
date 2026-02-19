@@ -88,6 +88,20 @@ services:
         condition: service_healthy
     command: rq worker --url redis://redis:6379/0 high default low
 
+  # Adminer - 웹 기반 데이터베이스 관리 도구
+  adminer:
+    image: adminer:latest
+    container_name: dwt-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+      - ADMINER_DESIGN=dracula
+
   # Next.js Frontend - Admin/Viewer UI (단일 앱, Host 기반 도메인 분리)
   frontend:
     build:
