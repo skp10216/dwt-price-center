@@ -568,6 +568,12 @@ export const settlementApi = {
   deleteUploadJob: (id: string) =>
     api.delete<ApiResponse<unknown>>(`/settlement/upload/jobs/${id}`),
 
+  batchDeleteUploadJobs: (jobIds: string[]) =>
+    api.post<ApiResponse<{ deleted_count: number; skipped_count: number; errors: string[] }>>(
+      '/settlement/upload/jobs/batch-delete',
+      jobIds,
+    ),
+
   confirmUploadJob: (id: string, excludeConflicts?: boolean) =>
     api.post<ApiResponse<unknown>>(`/settlement/upload/jobs/${id}/confirm`, null, {
       params: { exclude_conflicts: excludeConflicts },

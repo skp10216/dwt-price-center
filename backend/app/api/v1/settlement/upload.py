@@ -12,7 +12,7 @@ from pathlib import Path
 from datetime import datetime, date
 from decimal import Decimal, InvalidOperation
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Body
 from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -676,6 +676,74 @@ async def delete_upload_job(
 
     logger.info(f"[Upload] Job {job_id} 삭제 완료 by user={current_user.id}")
     return {"detail": "작업이 삭제되었습니다", "id": str(job_id)}
+
+
+@router.post("/jobs/batch-delete", response_model=dict)
+async def batch_delete_upload_jobs(
+    job_ids: list[str] = Body(..., description="삭제할 작업 ID 목록"),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+    current_user: User = Depends(get_current_user),
+):
+    """업로드 작업 일괄 삭제 (RUNNING 제외)"""
+    if not job_ids:
+        raise HTTPException(status_code=400, detail="삭제할 작업을 선택해주세요.")
+
+    deleted_count = 0
+    skipped_count = 0
+    errors = []
+
+    for jid_str in job_ids:
+        try:
+            jid = uuid.UUID(jid_str)
+        except ValueError:
+            errors.append(f"잘못된 ID: {jid_str}")
+            continue
+
+        job = await db.get(UploadJob, jid)
+        if not job:
+            errors.append(f"작업을 찾을 수 없음: {jid_str}")
+            continue
+
+        if job.status == JobStatus.RUNNING:
+            skipped_count += 1
+            errors.append(f"실행 중인 작업 건너뜀: {job.original_filename}")
+            continue
+
+        # Redis 데이터 삭제
+        preview_key = f"settlement:upload:preview:{jid}"
+        unmatched_key = f"settlement:upload:unmatched:{jid}"
+        await redis.delete(preview_key, unmatched_key)
+
+        # 파일 삭제
+        if job.file_path:
+            try:
+                file_p = Path(job.file_path)
+                if file_p.exists():
+                    file_p.unlink()
+            except Exception:
+                pass
+
+        await db.delete(job)
+        deleted_count += 1
+
+    # 감사로그 (일괄)
+    if deleted_count > 0:
+        db.add(AuditLog(
+            user_id=current_user.id,
+            action=AuditAction.UPLOAD_DELETE,
+            target_type="upload_job",
+            after_data={"deleted_count": deleted_count, "job_ids": job_ids},
+        ))
+        await db.commit()
+
+    logger.info(f"[Upload] 일괄 삭제: {deleted_count}건 삭제, {skipped_count}건 건너뜀")
+    return {
+        "detail": f"{deleted_count}건 삭제 완료",
+        "deleted_count": deleted_count,
+        "skipped_count": skipped_count,
+        "errors": errors,
+    }
 
 
 @router.post("/jobs/{job_id}/confirm", response_model=dict)

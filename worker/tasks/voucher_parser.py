@@ -265,11 +265,11 @@ def _update_job_progress(session: Session, job_id: str, progress: int):
 
 
 def _update_job_failed(session: Session, job_id: str, error_message: str):
-    """Job 실패 상태로 업데이트 (raw SQL)"""
+    """Job 실패 상태로 업데이트 (raw SQL) - enum은 대문자"""
     session.execute(
         text("""
             UPDATE upload_jobs
-            SET status = 'failed', error_message = :msg, completed_at = :now
+            SET status = 'FAILED', error_message = :msg, completed_at = :now
             WHERE id = :jid
         """),
         {"jid": job_id, "msg": error_message, "now": datetime.utcnow()}
@@ -314,11 +314,11 @@ def parse_voucher_excel(job_id: str) -> dict:
         file_path = job_data["file_path"]
         job_type_str = job_data["job_type"]
 
-        # 상태 → running
+        # 상태 → RUNNING (PostgreSQL enum은 대문자)
         session.execute(
             text("""
                 UPDATE upload_jobs
-                SET status = 'running', started_at = :now, progress = 10
+                SET status = 'RUNNING', started_at = :now, progress = 10
                 WHERE id = :job_id
             """),
             {"job_id": job_id, "now": datetime.utcnow()}
@@ -589,8 +589,8 @@ def parse_voucher_excel(job_id: str) -> dict:
         session.execute(
             text("""
                 UPDATE upload_jobs
-                SET result_summary = :summary,
-                    status = 'succeeded',
+                SET result_summary = CAST(:summary AS jsonb),
+                    status = 'SUCCEEDED',
                     progress = 100,
                     completed_at = :now
                 WHERE id = :job_id

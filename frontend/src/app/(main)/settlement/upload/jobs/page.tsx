@@ -2,18 +2,18 @@
 
 /**
  * 업로드 작업 내역 (Job History)
+ * - 체크박스 선택 → 일괄 삭제
  * - 한글 상태 표시 (대기, 처리중, 완료, 실패)
- * - 진행률 표시 (프로그레스바)
- * - 삭제 기능 (확인 다이얼로그)
+ * - 진행률 프로그레스바 + %
  * - KST 시간대 자동 변환
- * - 결과 요약 표시
+ * - 진행중 작업 자동 새로고침 (3초)
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TablePagination, Chip, IconButton, Tooltip,
-  Stack, alpha, useTheme, LinearProgress, Button,
+  Stack, alpha, useTheme, LinearProgress, Button, Checkbox,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material';
 import {
@@ -53,21 +53,41 @@ interface UploadJob {
   confirmed_at: string | null;
 }
 
-// ─── 상태 매핑 ───
-const statusConfig: Record<string, { label: string; color: 'default' | 'warning' | 'success' | 'error' | 'info'; icon: React.ReactNode }> = {
-  queued: { label: '대기중', color: 'default', icon: <PendingIcon sx={{ fontSize: 16 }} /> },
-  running: { label: '처리중', color: 'info', icon: <RunningIcon sx={{ fontSize: 16 }} /> },
-  succeeded: { label: '완료', color: 'success', icon: <CheckCircleIcon sx={{ fontSize: 16 }} /> },
-  failed: { label: '실패', color: 'error', icon: <ErrorIcon sx={{ fontSize: 16 }} /> },
-};
+// ─── 상태 매핑 (DB enum 대문자 + API 소문자 모두 대응) ───
+function getStatusInfo(status: string): { label: string; color: 'default' | 'warning' | 'success' | 'error' | 'info'; icon: React.ReactNode } {
+  const s = status.toLowerCase();
+  switch (s) {
+    case 'queued':    return { label: '대기중', color: 'default', icon: <PendingIcon sx={{ fontSize: 16 }} /> };
+    case 'running':   return { label: '처리중', color: 'info',    icon: <RunningIcon sx={{ fontSize: 16 }} /> };
+    case 'succeeded': return { label: '완료',   color: 'success', icon: <CheckCircleIcon sx={{ fontSize: 16 }} /> };
+    case 'failed':    return { label: '실패',   color: 'error',   icon: <ErrorIcon sx={{ fontSize: 16 }} /> };
+    default:          return { label: status,    color: 'default', icon: null };
+  }
+}
+
+function isActiveStatus(status: string): boolean {
+  const s = status.toLowerCase();
+  return s === 'queued' || s === 'running';
+}
+
+function isRunning(status: string): boolean {
+  return status.toLowerCase() === 'running';
+}
+
+function isSucceeded(status: string): boolean {
+  return status.toLowerCase() === 'succeeded';
+}
+
+function isFailed(status: string): boolean {
+  return status.toLowerCase() === 'failed';
+}
 
 // ─── 유틸리티: UTC ISO → KST 로컬 시간 포맷 ───
 function formatKST(isoStr: string | null | undefined): string {
   if (!isoStr) return '—';
-  // 서버에서 UTC 시간이 timezone 없이 올 수 있음 → 'Z' 또는 '+00:00' 미포함 시 UTC로 간주
   let dateStr = isoStr;
   if (dateStr.includes('T') && !dateStr.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(dateStr)) {
-    dateStr += 'Z'; // UTC임을 명시
+    dateStr += 'Z';
   }
   try {
     const d = new Date(dateStr);
@@ -89,8 +109,8 @@ function formatKST(isoStr: string | null | undefined): string {
 
 // ─── 작업 유형 표시 ───
 function getJobTypeLabel(jobType: string): { label: string; color: 'primary' | 'secondary' } {
-  if (jobType.includes('sales')) return { label: '판매', color: 'primary' };
-  if (jobType.includes('purchase')) return { label: '매입', color: 'secondary' };
+  if (jobType.toLowerCase().includes('sales')) return { label: '판매', color: 'primary' };
+  if (jobType.toLowerCase().includes('purchase')) return { label: '매입', color: 'secondary' };
   return { label: jobType, color: 'primary' };
 }
 
@@ -105,12 +125,14 @@ export default function UploadJobsPage() {
   const [pageSize, setPageSize] = useState(25);
   const [loading, setLoading] = useState(true);
 
+  // 선택 상태 (체크박스)
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
   // 삭제 다이얼로그
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<UploadJob | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // 자동 새로고침 (진행중 작업이 있으면 5초마다)
+  // 자동 새로고침
   const [autoRefresh, setAutoRefresh] = useState(false);
 
   const loadJobs = useCallback(async () => {
@@ -121,8 +143,7 @@ export default function UploadJobsPage() {
       setJobs(data.jobs || []);
       setTotal(data.total || 0);
 
-      // 진행중 작업이 있으면 자동 새로고침 활성화
-      const hasActive = (data.jobs || []).some((j) => j.status === 'queued' || j.status === 'running');
+      const hasActive = (data.jobs || []).some((j) => isActiveStatus(j.status));
       setAutoRefresh(hasActive);
     } catch {
       enqueueSnackbar('작업 목록을 불러오는데 실패했습니다', { variant: 'error' });
@@ -133,32 +154,58 @@ export default function UploadJobsPage() {
 
   useEffect(() => { loadJobs(); }, [loadJobs]);
 
-  // 자동 새로고침 (진행중 작업이 있을 때 5초 간격)
+  // 자동 새로고침 (진행중 작업 → 3초 간격)
   useEffect(() => {
     if (!autoRefresh) return;
-    const timer = setInterval(() => {
-      loadJobs();
-    }, 5000);
+    const timer = setInterval(loadJobs, 3000);
     return () => clearInterval(timer);
   }, [autoRefresh, loadJobs]);
 
-  // 삭제 핸들러
-  const handleDeleteClick = (job: UploadJob) => {
-    setDeleteTarget(job);
+  // ─── 체크박스 핸들러 ───
+  // 삭제 가능한 항목 (RUNNING 제외)
+  const deletableJobs = jobs.filter((j) => !isRunning(j.status));
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelected(new Set(deletableJobs.map((j) => j.id)));
+    } else {
+      setSelected(new Set());
+    }
+  };
+
+  const handleSelectOne = (id: string, checked: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const isAllSelected = deletableJobs.length > 0 && deletableJobs.every((j) => selected.has(j.id));
+  const isSomeSelected = selected.size > 0 && !isAllSelected;
+
+  // ─── 일괄 삭제 ───
+  const handleBatchDeleteClick = () => {
+    if (selected.size === 0) return;
     setDeleteDialogOpen(true);
   };
 
   const handleDeleteConfirm = async () => {
-    if (!deleteTarget) return;
+    if (selected.size === 0) return;
     try {
       setDeleting(true);
-      await settlementApi.deleteUploadJob(deleteTarget.id);
-      enqueueSnackbar('작업이 삭제되었습니다', { variant: 'success' });
+      const ids = Array.from(selected);
+      const res = await settlementApi.batchDeleteUploadJobs(ids);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = res.data as any;
+      const deletedCount = data?.deleted_count ?? data?.data?.deleted_count ?? ids.length;
+      enqueueSnackbar(`${deletedCount}건 삭제 완료`, { variant: 'success' });
+      setSelected(new Set());
       setDeleteDialogOpen(false);
-      setDeleteTarget(null);
-      loadJobs(); // 목록 새로고침
+      loadJobs();
     } catch {
-      enqueueSnackbar('작업 삭제에 실패했습니다', { variant: 'error' });
+      enqueueSnackbar('삭제에 실패했습니다', { variant: 'error' });
     } finally {
       setDeleting(false);
     }
@@ -166,12 +213,11 @@ export default function UploadJobsPage() {
 
   const handleDeleteCancel = () => {
     setDeleteDialogOpen(false);
-    setDeleteTarget(null);
   };
 
-  // 결과 요약 렌더링
+  // ─── 결과 요약 렌더링 ───
   const renderSummary = (job: UploadJob) => {
-    if (job.status === 'failed' && job.error_message) {
+    if (isFailed(job.status) && job.error_message) {
       return (
         <Tooltip title={job.error_message} arrow>
           <Typography variant="caption" color="error.main" sx={{ maxWidth: 200, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -182,8 +228,7 @@ export default function UploadJobsPage() {
     }
     const s = job.result_summary;
     if (!s) {
-      if (job.status === 'queued') return <Typography variant="caption" color="text.disabled">대기중…</Typography>;
-      if (job.status === 'running') return <Typography variant="caption" color="info.main">처리중…</Typography>;
+      if (isActiveStatus(job.status)) return <Typography variant="caption" color="text.disabled">처리 대기중…</Typography>;
       return <Typography variant="caption" color="text.disabled">—</Typography>;
     }
     return (
@@ -196,6 +241,10 @@ export default function UploadJobsPage() {
       </Stack>
     );
   };
+
+  // ─── 선택된 작업 정보 ───
+  const selectedJobs = jobs.filter((j) => selected.has(j.id));
+  const runningSelected = selectedJobs.filter((j) => isRunning(j.status)).length;
 
   return (
     <Box>
@@ -217,7 +266,19 @@ export default function UploadJobsPage() {
             </Typography>
           </Box>
         </Stack>
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          {/* 일괄 삭제 버튼 */}
+          {selected.size > 0 && (
+            <Button
+              variant="contained"
+              color="error"
+              size="small"
+              startIcon={<DeleteIcon />}
+              onClick={handleBatchDeleteClick}
+            >
+              {selected.size}건 삭제
+            </Button>
+          )}
           <Button
             variant="outlined"
             size="small"
@@ -236,14 +297,22 @@ export default function UploadJobsPage() {
         <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: alpha(theme.palette.info.main, 0.04) }}>
+              {/* 전체 선택 체크박스 */}
+              <TableCell padding="checkbox" sx={{ width: 48 }}>
+                <Checkbox
+                  size="small"
+                  indeterminate={isSomeSelected}
+                  checked={isAllSelected}
+                  onChange={(e) => handleSelectAll(e.target.checked)}
+                />
+              </TableCell>
               <TableCell sx={{ fontWeight: 700, width: 160 }}>등록일시</TableCell>
               <TableCell sx={{ fontWeight: 700, width: 65 }} align="center">타입</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>파일명</TableCell>
               <TableCell align="center" sx={{ fontWeight: 700, width: 100 }}>상태</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 700, width: 80 }}>진행률</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 700, width: 100 }}>진행률</TableCell>
               <TableCell sx={{ fontWeight: 700, width: 280 }}>결과 요약</TableCell>
               <TableCell sx={{ fontWeight: 700, width: 160 }}>완료시간</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 700, width: 60 }}>작업</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -262,18 +331,30 @@ export default function UploadJobsPage() {
             ) : (
               jobs.map((job) => {
                 const typeInfo = getJobTypeLabel(job.job_type);
-                const statusInfo = statusConfig[job.status] || { label: job.status, color: 'default' as const, icon: null };
-                const canDelete = job.status !== 'running';
+                const statusInfo = getStatusInfo(job.status);
+                const canSelect = !isRunning(job.status);
+                const isChecked = selected.has(job.id);
 
                 return (
                   <TableRow
                     key={job.id}
                     hover
+                    selected={isChecked}
                     sx={{
-                      bgcolor: job.status === 'failed' ? alpha(theme.palette.error.main, 0.02) : 'transparent',
+                      bgcolor: isFailed(job.status) ? alpha(theme.palette.error.main, 0.02) : 'transparent',
                       '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.03) },
                     }}
                   >
+                    {/* 체크박스 */}
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        size="small"
+                        checked={isChecked}
+                        disabled={!canSelect}
+                        onChange={(e) => handleSelectOne(job.id, e.target.checked)}
+                      />
+                    </TableCell>
+
                     {/* 등록일시 */}
                     <TableCell sx={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
                       {formatKST(job.created_at)}
@@ -304,18 +385,18 @@ export default function UploadJobsPage() {
 
                     {/* 진행률 */}
                     <TableCell align="center">
-                      {(job.status === 'queued' || job.status === 'running') ? (
+                      {isActiveStatus(job.status) ? (
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                           <LinearProgress
                             variant={job.progress > 0 ? 'determinate' : 'indeterminate'}
                             value={job.progress}
                             sx={{ flex: 1, height: 6, borderRadius: 1 }}
                           />
-                          <Typography variant="caption" color="text.secondary" sx={{ minWidth: 30 }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ minWidth: 32, textAlign: 'right' }}>
                             {job.progress}%
                           </Typography>
                         </Box>
-                      ) : job.status === 'succeeded' ? (
+                      ) : isSucceeded(job.status) ? (
                         <Typography variant="caption" color="success.main" fontWeight={600}>100%</Typography>
                       ) : (
                         <Typography variant="caption" color="text.disabled">—</Typography>
@@ -328,22 +409,6 @@ export default function UploadJobsPage() {
                     {/* 완료시간 */}
                     <TableCell sx={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
                       {formatKST(job.completed_at)}
-                    </TableCell>
-
-                    {/* 작업 (삭제) */}
-                    <TableCell align="center">
-                      {canDelete && (
-                        <Tooltip title="삭제">
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => handleDeleteClick(job)}
-                            sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
                     </TableCell>
                   </TableRow>
                 );
@@ -363,31 +428,35 @@ export default function UploadJobsPage() {
         />
       </TableContainer>
 
-      {/* ─── 삭제 확인 다이얼로그 ─── */}
-      <Dialog
-        open={deleteDialogOpen}
-        onClose={handleDeleteCancel}
-        maxWidth="xs"
-        fullWidth
-      >
+      {/* ─── 일괄 삭제 확인 다이얼로그 ─── */}
+      <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>작업 삭제 확인</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            다음 업로드 작업을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+            선택한 <strong>{selected.size}건</strong>의 업로드 작업을 삭제하시겠습니까?
+            <br />이 작업은 되돌릴 수 없습니다.
           </DialogContentText>
-          {deleteTarget && (
-            <Paper variant="outlined" sx={{ mt: 2, p: 2 }}>
-              <Typography variant="body2" fontWeight={600}>{deleteTarget.original_filename}</Typography>
-              <Typography variant="caption" color="text.secondary">
-                {formatKST(deleteTarget.created_at)} · {statusConfig[deleteTarget.status]?.label || deleteTarget.status}
-              </Typography>
-            </Paper>
+          {runningSelected > 0 && (
+            <Typography variant="caption" color="warning.main" sx={{ mt: 1, display: 'block' }}>
+              ※ 실행 중인 작업 {runningSelected}건은 삭제에서 제외됩니다.
+            </Typography>
           )}
+          {/* 선택된 파일 목록 */}
+          <Paper variant="outlined" sx={{ mt: 2, p: 1.5, maxHeight: 200, overflow: 'auto' }}>
+            {selectedJobs.map((j) => (
+              <Stack key={j.id} direction="row" spacing={1} alignItems="center" sx={{ py: 0.3 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {j.original_filename}
+                </Typography>
+                <Chip label={getStatusInfo(j.status).label} size="small" sx={{ fontSize: '0.65rem', height: 18 }} />
+              </Stack>
+            ))}
+          </Paper>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={handleDeleteCancel} color="inherit" disabled={deleting}>취소</Button>
           <Button onClick={handleDeleteConfirm} color="error" variant="contained" disabled={deleting}>
-            {deleting ? '삭제중...' : '삭제'}
+            {deleting ? '삭제중...' : `${selected.size}건 삭제`}
           </Button>
         </DialogActions>
       </Dialog>
