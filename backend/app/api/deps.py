@@ -102,6 +102,21 @@ async def get_current_admin_user(
     return current_user
 
 
+async def get_settlement_user(
+    current_user: User = Depends(get_current_user)
+) -> User:
+    """
+    정산 도메인 접근 가능 사용자 반환
+    settlement 또는 admin 역할 필요
+    """
+    if current_user.role not in (UserRole.ADMIN, UserRole.SETTLEMENT):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "SETTLEMENT_REQUIRED", "message": "정산 관리 권한이 필요합니다"}
+        )
+    return current_user
+
+
 def get_optional_user():
     """선택적 사용자 (로그인 없이도 접근 가능한 엔드포인트용)"""
     async def _get_optional_user(

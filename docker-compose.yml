@@ -52,10 +52,11 @@ services:
       - SECRET_KEY=${SECRET_KEY:-your-super-secret-key-change-in-production}
       - ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=1440
-      # CORS: 두 도메인 화이트리스트 (사용자 dwt.price, 관리자 admin.dwt.price)
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,https://dwt.price,https://admin.dwt.price}
+      # CORS: 세 도메인 화이트리스트 (사용자, 관리자, 정산)
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,https://dwt.price,https://admin.dwt.price,https://settlement.dwt.price}
       - USER_DOMAIN=${USER_DOMAIN:-dwt.price}
       - ADMIN_DOMAIN=${ADMIN_DOMAIN:-admin.dwt.price}
+      - SETTLEMENT_DOMAIN=${SETTLEMENT_DOMAIN:-settlement.dwt.price}
     volumes:
       - ./backend:/app
       - upload_files:/app/uploads
@@ -114,9 +115,11 @@ services:
       # 도메인 설정 (미들웨어에서 Host 기반 분기)
       - NEXT_PUBLIC_USER_DOMAIN=${USER_DOMAIN:-dwt.price}
       - NEXT_PUBLIC_ADMIN_DOMAIN=${ADMIN_DOMAIN:-admin.dwt.price}
+      - NEXT_PUBLIC_SETTLEMENT_DOMAIN=${SETTLEMENT_DOMAIN:-settlement.dwt.price}
       # 도메인 전환 URL
       - NEXT_PUBLIC_USER_URL=${NEXT_PUBLIC_USER_URL:-https://dwt.price}
       - NEXT_PUBLIC_ADMIN_URL=${NEXT_PUBLIC_ADMIN_URL:-https://admin.dwt.price}
+      - NEXT_PUBLIC_SETTLEMENT_URL=${NEXT_PUBLIC_SETTLEMENT_URL:-https://settlement.dwt.price}
     volumes:
       - ./frontend:/app
       - /app/node_modules

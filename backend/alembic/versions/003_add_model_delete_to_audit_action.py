@@ -1,7 +1,7 @@
 """add model_delete and model_bulk_delete to audit_action enum
 
 Revision ID: 003_add_model_delete
-Revises: 002_add_model_bulk_create_to_audit_action
+Revises: 002_add_model_bulk_create
 Create Date: 2026-02-02
 
 """
@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 # revision identifiers, used by Alembic.
 revision: str = '003_add_model_delete'
-down_revision: Union[str, None] = '002_add_model_bulk_create_to_audit_action'
+down_revision: Union[str, None] = '002_add_model_bulk_create'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -16,6 +16,14 @@ from app.models.audit_log import AuditLog
 from app.models.compare_list import CompareListModel
 from app.models.hq_price_apply import HQPriceApply, HQPriceApplyLock
 
+# 정산 도메인 모델
+from app.models.counterparty import Counterparty, CounterpartyAlias
+from app.models.voucher import Voucher
+from app.models.receipt import Receipt
+from app.models.payment import Payment
+from app.models.voucher_change import VoucherChangeRequest
+from app.models.upload_template import UploadTemplate
+
 __all__ = [
     "User",
     "SSOTModel",
@@ -34,4 +42,12 @@ __all__ = [
     "CompareListModel",
     "HQPriceApply",
     "HQPriceApplyLock",
+    # 정산 도메인
+    "Counterparty",
+    "CounterpartyAlias",
+    "Voucher",
+    "Receipt",
+    "Payment",
+    "VoucherChangeRequest",
+    "UploadTemplate",
 ]

@@ -60,6 +60,21 @@ import {
   Add as AddIcon,
   Palette as PaletteIcon,
   TableChart as TableChartIcon,
+  // 정산 도메인 아이콘
+  Receipt as ReceiptIcon,
+  AccountBalance as AccountBalanceIcon,
+  CloudUpload as CloudUploadIcon,
+  FactCheck as FactCheckIcon,
+  TrendingUp as TrendingUpIcon,
+  TrendingDown as TrendingDownIcon,
+  Lock as LockIcon,
+  Storefront as StorefrontIcon,
+  VerifiedUser as VerifiedUserIcon,
+  WorkHistory as WorkHistoryIcon,
+  Description as DescriptionIcon,
+  Sell as SellIcon,
+  ShoppingCart as ShoppingCartIcon,
+  SwapHoriz as SwapHorizIcon,
 } from '@mui/icons-material';
 import { useAuthStore, useUIStore, useDomainStore, useAuthHydrated, useThemeStore, type ThemeMode } from '@/lib/store';
 import { getDomainType, getDefaultPath } from '@/lib/domain';
@@ -133,12 +148,71 @@ const adminMenus: MenuItemType[] = [
   { id: 'appearance-settings', label: '외관 설정', icon: <PaletteIcon />, path: '/admin/settings/appearance' },
 ];
 
+// 정산 도메인 메뉴 (settlement.dwt.price)
+const settlementMenus: MenuItemType[] = [
+  { id: 'stl-dashboard', label: '대시보드', icon: <DashboardIcon />, path: '/settlement/dashboard' },
+  {
+    id: 'stl-upload',
+    label: '업로드(UPM)',
+    icon: <CloudUploadIcon />,
+    children: [
+      { id: 'stl-upload-sales', label: 'UPM 판매 전표 업로드', icon: <SellIcon />, path: '/settlement/upload/sales' },
+      { id: 'stl-upload-purchase', label: 'UPM 매입 전표 업로드', icon: <ShoppingCartIcon />, path: '/settlement/upload/purchase' },
+      { id: 'stl-upload-jobs', label: '업로드 작업 내역', icon: <WorkHistoryIcon />, path: '/settlement/upload/jobs' },
+      { id: 'stl-upload-templates', label: '템플릿/매핑 관리', icon: <DescriptionIcon />, path: '/settlement/upload/templates' },
+    ],
+  },
+  {
+    id: 'stl-vouchers',
+    label: '전표 원장(UPM)',
+    icon: <ReceiptIcon />,
+    children: [
+      { id: 'stl-voucher-list', label: '전표 목록', icon: <ReceiptIcon />, path: '/settlement/vouchers' },
+    ],
+  },
+  {
+    id: 'stl-verification',
+    label: '검증/승인',
+    icon: <FactCheckIcon />,
+    children: [
+      { id: 'stl-changes', label: '변경 감지/승인', icon: <SwapHorizIcon />, path: '/settlement/verification/changes' },
+      { id: 'stl-unmatched', label: '미매칭 거래처 처리', icon: <StorefrontIcon />, path: '/settlement/verification/unmatched-counterparties' },
+    ],
+  },
+  {
+    id: 'stl-status',
+    label: '정산 현황',
+    icon: <AccountBalanceIcon />,
+    children: [
+      { id: 'stl-receivables', label: '미수 현황', icon: <TrendingUpIcon />, path: '/settlement/status/receivables' },
+      { id: 'stl-payables', label: '미지급 현황', icon: <TrendingDownIcon />, path: '/settlement/status/payables' },
+    ],
+  },
+  {
+    id: 'stl-counterparties',
+    label: '거래처',
+    icon: <BusinessIcon />,
+    children: [
+      { id: 'stl-cp-list', label: '거래처 목록/수정', icon: <BusinessIcon />, path: '/settlement/counterparties' },
+    ],
+  },
+  {
+    id: 'stl-lock',
+    label: '마감(LOCK)',
+    icon: <LockIcon />,
+    children: [
+      { id: 'stl-lock-mgmt', label: '전표 마감 관리', icon: <LockIcon />, path: '/settlement/lock' },
+      { id: 'stl-lock-history', label: '마감 내역/감사로그', icon: <HistoryIcon />, path: '/settlement/lock/history' },
+    ],
+  },
+];
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout, isAuthenticated } = useAuthStore();
   const { sidebarOpen, toggleSidebar } = useUIStore();
-  const { domainType, isAdminDomain, setDomainType } = useDomainStore();
+  const { domainType, isAdminDomain, isSettlementDomain, setDomainType } = useDomainStore();
   const { mode, setMode } = useThemeStore();
   const isHydrated = useAuthHydrated();
 
@@ -175,22 +249,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   
   // 현재 경로에 맞는 메뉴 자동 확장
   useEffect(() => {
+    const newExpanded = new Set(expandedMenus);
+
     if (pathname.startsWith('/admin/models')) {
-      const newExpanded = new Set(expandedMenus);
       newExpanded.add('ssot-models');
-      
-      if (pathname.includes('/smartphone')) {
-        newExpanded.add('models-smartphone');
-      }
-      if (pathname.includes('/tablet')) {
-        newExpanded.add('models-tablet');
-      }
-      if (pathname.includes('/wearable')) {
-        newExpanded.add('models-wearable');
-      }
-      
-      setExpandedMenus(newExpanded);
+      if (pathname.includes('/smartphone')) newExpanded.add('models-smartphone');
+      if (pathname.includes('/tablet')) newExpanded.add('models-tablet');
+      if (pathname.includes('/wearable')) newExpanded.add('models-wearable');
     }
+
+    // 정산 도메인 메뉴 자동 확장
+    if (pathname.startsWith('/settlement/upload')) newExpanded.add('stl-upload');
+    if (pathname.startsWith('/settlement/vouchers')) newExpanded.add('stl-vouchers');
+    if (pathname.startsWith('/settlement/verification')) newExpanded.add('stl-verification');
+    if (pathname.startsWith('/settlement/receivables') || pathname.startsWith('/settlement/payables')) newExpanded.add('stl-status');
+    if (pathname.startsWith('/settlement/counterparties')) newExpanded.add('stl-counterparties');
+    if (pathname.startsWith('/settlement/lock')) newExpanded.add('stl-lock');
+
+    setExpandedMenus(newExpanded);
   }, [pathname]);
   
   // 인증 체크 (hydration 완료 후에만)
@@ -207,6 +283,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       router.push('/login?error=admin_required');
     }
   }, [isHydrated, isAdminDomain, user, logout, router]);
+
+  // 정산 도메인에서 settlement 또는 admin 권한 강제
+  useEffect(() => {
+    if (isHydrated && isSettlementDomain && user?.role !== 'settlement' && user?.role !== 'admin') {
+      logout();
+      router.push('/login?error=settlement_required');
+    }
+  }, [isHydrated, isSettlementDomain, user, logout, router]);
   
   // Hydration 완료 전에는 로딩 표시 (깜빡임 방지)
   if (!isHydrated) {
@@ -226,7 +310,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
   
   const isAdmin = user?.role === 'admin';
-  const currentMenus = isAdminDomain ? adminMenus : userMenus;
+  const currentMenus = isSettlementDomain ? settlementMenus : isAdminDomain ? adminMenus : userMenus;
   
   const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -289,10 +373,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               borderRadius: 2,
               pl: 2 + level * 2,
               '&.Mui-selected': {
-                bgcolor: isAdminDomain ? 'error.light' : 'primary.light',
+                bgcolor: isSettlementDomain ? 'info.light' : isAdminDomain ? 'error.light' : 'primary.light',
                 color: 'white',
                 '&:hover': {
-                  bgcolor: isAdminDomain ? 'error.main' : 'primary.main',
+                  bgcolor: isSettlementDomain ? 'info.main' : isAdminDomain ? 'error.main' : 'primary.main',
                 },
                 '& .MuiListItemIcon-root': {
                   color: 'white',
@@ -361,6 +445,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 sx={{ fontWeight: 600 }}
               />
             )}
+            {isSettlementDomain && (
+              <Chip
+                icon={<AccountBalanceIcon sx={{ fontSize: 16 }} />}
+                label="경영지원"
+                size="small"
+                color="info"
+                sx={{ fontWeight: 600 }}
+              />
+            )}
           </Box>
 
           <IconButton
@@ -391,7 +484,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </MenuItem>
             <MenuItem disabled>
               <Typography variant="caption" color="text.secondary">
-                {user?.role === 'admin' ? '관리자' : '조회자'}
+                {user?.role === 'admin' ? '관리자' : user?.role === 'settlement' ? '경영지원' : '조회자'}
               </Typography>
             </MenuItem>
             <Divider />
@@ -427,8 +520,31 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             {currentMenus.map((menu) => renderMenuItem(menu))}
           </List>
           
+          {/* 정산 도메인에서 관리자/사용자 이동 */}
+          {isSettlementDomain && (
+            <>
+              <Divider sx={{ my: 2 }} />
+              <List>
+                {isAdmin && (
+                  <ListItem disablePadding>
+                    <ListItemButton
+                      onClick={() => {
+                        const adminUrl = process.env.NEXT_PUBLIC_ADMIN_URL || 'https://admin.dwt.price';
+                        window.location.href = adminUrl;
+                      }}
+                      sx={{ mx: 1, borderRadius: 2 }}
+                    >
+                      <ListItemIcon sx={{ minWidth: 40 }}><AdminIcon color="error" /></ListItemIcon>
+                      <ListItemText primary="관리자 페이지" primaryTypographyProps={{ color: 'error.main', fontWeight: 600 }} />
+                    </ListItemButton>
+                  </ListItem>
+                )}
+              </List>
+            </>
+          )}
+
           {/* 도메인 전환 링크 (관리자만, 사용자 도메인에서만) */}
-          {!isAdminDomain && isAdmin && (
+          {!isAdminDomain && !isSettlementDomain && isAdmin && (
             <>
               <Divider sx={{ my: 2 }} />
               <Box sx={{ px: 2 }}>
@@ -465,7 +581,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </>
           )}
           
-          {/* 사용자 도메인 이동 링크 (관리자 도메인에서만) */}
+          {/* 도메인 전환 링크 (관리자 도메인에서) */}
           {isAdminDomain && (
             <>
               <Divider sx={{ my: 2 }} />
@@ -491,6 +607,31 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     <ListItemText 
                       primary="사용자 페이지 이동"
                       primaryTypographyProps={{ color: 'primary.main', fontWeight: 600 }}
+                    />
+                  </ListItemButton>
+                </ListItem>
+                <ListItem disablePadding>
+                  <ListItemButton
+                    onClick={() => {
+                      const settlementUrl = process.env.NEXT_PUBLIC_SETTLEMENT_URL || 'https://settlement.dwt.price';
+                      window.location.href = settlementUrl;
+                    }}
+                    sx={{
+                      mx: 1,
+                      mt: 0.5,
+                      borderRadius: 2,
+                      bgcolor: (theme) => alpha(theme.palette.info.main, theme.palette.mode === 'light' ? 0.08 : 0.1),
+                      '&:hover': {
+                        bgcolor: (theme) => alpha(theme.palette.info.main, theme.palette.mode === 'light' ? 0.12 : 0.2),
+                      },
+                    }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 40 }}>
+                      <AccountBalanceIcon color="info" />
+                    </ListItemIcon>
+                    <ListItemText 
+                      primary="정산 관리 이동"
+                      primaryTypographyProps={{ color: 'info.main', fontWeight: 600 }}
                     />
                   </ListItemButton>
                 </ListItem>

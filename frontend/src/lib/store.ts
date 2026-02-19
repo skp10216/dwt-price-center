@@ -60,7 +60,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'viewer';
+  role: 'admin' | 'viewer' | 'settlement';
   is_active: boolean;
 }
 
@@ -185,13 +185,19 @@ export const useCompareStore = create<CompareState>((set) => ({
 interface DomainState {
   domainType: DomainType;
   isAdminDomain: boolean;
+  isSettlementDomain: boolean;
   setDomainType: (type: DomainType) => void;
 }
 
 export const useDomainStore = create<DomainState>((set) => ({
   domainType: 'user',
   isAdminDomain: false,
-  setDomainType: (type) => set({ domainType: type, isAdminDomain: type === 'admin' }),
+  isSettlementDomain: false,
+  setDomainType: (type) => set({
+    domainType: type,
+    isAdminDomain: type === 'admin',
+    isSettlementDomain: type === 'settlement',
+  }),
 }));
 
 // 외관 설정 타입 import

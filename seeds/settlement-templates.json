@@ -1,0 +1,42 @@
+[
+  {
+    "name": "UPM 매입 전표 기본",
+    "voucher_type": "purchase",
+    "is_default": true,
+    "column_mapping": {
+      "trade_date": "매입일",
+      "counterparty_name": "매입처",
+      "voucher_number": "전표번호",
+      "quantity": "수량",
+      "purchase_cost": "매입원가",
+      "deduction_amount": "차감금액",
+      "actual_purchase_price": "실매입가",
+      "avg_unit_price": "평균가",
+      "upm_settlement_status": "정산현황",
+      "payment_info": "송금정보"
+    },
+    "skip_columns": ["비고", "기타"]
+  },
+  {
+    "name": "UPM 판매 전표 기본",
+    "voucher_type": "sales",
+    "is_default": true,
+    "column_mapping": {
+      "trade_date": "판매일",
+      "counterparty_name": "판매처",
+      "voucher_number": "전표번호",
+      "quantity": "수량",
+      "purchase_cost": "매입원가",
+      "purchase_deduction": "매입차감",
+      "as_cost": "A/S비용",
+      "sale_amount": "판매금액",
+      "sale_deduction": "판매차감",
+      "actual_sale_price": "실판매가",
+      "actual_purchase_price": "실매입가",
+      "profit": "손익",
+      "profit_rate": "수익율",
+      "avg_margin": "평균마진"
+    },
+    "skip_columns": ["비고", "기타"]
+  }
+]

@@ -18,6 +18,7 @@ from app.api.v1 import (
     my_lists,
     audit,
 )
+from app.api.v1.settlement.router import settlement_router
 
 api_router = APIRouter()
 
@@ -96,4 +97,13 @@ api_router.include_router(
     audit.router,
     prefix="/audit-logs",
     tags=["감사로그"]
+)
+
+# ============================================================================
+# 정산 도메인 (settlement.dwt.price 전용)
+# ============================================================================
+api_router.include_router(
+    settlement_router,
+    prefix="/settlement",
+    tags=["정산"]
 )

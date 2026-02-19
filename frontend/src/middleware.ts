@@ -12,6 +12,7 @@ import {
   isRouteAllowedForDomain, 
   getDefaultPath,
   requiresAdminRole,
+  requiresSettlementRole,
   type DomainType 
 } from '@/lib/domain';
 
@@ -34,8 +35,8 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
   
-  // 도메인 타입 결정
-  const domainType = getDomainType(host);
+  // 도메인 타입 결정 (pathname 전달 → localhost에서 /settlement/* 경로 인식)
+  const domainType = getDomainType(host, undefined, pathname);
   
   // 인증 토큰 확인 (쿠키에서)
   const token = request.cookies.get('token')?.value;
@@ -50,12 +51,20 @@ export function middleware(request: NextRequest) {
   
   // Admin 도메인에서 admin role 강제
   if (requiresAdminRole(domainType) && userRole !== 'admin') {
-    // 권한 없음 -> 로그인 페이지로 리다이렉트 (에러 메시지 포함)
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('error', 'admin_required');
     loginUrl.searchParams.set('redirect', pathname);
-    
-    // 기존 쿠키 삭제 (강제 재로그인)
+    const response = NextResponse.redirect(loginUrl);
+    response.cookies.delete('token');
+    response.cookies.delete('user_role');
+    return response;
+  }
+  
+  // Settlement 도메인에서 settlement 또는 admin role 강제
+  if (requiresSettlementRole(domainType) && userRole !== 'settlement' && userRole !== 'admin') {
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('error', 'settlement_required');
+    loginUrl.searchParams.set('redirect', pathname);
     const response = NextResponse.redirect(loginUrl);
     response.cookies.delete('token');
     response.cookies.delete('user_role');
@@ -69,7 +78,6 @@ export function middleware(request: NextRequest) {
   
   // 경로 허용 여부 확인
   if (!isRouteAllowedForDomain(pathname, domainType)) {
-    // 허용되지 않은 경로 -> 도메인별 기본 경로로 리다이렉트
     const defaultPath = getDefaultPath(domainType);
     return NextResponse.redirect(new URL(defaultPath, request.url));
   }

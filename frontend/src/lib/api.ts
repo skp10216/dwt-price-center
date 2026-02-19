@@ -16,12 +16,16 @@ const api: AxiosInstance = axios.create({
   timeout: 30000,
 });
 
-// 요청 인터셉터: 토큰 추가
+// 요청 인터셉터: 토큰 추가 + FormData Content-Type 자동 처리
 api.interceptors.request.use(
   (config) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    // FormData 전송 시 Content-Type 삭제 → 브라우저가 boundary 포함하여 자동 설정
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
     }
     return config;
   },
@@ -466,6 +470,194 @@ export const usersApi = {
   
   update: (id: string, data: unknown) =>
     api.patch<ApiResponse<unknown>>(`/users/${id}`, data),
+};
+
+// ============================================================================
+// 정산 도메인 API (settlement.dwt.price)
+// ============================================================================
+
+export const settlementApi = {
+  // 대시보드
+  getDashboardSummary: () =>
+    api.get<ApiResponse<unknown>>('/settlement/dashboard/summary'),
+
+  getTopReceivables: (limit?: number) =>
+    api.get<ApiResponse<{ items: unknown[]; total: number }>>('/settlement/dashboard/top-receivables', { params: { limit } }),
+
+  getTopPayables: (limit?: number) =>
+    api.get<ApiResponse<{ items: unknown[]; total: number }>>('/settlement/dashboard/top-payables', { params: { limit } }),
+
+  getReceivables: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<{ receivables: unknown[]; total: number }>>('/settlement/dashboard/receivables', { params }),
+
+  getPayables: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<{ payables: unknown[]; total: number }>>('/settlement/dashboard/payables', { params }),
+
+  // 전표
+  listVouchers: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<{ vouchers: unknown[]; total: number; page: number; page_size: number }>>('/settlement/vouchers', { params }),
+
+  getVoucher: (id: string) =>
+    api.get<ApiResponse<unknown>>(`/settlement/vouchers/${id}`),
+
+  createVoucher: (data: unknown) =>
+    api.post<ApiResponse<unknown>>('/settlement/vouchers', data),
+
+  updateVoucher: (id: string, data: unknown) =>
+    api.patch<ApiResponse<unknown>>(`/settlement/vouchers/${id}`, data),
+
+  // 입금
+  createReceipt: (voucherId: string, data: unknown) =>
+    api.post<ApiResponse<unknown>>(`/settlement/vouchers/${voucherId}/receipts`, data),
+
+  listReceipts: (voucherId: string) =>
+    api.get<ApiResponse<unknown[]>>(`/settlement/vouchers/${voucherId}/receipts`),
+
+  deleteReceipt: (voucherId: string, receiptId: string) =>
+    api.delete(`/settlement/vouchers/${voucherId}/receipts/${receiptId}`),
+
+  // 송금
+  createPayment: (voucherId: string, data: unknown) =>
+    api.post<ApiResponse<unknown>>(`/settlement/vouchers/${voucherId}/payments`, data),
+
+  listPayments: (voucherId: string) =>
+    api.get<ApiResponse<unknown[]>>(`/settlement/vouchers/${voucherId}/payments`),
+
+  deletePayment: (voucherId: string, paymentId: string) =>
+    api.delete(`/settlement/vouchers/${voucherId}/payments/${paymentId}`),
+
+  // 업로드
+  uploadSalesExcel: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post<ApiResponse<unknown>>('/settlement/upload/sales-excel', formData);
+  },
+
+  uploadPurchaseExcel: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post<ApiResponse<unknown>>('/settlement/upload/purchase-excel', formData);
+  },
+
+  // 미리보기 검증 (파일 업로드 전 데이터 검증)
+  previewUpload: (file: File, type: 'sales' | 'purchase', templateId?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (templateId) formData.append('template_id', templateId);
+    // FormData 전송 시 Content-Type을 수동 설정하지 않음 → axios가 boundary 자동 포함
+    return api.post<ApiResponse<{ rows: unknown[] }>>(`/settlement/upload/${type}/preview`, formData);
+  },
+
+  // 전표 Excel 업로드 (판매/매입 통합)
+  uploadVoucherExcel: (file: File, type: 'sales' | 'purchase', templateId?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (templateId) formData.append('template_id', templateId);
+    return api.post<ApiResponse<{ job_id: string; total: number; success: number; error: number }>>(
+      `/settlement/upload/${type}-excel`,
+      formData,
+    );
+  },
+
+  listUploadJobs: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<{ jobs: unknown[]; total: number }>>('/settlement/upload/jobs', { params }),
+
+  getUploadJob: (id: string) =>
+    api.get<ApiResponse<unknown>>(`/settlement/upload/jobs/${id}`),
+
+  deleteUploadJob: (id: string) =>
+    api.delete<ApiResponse<unknown>>(`/settlement/upload/jobs/${id}`),
+
+  confirmUploadJob: (id: string, excludeConflicts?: boolean) =>
+    api.post<ApiResponse<unknown>>(`/settlement/upload/jobs/${id}/confirm`, null, {
+      params: { exclude_conflicts: excludeConflicts },
+    }),
+
+  // 템플릿
+  listUploadTemplates: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<{ templates: unknown[]; total: number }>>('/settlement/upload/templates', { params }),
+
+  createUploadTemplate: (data: unknown) =>
+    api.post<ApiResponse<unknown>>('/settlement/upload/templates', data),
+
+  updateUploadTemplate: (id: string, data: unknown) =>
+    api.patch<ApiResponse<unknown>>(`/settlement/upload/templates/${id}`, data),
+
+  deleteUploadTemplate: (id: string) =>
+    api.delete<ApiResponse<unknown>>(`/settlement/upload/templates/${id}`),
+
+  seedDefaultTemplates: () =>
+    api.post<ApiResponse<unknown>>('/settlement/upload/templates/seed'),
+
+  // 검증/승인
+  listVoucherChangeRequests: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<{ changes: unknown[]; total: number }>>('/settlement/verification/changes', { params }),
+
+  approveVoucherChangeRequest: (id: string, reviewMemo?: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/verification/changes/${id}/approve`, { review_memo: reviewMemo }),
+
+  rejectVoucherChangeRequest: (id: string, reviewMemo?: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/verification/changes/${id}/reject`, { review_memo: reviewMemo }),
+
+  listUnmatchedCounterparties: () =>
+    api.get<ApiResponse<{ unmatched: unknown[]; total: number }>>('/settlement/verification/unmatched'),
+
+  mapUnmatchedCounterparty: (aliasName: string, data: { counterparty_id?: string; new_counterparty_name?: string }) =>
+    api.post<ApiResponse<unknown>>(`/settlement/verification/unmatched/${encodeURIComponent(aliasName)}/map`, data),
+
+  // 거래처
+  listCounterparties: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<{ counterparties: unknown[]; total: number }>>('/settlement/counterparties', { params }),
+
+  getCounterparty: (id: string) =>
+    api.get<ApiResponse<unknown>>(`/settlement/counterparties/${id}`),
+
+  createCounterparty: (data: unknown) =>
+    api.post<ApiResponse<unknown>>('/settlement/counterparties', data),
+
+  updateCounterparty: (id: string, data: unknown) =>
+    api.patch<ApiResponse<unknown>>(`/settlement/counterparties/${id}`, data),
+
+  getCounterpartySummary: (id: string) =>
+    api.get<ApiResponse<unknown>>(`/settlement/counterparties/${id}/summary`),
+
+  listAliases: (counterpartyId: string) =>
+    api.get<ApiResponse<unknown[]>>(`/settlement/counterparties/${counterpartyId}/aliases`),
+
+  createCounterpartyAlias: (counterpartyId: string, aliasName: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/counterparties/${counterpartyId}/aliases`, { alias_name: aliasName }),
+
+  deleteCounterpartyAlias: (counterpartyId: string, aliasId: string) =>
+    api.delete(`/settlement/counterparties/${counterpartyId}/aliases/${aliasId}`),
+
+  // 마감
+  lockVoucher: (voucherId: string, memo?: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/lock/voucher/${voucherId}`, null, { params: { memo } }),
+
+  unlockVoucher: (voucherId: string, memo?: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/lock/voucher/${voucherId}/unlock`, null, { params: { memo } }),
+
+  batchLock: (data: { voucher_ids: string[]; memo?: string }) =>
+    api.post<ApiResponse<unknown>>('/settlement/lock/batch', data),
+
+  batchUnlock: (data: { voucher_ids: string[]; memo?: string }) =>
+    api.post<ApiResponse<unknown>>('/settlement/lock/batch-unlock', data),
+
+  getLockHistory: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<{ history: unknown[]; total: number }>>('/settlement/lock/history', { params }),
+
+  // 월별 마감 관리
+  listLocks: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<{ locks: unknown[] }>>('/settlement/lock', { params }),
+
+  createLock: (yearMonth: string, description?: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/lock/${yearMonth}`, { description }),
+
+  releaseLock: (yearMonth: string, description?: string) =>
+    api.delete<ApiResponse<unknown>>(`/settlement/lock/${yearMonth}`, { data: { description } }),
+
+  getLockAuditLogs: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<{ logs: unknown[] }>>('/settlement/lock/audit-logs', { params }),
 };
 
 export default api;

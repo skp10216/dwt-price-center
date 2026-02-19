@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     # 도메인 설정
     USER_DOMAIN: str = "dwt.price"
     ADMIN_DOMAIN: str = "admin.dwt.price"
+    SETTLEMENT_DOMAIN: str = "settlement.dwt.price"
     
     # 초기 관리자 계정
     ADMIN_EMAIL: str = "admin@example.com"
@@ -53,6 +54,7 @@ class Settings(BaseSettings):
         dev_origins = [
             "http://localhost:3000",
             "http://admin.localhost:3000",
+            "http://settlement.localhost:3000",
             "http://127.0.0.1:3000",
         ]
         return list(set(origins + dev_origins))
