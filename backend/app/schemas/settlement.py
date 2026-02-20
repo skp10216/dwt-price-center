@@ -314,6 +314,10 @@ class UploadJobResponse(BaseModel):
     created_at: datetime
     completed_at: Optional[datetime] = None
     confirmed_at: Optional[datetime] = None
+    # 작업자 정보
+    created_by: Optional[UUID] = None
+    created_by_name: Optional[str] = None
+    created_by_email: Optional[str] = None
 
     class Config:
         from_attributes = True

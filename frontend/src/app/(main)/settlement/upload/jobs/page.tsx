@@ -45,7 +45,13 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   PlaylistAddCheck as BatchIcon,
+  Person as PersonIcon,
+  Schedule as ScheduleIcon,
+  Verified as VerifiedIcon,
+  AccessTime as AccessTimeIcon,
 } from '@mui/icons-material';
+import Avatar from '@mui/material/Avatar';
+import Skeleton from '@mui/material/Skeleton';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
 import { useRouter } from 'next/navigation';
@@ -73,6 +79,10 @@ interface UploadJob {
   created_at: string;
   completed_at: string | null;
   confirmed_at: string | null;
+  // 작업자 정보
+  created_by?: string;
+  created_by_name?: string | null;
+  created_by_email?: string | null;
 }
 
 interface PreviewRow {
@@ -102,6 +112,10 @@ interface JobDetail {
   confirmed_at: string | null;
   preview_rows: PreviewRow[];
   unmatched_counterparties: string[];
+  // 작업자 정보
+  created_by?: string;
+  created_by_name?: string | null;
+  created_by_email?: string | null;
 }
 
 // ─── 상태 매핑 ───
@@ -172,6 +186,29 @@ const FIELD_LABELS: Record<string, string> = {
   actual_purchase_price_x: '실매입가', profit: '손익', profit_rate: '수익율',
   avg_margin: '평균마진', upm_settlement_status: '정산현황', payment_info: '송금정보', memo: '비고',
 };
+
+// ─── 작업자 아바타 색상 (이름 해시 기반) ───
+function getAvatarColor(name: string): string {
+  const colors = [
+    '#1976d2', '#388e3c', '#d32f2f', '#7b1fa2', '#1565c0',
+    '#00838f', '#ef6c00', '#5d4037', '#455a64', '#6a1b9a',
+  ];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+}
+
+// ─── 작업자 이니셜 ───
+function getInitials(name: string | null | undefined): string {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
+}
 
 export default function UploadJobsPage() {
   const theme = useTheme();
@@ -595,37 +632,67 @@ export default function UploadJobsPage() {
       </Stack>
 
       {/* ─── 테이블 ─── */}
-      <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+      <TableContainer component={Paper} elevation={0} sx={{
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 3,
+        overflow: 'hidden',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+      }}>
         <Table size="small">
           <TableHead>
-            <TableRow sx={{ bgcolor: alpha(theme.palette.info.main, 0.04) }}>
+            <TableRow sx={{
+              background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.06)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`,
+            }}>
               <TableCell padding="checkbox" sx={{ width: 42 }}>
                 <Checkbox size="small" indeterminate={isSomeSelected} checked={isAllSelected}
                   onChange={(e) => handleSelectAll(e.target.checked)} />
               </TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 155 }}>등록일시</TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 60 }} align="center">타입</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>파일명</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 700, width: 90 }}>상태</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 700, width: 85 }}>진행률</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>결과 요약</TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 155 }}>완료시간</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 155, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }}>등록일시</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 60, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }} align="center">타입</TableCell>
+              <TableCell sx={{ fontWeight: 700, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }}>파일명</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 110, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }}>작업자</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 700, width: 90, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }}>상태</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 700, width: 85, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }}>진행률</TableCell>
+              <TableCell sx={{ fontWeight: 700, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }}>결과 요약</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 155, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }}>완료시간</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {loading && jobs.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 8 }}>
-                  <CircularProgress size={24} sx={{ mr: 1 }} />
-                  <Typography component="span" color="text.secondary">로딩 중...</Typography>
-                </TableCell>
-              </TableRow>
+              // Skeleton 로딩 상태
+              [...Array(5)].map((_, i) => (
+                <TableRow key={`skeleton-${i}`}>
+                  <TableCell padding="checkbox"><Skeleton variant="rectangular" width={18} height={18} /></TableCell>
+                  <TableCell><Skeleton width={120} /></TableCell>
+                  <TableCell align="center"><Skeleton variant="rounded" width={40} height={22} /></TableCell>
+                  <TableCell><Skeleton width="80%" /></TableCell>
+                  <TableCell><Stack direction="row" spacing={1} alignItems="center"><Skeleton variant="circular" width={28} height={28} /><Skeleton width={50} /></Stack></TableCell>
+                  <TableCell align="center"><Skeleton variant="rounded" width={50} height={22} /></TableCell>
+                  <TableCell align="center"><Skeleton width={40} /></TableCell>
+                  <TableCell><Skeleton width="60%" /></TableCell>
+                  <TableCell><Skeleton width={120} /></TableCell>
+                </TableRow>
+              ))
             ) : jobs.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 8 }}>
-                  <UploadIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
-                  <Typography color="text.secondary">업로드 작업이 없습니다</Typography>
-                  <Button size="small" sx={{ mt: 1 }} onClick={() => router.push('/settlement/upload/sales')}>
+                <TableCell colSpan={9} align="center" sx={{ py: 10 }}>
+                  <Box sx={{
+                    width: 80, height: 80, borderRadius: '50%', mx: 'auto', mb: 2,
+                    bgcolor: alpha(theme.palette.primary.main, 0.08),
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <UploadIcon sx={{ fontSize: 40, color: 'primary.main' }} />
+                  </Box>
+                  <Typography variant="h6" fontWeight={600} color="text.primary" gutterBottom>
+                    업로드 작업이 없습니다
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    UPM 전표 엑셀 파일을 업로드하여 시작하세요
+                  </Typography>
+                  <Button variant="contained" size="medium" startIcon={<UploadIcon />}
+                    onClick={() => router.push('/settlement/upload/sales')}
+                    sx={{ borderRadius: 2, px: 3, fontWeight: 600 }}>
                     전표 업로드하기
                   </Button>
                 </TableCell>
@@ -638,6 +705,13 @@ export default function UploadJobsPage() {
                 const isChecked = selected.has(job.id);
                 const canViewDetail = isSucceeded(job.status) || isFailed(job.status);
 
+                // 상태별 좌측 인디케이터 색상
+                const indicatorColor = isFailed(job.status) ? theme.palette.error.main
+                  : isSucceeded(job.status) && job.is_confirmed ? theme.palette.success.main
+                  : isSucceeded(job.status) ? theme.palette.info.main
+                  : isRunning(job.status) ? theme.palette.warning.main
+                  : 'transparent';
+
                 return (
                   <TableRow
                     key={job.id}
@@ -647,21 +721,69 @@ export default function UploadJobsPage() {
                     sx={{
                       cursor: canViewDetail ? 'pointer' : 'default',
                       bgcolor: isFailed(job.status) ? alpha(theme.palette.error.main, 0.02) : 'transparent',
-                      '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.04) },
+                      position: 'relative',
+                      transition: 'all 0.15s ease-in-out',
+                      '&:hover': {
+                        bgcolor: alpha(theme.palette.primary.main, 0.04),
+                        boxShadow: canViewDetail ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
+                        transform: canViewDetail ? 'translateY(-1px)' : 'none',
+                      },
+                      // 좌측 상태 인디케이터
+                      '&::before': {
+                        content: '""',
+                        position: 'absolute',
+                        left: 0, top: 0, bottom: 0,
+                        width: 4,
+                        bgcolor: indicatorColor,
+                        borderRadius: '0 2px 2px 0',
+                      },
                     }}
                   >
                     <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
                       <Checkbox size="small" checked={isChecked} disabled={!canSelect}
                         onChange={(e) => handleSelectOne(job.id, e.target.checked)} />
                     </TableCell>
-                    <TableCell sx={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{formatKST(job.created_at)}</TableCell>
-                    <TableCell align="center">
-                      <Chip label={typeInfo.label} size="small" color={typeInfo.color} variant="outlined" />
+                    <TableCell sx={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                      <Stack direction="row" spacing={0.5} alignItems="center">
+                        <AccessTimeIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
+                        <span>{formatKST(job.created_at)}</span>
+                      </Stack>
                     </TableCell>
-                    <TableCell sx={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      <Tooltip title={job.original_filename} arrow>
-                        <Typography variant="body2" noWrap>{job.original_filename}</Typography>
-                      </Tooltip>
+                    <TableCell align="center">
+                      <Chip label={typeInfo.label} size="small" color={typeInfo.color} variant="outlined"
+                        sx={{ fontWeight: 600, fontSize: '0.7rem' }} />
+                    </TableCell>
+                    <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Tooltip title={job.original_filename} arrow>
+                          <Typography variant="body2" noWrap fontWeight={500}>{job.original_filename}</Typography>
+                        </Tooltip>
+                        {job.is_confirmed && (
+                          <Chip icon={<VerifiedIcon sx={{ fontSize: '12px !important' }} />} label="확정"
+                            size="small" color="success" variant="filled"
+                            sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700, '& .MuiChip-icon': { ml: 0.5 } }} />
+                        )}
+                      </Stack>
+                    </TableCell>
+                    {/* 작업자 컬럼 */}
+                    <TableCell>
+                      {job.created_by_name ? (
+                        <Tooltip title={job.created_by_email || ''} arrow placement="top">
+                          <Stack direction="row" spacing={0.8} alignItems="center">
+                            <Avatar sx={{
+                              width: 26, height: 26, fontSize: '0.7rem', fontWeight: 700,
+                              bgcolor: getAvatarColor(job.created_by_name),
+                            }}>
+                              {getInitials(job.created_by_name)}
+                            </Avatar>
+                            <Typography variant="caption" fontWeight={500} noWrap sx={{ maxWidth: 70 }}>
+                              {job.created_by_name}
+                            </Typography>
+                          </Stack>
+                        </Tooltip>
+                      ) : (
+                        <Typography variant="caption" color="text.disabled">—</Typography>
+                      )}
                     </TableCell>
                     <TableCell align="center">
                       <Chip icon={statusInfo.icon as React.ReactElement} label={statusInfo.label} size="small"
@@ -697,106 +819,157 @@ export default function UploadJobsPage() {
       </TableContainer>
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          상세 드로어 (Drawer)
+          상세 드로어 (Drawer) - Premium Design
           ═══════════════════════════════════════════════════════════════════════ */}
       <Drawer
         anchor="right"
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        PaperProps={{ sx: { width: { xs: '100%', md: '70%', lg: '60%' }, maxWidth: 1000 } }}
+        PaperProps={{
+          sx: {
+            width: { xs: '100%', md: '70%', lg: '60%' },
+            maxWidth: 1000,
+            bgcolor: 'background.default',
+          },
+        }}
       >
         {detailLoading ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-            <CircularProgress />
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 2 }}>
+            <CircularProgress size={40} />
+            <Typography color="text.secondary">상세 정보 불러오는 중...</Typography>
           </Box>
         ) : jobDetail ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            {/* 드로어 헤더 */}
-            <Box sx={{ p: 2.5, borderBottom: '1px solid', borderColor: 'divider' }}>
-              <Stack direction="row" alignItems="center" justifyContent="space-between">
+            {/* 드로어 헤더 - Gradient Background */}
+            <Box sx={{
+              p: 2.5,
+              background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.05)} 100%)`,
+              borderBottom: '1px solid',
+              borderColor: 'divider',
+            }}>
+              <Stack direction="row" alignItems="flex-start" justifyContent="space-between">
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+                  <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
                     <Chip label={getJobTypeLabel(jobDetail.job_type).label} size="small"
-                      color={getJobTypeLabel(jobDetail.job_type).color} variant="outlined" />
+                      color={getJobTypeLabel(jobDetail.job_type).color} variant="filled"
+                      sx={{ fontWeight: 700, borderRadius: 1.5 }} />
                     <Chip icon={getStatusInfo(jobDetail.status).icon as React.ReactElement}
                       label={getStatusInfo(jobDetail.status).label} size="small"
-                      color={getStatusInfo(jobDetail.status).color} sx={{ fontWeight: 600 }} />
+                      color={getStatusInfo(jobDetail.status).color}
+                      sx={{ fontWeight: 600, borderRadius: 1.5 }} />
                     {jobDetail.is_confirmed && (
-                      <Chip icon={<ConfirmIcon sx={{ fontSize: 14 }} />} label="확정됨" size="small"
-                        color="success" variant="filled" sx={{ fontWeight: 600 }} />
+                      <Chip icon={<VerifiedIcon sx={{ fontSize: '14px !important' }} />} label="확정됨" size="small"
+                        color="success" variant="filled"
+                        sx={{ fontWeight: 700, borderRadius: 1.5, '& .MuiChip-icon': { ml: 0.5 } }} />
                     )}
                   </Stack>
-                  <Typography variant="h6" fontWeight={700} noWrap>{jobDetail.original_filename}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {formatKST(jobDetail.created_at)} → {formatKST(jobDetail.completed_at)}
-                  </Typography>
+                  <Typography variant="h5" fontWeight={800} noWrap sx={{ mb: 0.5 }}>{jobDetail.original_filename}</Typography>
+
+                  {/* 작업자 정보 + 타임라인 */}
+                  <Stack direction="row" spacing={3} alignItems="center" sx={{ mt: 1.5 }}>
+                    {/* 작업자 */}
+                    {jobDetail.created_by_name && (
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Avatar sx={{
+                          width: 32, height: 32, fontSize: '0.8rem', fontWeight: 700,
+                          bgcolor: getAvatarColor(jobDetail.created_by_name),
+                        }}>
+                          {getInitials(jobDetail.created_by_name)}
+                        </Avatar>
+                        <Box>
+                          <Typography variant="body2" fontWeight={600}>{jobDetail.created_by_name}</Typography>
+                          <Typography variant="caption" color="text.secondary">{jobDetail.created_by_email}</Typography>
+                        </Box>
+                      </Stack>
+                    )}
+
+                    {/* 타임라인 */}
+                    <Stack direction="row" spacing={2} alignItems="center" sx={{
+                      px: 2, py: 0.8, borderRadius: 2,
+                      bgcolor: alpha(theme.palette.background.paper, 0.6),
+                      border: '1px solid',
+                      borderColor: 'divider',
+                    }}>
+                      <Tooltip title="등록 시간" arrow>
+                        <Stack direction="row" spacing={0.5} alignItems="center">
+                          <ScheduleIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                          <Typography variant="caption" color="text.secondary">{formatKST(jobDetail.created_at)}</Typography>
+                        </Stack>
+                      </Tooltip>
+                      {jobDetail.completed_at && (
+                        <>
+                          <Typography variant="caption" color="text.disabled">→</Typography>
+                          <Tooltip title="완료 시간" arrow>
+                            <Stack direction="row" spacing={0.5} alignItems="center">
+                              <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main' }} />
+                              <Typography variant="caption" color="text.secondary">{formatKST(jobDetail.completed_at)}</Typography>
+                            </Stack>
+                          </Tooltip>
+                        </>
+                      )}
+                      {jobDetail.confirmed_at && (
+                        <>
+                          <Typography variant="caption" color="text.disabled">→</Typography>
+                          <Tooltip title="확정 시간" arrow>
+                            <Stack direction="row" spacing={0.5} alignItems="center">
+                              <VerifiedIcon sx={{ fontSize: 14, color: 'success.main' }} />
+                              <Typography variant="caption" color="success.main" fontWeight={600}>{formatKST(jobDetail.confirmed_at)}</Typography>
+                            </Stack>
+                          </Tooltip>
+                        </>
+                      )}
+                    </Stack>
+                  </Stack>
                 </Box>
-                <IconButton onClick={() => setDrawerOpen(false)}><CloseIcon /></IconButton>
+                <IconButton onClick={() => setDrawerOpen(false)} sx={{ mt: -0.5 }}>
+                  <CloseIcon />
+                </IconButton>
               </Stack>
 
-              {/* 요약 통계 */}
+              {/* 요약 통계 - Premium Cards */}
               {jobDetail.result_summary && (
-                <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap" useFlexGap>
-                  <StatBox label="전체" count={jobDetail.result_summary.total_rows ?? 0} color={theme.palette.text.primary} />
-                  <StatBox label="신규" count={jobDetail.result_summary.new_count ?? 0} color={theme.palette.success.main} />
-                  <StatBox label="변경" count={jobDetail.result_summary.update_count ?? 0} color={theme.palette.info.main} />
-                  <StatBox label="오류" count={jobDetail.result_summary.error_count ?? 0} color={theme.palette.error.main} />
-                  <StatBox label="미매칭" count={jobDetail.result_summary.unmatched_count ?? 0} color={theme.palette.warning.main} />
-                  <StatBox label="충돌" count={jobDetail.result_summary.conflict_count ?? 0} color={theme.palette.warning.dark} />
-                  <StatBox label="제외" count={jobDetail.result_summary.excluded_count ?? 0} color={theme.palette.text.disabled} />
+                <Stack direction="row" spacing={1.5} sx={{ mt: 2.5 }} flexWrap="wrap" useFlexGap>
+                  <StatBoxPremium label="전체" count={jobDetail.result_summary.total_rows ?? 0} color={theme.palette.text.primary} icon={<InfoIcon />} />
+                  <StatBoxPremium label="신규" count={jobDetail.result_summary.new_count ?? 0} color={theme.palette.success.main} icon={<NewIcon />} />
+                  <StatBoxPremium label="변경" count={jobDetail.result_summary.update_count ?? 0} color={theme.palette.info.main} icon={<EditIcon />} />
+                  <StatBoxPremium label="오류" count={jobDetail.result_summary.error_count ?? 0} color={theme.palette.error.main} icon={<ErrorIcon />} />
+                  <StatBoxPremium label="미매칭" count={jobDetail.result_summary.unmatched_count ?? 0} color={theme.palette.warning.main} icon={<UnmatchedIcon />} />
+                  <StatBoxPremium label="충돌" count={jobDetail.result_summary.conflict_count ?? 0} color={theme.palette.warning.dark} icon={<WarningIcon />} />
+                  <StatBoxPremium label="제외" count={jobDetail.result_summary.excluded_count ?? 0} color={theme.palette.text.disabled} icon={<ExcludedIcon />} />
                 </Stack>
               )}
             </Box>
 
-            {/* 안내 메시지 (확정 전) */}
+            {/* 안내 메시지 (확정 전) - 액션 버튼은 하단 sticky bar로 이동 */}
             {isSucceeded(jobDetail.status) && !jobDetail.is_confirmed && (
-              <Alert severity="info" sx={{ mx: 2.5, mt: 2, borderRadius: 2 }}
-                action={
-                  <Button color="inherit" size="small" variant="outlined" onClick={handleConfirm} disabled={confirming}
-                    startIcon={confirming ? <CircularProgress size={14} /> : <ConfirmIcon />}>
-                    {confirming ? '처리중...' : '업로드 확정'}
-                  </Button>
-                }>
+              <Alert severity="info" sx={{ mx: 2.5, mt: 2, borderRadius: 2.5 }} icon={<InfoIcon />}>
                 <AlertTitle sx={{ fontWeight: 700 }}>확정 대기 중</AlertTitle>
-                아래 데이터를 확인 후 &quot;업로드 확정&quot; 버튼을 클릭하면 전표가 시스템에 반영됩니다.
+                아래 데이터를 확인 후 하단의 &quot;업로드 확정&quot; 버튼을 클릭하면 전표가 시스템에 반영됩니다.
                 {(jobDetail.result_summary?.unmatched_count ?? 0) > 0 && (
-                  <Box sx={{ mt: 0.5 }}>
-                    <Typography variant="caption" display="block" color="warning.main">
-                      ⚠ 미매칭 거래처 {jobDetail.result_summary?.unmatched_count}건은 확정 시 제외됩니다.
-                    </Typography>
-                    <Button size="small" variant="text" color="warning" startIcon={<PersonAddIcon />}
-                      onClick={handleOpenMapping} sx={{ mt: 0.5, fontSize: '0.75rem' }}>
-                      거래처 매핑으로 해결하기
-                    </Button>
-                  </Box>
+                  <Typography variant="caption" display="block" color="warning.main" sx={{ mt: 0.5 }}>
+                    ⚠ 미매칭 거래처 {jobDetail.result_summary?.unmatched_count}건은 확정 시 제외됩니다. 거래처 매핑을 먼저 처리하세요.
+                  </Typography>
                 )}
               </Alert>
             )}
 
             {isSucceeded(jobDetail.status) && jobDetail.is_confirmed && (
-              <Alert severity="success" sx={{ mx: 2.5, mt: 2, borderRadius: 2 }}>
+              <Alert severity="success" sx={{ mx: 2.5, mt: 2, borderRadius: 2.5 }} icon={<VerifiedIcon />}>
                 <AlertTitle sx={{ fontWeight: 700 }}>확정 완료</AlertTitle>
                 {formatKST(jobDetail.confirmed_at)}에 확정되었습니다. 전표가 시스템에 반영되었습니다.
               </Alert>
             )}
 
             {isFailed(jobDetail.status) && jobDetail.error_message && (
-              <Alert severity="error" sx={{ mx: 2.5, mt: 2, borderRadius: 2 }}>
+              <Alert severity="error" sx={{ mx: 2.5, mt: 2, borderRadius: 2.5 }}>
                 <AlertTitle sx={{ fontWeight: 700 }}>처리 실패</AlertTitle>
                 {jobDetail.error_message}
               </Alert>
             )}
 
             {/* 미매칭 거래처 목록 */}
-            {jobDetail.unmatched_counterparties.length > 0 && (
-              <Alert severity="warning" sx={{ mx: 2.5, mt: 1.5, borderRadius: 2 }}
-                action={
-                  <Button color="inherit" size="small" variant="outlined"
-                    startIcon={<PersonAddIcon />}
-                    onClick={handleOpenMapping}>
-                    거래처 매핑
-                  </Button>
-                }>
+            {jobDetail.unmatched_counterparties.length > 0 && !jobDetail.is_confirmed && (
+              <Alert severity="warning" sx={{ mx: 2.5, mt: 1.5, borderRadius: 2.5 }} icon={<UnmatchedIcon />}>
                 <AlertTitle sx={{ fontWeight: 700 }}>미매칭 거래처 {jobDetail.unmatched_counterparties.length}곳</AlertTitle>
                 <Typography variant="caption" sx={{ wordBreak: 'break-all' }}>
                   {jobDetail.unmatched_counterparties.slice(0, 10).join(', ')}
@@ -825,23 +998,33 @@ export default function UploadJobsPage() {
             </Tabs>
 
             {/* 데이터 테이블 */}
-            <Box sx={{ flex: 1, overflow: 'auto', px: 2.5, py: 1.5 }}>
+            <Box sx={{ flex: 1, overflow: 'auto', px: 2.5, py: 1.5, pb: isSucceeded(jobDetail.status) && !jobDetail.is_confirmed ? 10 : 1.5 }}>
               {filteredPreviewRows.length === 0 ? (
-                <Box sx={{ textAlign: 'center', py: 6 }}>
-                  <InfoIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
-                  <Typography color="text.secondary">해당 항목이 없습니다</Typography>
+                <Box sx={{ textAlign: 'center', py: 8 }}>
+                  <Box sx={{
+                    width: 64, height: 64, borderRadius: '50%', mx: 'auto', mb: 2,
+                    bgcolor: alpha(theme.palette.info.main, 0.08),
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <InfoIcon sx={{ fontSize: 32, color: 'info.main' }} />
+                  </Box>
+                  <Typography variant="h6" fontWeight={600} gutterBottom>해당 항목이 없습니다</Typography>
+                  <Typography variant="body2" color="text.secondary">다른 탭을 선택해 보세요</Typography>
                 </Box>
               ) : (
-                <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                <TableContainer component={Paper} elevation={0} sx={{
+                  border: '1px solid', borderColor: 'divider', borderRadius: 2,
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.03)',
+                }}>
                   <Table size="small" stickyHeader>
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ fontWeight: 700, width: 40, bgcolor: 'background.paper' }}>#</TableCell>
-                        <TableCell sx={{ fontWeight: 700, width: 65, bgcolor: 'background.paper' }}>상태</TableCell>
-                        <TableCell sx={{ fontWeight: 700, width: 90, bgcolor: 'background.paper' }}>거래일</TableCell>
-                        <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>거래처</TableCell>
-                        <TableCell sx={{ fontWeight: 700, width: 75, bgcolor: 'background.paper' }}>전표번호</TableCell>
-                        <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>상세</TableCell>
+                        <TableCell sx={{ fontWeight: 700, width: 45, bgcolor: alpha(theme.palette.background.paper, 0.95), fontSize: '0.75rem', color: 'text.secondary' }}>#</TableCell>
+                        <TableCell sx={{ fontWeight: 700, width: 70, bgcolor: alpha(theme.palette.background.paper, 0.95), fontSize: '0.75rem', color: 'text.secondary' }}>상태</TableCell>
+                        <TableCell sx={{ fontWeight: 700, width: 95, bgcolor: alpha(theme.palette.background.paper, 0.95), fontSize: '0.75rem', color: 'text.secondary' }}>거래일</TableCell>
+                        <TableCell sx={{ fontWeight: 700, bgcolor: alpha(theme.palette.background.paper, 0.95), fontSize: '0.75rem', color: 'text.secondary' }}>거래처</TableCell>
+                        <TableCell sx={{ fontWeight: 700, width: 85, bgcolor: alpha(theme.palette.background.paper, 0.95), fontSize: '0.75rem', color: 'text.secondary' }}>전표번호</TableCell>
+                        <TableCell sx={{ fontWeight: 700, bgcolor: alpha(theme.palette.background.paper, 0.95), fontSize: '0.75rem', color: 'text.secondary' }}>상세</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -849,26 +1032,29 @@ export default function UploadJobsPage() {
                         const cfg = ROW_STATUS_CONFIG[row.status] || ROW_STATUS_CONFIG['error'];
                         return (
                           <TableRow key={i} sx={{
-                            bgcolor: row.status === 'error' ? alpha(theme.palette.error.main, 0.03)
-                              : row.status === 'unmatched' ? alpha(theme.palette.warning.main, 0.03)
-                              : row.status === 'excluded' ? alpha(theme.palette.action.disabled, 0.04)
+                            bgcolor: row.status === 'error' ? alpha(theme.palette.error.main, 0.04)
+                              : row.status === 'unmatched' ? alpha(theme.palette.warning.main, 0.04)
+                              : row.status === 'excluded' ? alpha(theme.palette.action.disabled, 0.05)
+                              : row.status === 'new' ? alpha(theme.palette.success.main, 0.02)
                               : 'transparent',
+                            transition: 'background-color 0.15s',
+                            '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.04) },
                           }}>
-                            <TableCell sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>{row.row_index + 1}</TableCell>
+                            <TableCell sx={{ fontSize: '0.75rem', color: 'text.secondary', fontWeight: 500 }}>{row.row_index + 1}</TableCell>
                             <TableCell>
                               <Chip icon={cfg.icon as React.ReactElement} label={cfg.label} size="small"
-                                color={cfg.color} variant="outlined" sx={{ fontSize: '0.7rem', height: 22 }} />
+                                color={cfg.color} variant="filled" sx={{ fontSize: '0.68rem', height: 22, fontWeight: 600 }} />
                             </TableCell>
                             <TableCell sx={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{row.trade_date || '—'}</TableCell>
                             <TableCell sx={{ fontSize: '0.8rem' }}>
-                              <Typography variant="body2" noWrap sx={{ maxWidth: 150 }}>
+                              <Typography variant="body2" noWrap sx={{ maxWidth: 150, fontWeight: row.status === 'unmatched' ? 600 : 400 }}>
                                 {row.counterparty_name || '—'}
                               </Typography>
                             </TableCell>
                             <TableCell sx={{ fontSize: '0.8rem' }}>{row.voucher_number || '—'}</TableCell>
                             <TableCell sx={{ fontSize: '0.75rem' }}>
                               {row.error && (
-                                <Typography variant="caption" color="error.main" sx={{ display: 'block' }}>
+                                <Typography variant="caption" color="error.main" sx={{ display: 'block', fontWeight: 500 }}>
                                   {row.error}
                                 </Typography>
                               )}
@@ -882,7 +1068,7 @@ export default function UploadJobsPage() {
                                 </Stack>
                               )}
                               {!row.error && !row.diff && row.status === 'new' && (
-                                <Typography variant="caption" color="success.main">신규 전표</Typography>
+                                <Typography variant="caption" color="success.main" fontWeight={500}>신규 전표</Typography>
                               )}
                               {!row.error && !row.diff && row.status === 'unchanged' && (
                                 <Typography variant="caption" color="text.disabled">변경 없음</Typography>
@@ -908,12 +1094,65 @@ export default function UploadJobsPage() {
                 </TableContainer>
               )}
             </Box>
+
+            {/* Sticky 액션 바 (확정 전) */}
+            {isSucceeded(jobDetail.status) && !jobDetail.is_confirmed && (
+              <Box sx={{
+                position: 'sticky',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                px: 2.5,
+                py: 2,
+                bgcolor: 'background.paper',
+                borderTop: '1px solid',
+                borderColor: 'divider',
+                boxShadow: '0 -4px 12px rgba(0,0,0,0.08)',
+                zIndex: 10,
+              }}>
+                <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
+                  <Box>
+                    <Typography variant="body2" fontWeight={600}>
+                      {(jobDetail.result_summary?.new_count ?? 0) + (jobDetail.result_summary?.update_count ?? 0)}건 반영 예정
+                    </Typography>
+                    {(jobDetail.result_summary?.unmatched_count ?? 0) > 0 && (
+                      <Typography variant="caption" color="warning.main">
+                        미매칭 {jobDetail.result_summary?.unmatched_count}건은 제외됩니다
+                      </Typography>
+                    )}
+                  </Box>
+                  <Stack direction="row" spacing={1.5}>
+                    {(jobDetail.result_summary?.unmatched_count ?? 0) > 0 && (
+                      <Button
+                        variant="outlined"
+                        color="warning"
+                        startIcon={<PersonAddIcon />}
+                        onClick={handleOpenMapping}
+                        sx={{ borderRadius: 2, fontWeight: 600 }}
+                      >
+                        거래처 매핑
+                      </Button>
+                    )}
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      startIcon={confirming ? <CircularProgress size={18} color="inherit" /> : <VerifiedIcon />}
+                      onClick={handleConfirm}
+                      disabled={confirming}
+                      sx={{ borderRadius: 2, fontWeight: 700, px: 3, boxShadow: 2 }}
+                    >
+                      {confirming ? '처리중...' : '업로드 확정'}
+                    </Button>
+                  </Stack>
+                </Stack>
+              </Box>
+            )}
           </Box>
         ) : null}
       </Drawer>
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          공통 확인 다이얼로그 (프리미엄)
+          공통 확인 다이얼로그 (프리미엄 + 위험 작업 진동 애니메이션)
           ═══════════════════════════════════════════════════════════════════════ */}
       <Dialog
         open={confirmDialog.open}
@@ -924,17 +1163,27 @@ export default function UploadJobsPage() {
           sx: {
             borderRadius: 3,
             overflow: 'hidden',
+            // 위험 작업(error)일 때 진동 애니메이션
+            ...(confirmDialog.confirmColor === 'error' && {
+              animation: 'shakeDialog 0.5s ease-in-out',
+              '@keyframes shakeDialog': {
+                '0%, 100%': { transform: 'translateX(0)' },
+                '10%, 30%, 50%, 70%, 90%': { transform: 'translateX(-4px)' },
+                '20%, 40%, 60%, 80%': { transform: 'translateX(4px)' },
+              },
+            }),
           },
         }}
       >
         {/* 상단 색상 바 */}
         <Box sx={{
-          height: 4,
+          height: confirmDialog.confirmColor === 'error' ? 6 : 4,
           bgcolor: confirmDialog.confirmColor === 'error' ? 'error.main'
             : confirmDialog.confirmColor === 'warning' ? 'warning.main'
             : confirmDialog.confirmColor === 'info' ? 'info.main'
             : confirmDialog.confirmColor === 'success' ? 'success.main'
             : 'primary.main',
+          transition: 'height 0.2s ease',
         }} />
         <DialogTitle sx={{ pt: 2.5, pb: 1 }}>
           <Stack direction="row" spacing={1.5} alignItems="center">
@@ -994,27 +1243,41 @@ export default function UploadJobsPage() {
       </Dialog>
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          거래처 매핑 모달 (미매칭 거래처 일괄 등록 / 개별 매핑)
+          거래처 매핑 모달 (미매칭 거래처 일괄 등록 / 개별 매핑) - Premium Design
           ═══════════════════════════════════════════════════════════════════════ */}
       <Dialog
         open={mappingDialogOpen}
         onClose={() => !batchRegistering && setMappingDialogOpen(false)}
         maxWidth="md"
         fullWidth
-        PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden', maxHeight: '85vh' } }}
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            overflow: 'hidden',
+            maxHeight: '85vh',
+            bgcolor: 'background.default',
+          },
+        }}
       >
-        {/* 상단 강조 바 */}
-        <Box sx={{ height: 4, bgcolor: 'warning.main' }} />
-        <DialogTitle sx={{ pt: 2.5, pb: 1 }}>
+        {/* 상단 gradient 바 */}
+        <Box sx={{
+          height: 6,
+          background: `linear-gradient(90deg, ${theme.palette.warning.main} 0%, ${theme.palette.primary.main} 100%)`,
+        }} />
+        <DialogTitle sx={{ pt: 2.5, pb: 1, bgcolor: alpha(theme.palette.warning.main, 0.03) }}>
           <Stack direction="row" alignItems="center" justifyContent="space-between">
             <Stack direction="row" spacing={1.5} alignItems="center">
-              <Box sx={{ width: 40, height: 40, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: alpha(theme.palette.warning.main, 0.1) }}>
-                <PersonAddIcon color="warning" />
+              <Box sx={{
+                width: 44, height: 44, borderRadius: 2.5, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                bgcolor: alpha(theme.palette.warning.main, 0.12),
+                boxShadow: `0 2px 8px ${alpha(theme.palette.warning.main, 0.2)}`,
+              }}>
+                <PersonAddIcon sx={{ color: 'warning.main', fontSize: 24 }} />
               </Box>
               <Box>
-                <Typography variant="h6" fontWeight={700}>미매칭 거래처 매핑</Typography>
+                <Typography variant="h6" fontWeight={800}>미매칭 거래처 매핑</Typography>
                 <Typography variant="caption" color="text.secondary">
-                  총 {mappingUnmatched.length}건의 미매칭 거래처를 처리합니다
+                  총 <strong>{mappingUnmatched.length}</strong>건의 미매칭 거래처를 처리합니다
                 </Typography>
               </Box>
             </Stack>
@@ -1022,51 +1285,100 @@ export default function UploadJobsPage() {
               <CloseIcon />
             </IconButton>
           </Stack>
-        </DialogTitle>
 
-        <DialogContent sx={{ pt: 1, px: 3 }}>
-          {/* 안내 문구 */}
-          <Alert severity="info" sx={{ mb: 2.5, borderRadius: 2 }}>
-            <AlertTitle sx={{ fontWeight: 700, fontSize: '0.85rem' }}>거래처 매핑이란?</AlertTitle>
-            <Typography variant="caption" sx={{ display: 'block', lineHeight: 1.7 }}>
-              엑셀에서 입력된 거래처명이 시스템에 등록되지 않은 경우 &quot;미매칭&quot;으로 분류됩니다.
-              아래 방법으로 처리할 수 있습니다:
-            </Typography>
-            <Stack spacing={0.5} sx={{ mt: 1, ml: 1 }}>
-              <Typography variant="caption" color="text.secondary">
-                <strong>🆕 신규 등록</strong> — 해당 이름으로 거래처를 새로 생성하고, 자동으로 별칭(매칭 키)도 등록합니다.
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                <strong>🔗 기존 연결</strong> — 이미 등록된 거래처에 별칭으로 연결합니다 (같은 거래처가 다른 이름인 경우).
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                <strong>⏭ 건너뛰기</strong> — 이번에는 처리하지 않습니다.
+          {/* 진행률 표시 */}
+          <Box sx={{ mt: 2 }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
+              <Typography variant="caption" color="text.secondary">처리 진행률</Typography>
+              <Typography variant="caption" fontWeight={600}>
+                {skipCount}건 처리 완료 / {mappingUnmatched.length}건
               </Typography>
             </Stack>
-          </Alert>
+            <LinearProgress
+              variant="determinate"
+              value={mappingUnmatched.length > 0 ? (skipCount / mappingUnmatched.length) * 100 : 0}
+              sx={{
+                height: 8,
+                borderRadius: 4,
+                bgcolor: alpha(theme.palette.primary.main, 0.1),
+                '& .MuiLinearProgress-bar': {
+                  borderRadius: 4,
+                  background: `linear-gradient(90deg, ${theme.palette.success.main} 0%, ${theme.palette.primary.main} 100%)`,
+                },
+              }}
+            />
+          </Box>
+        </DialogTitle>
 
-          {/* 일괄 등록 결과 표시 */}
+        <DialogContent sx={{ pt: 2, px: 3 }}>
+          {/* 안내 문구 - 더 컴팩트하게 */}
+          <Paper variant="outlined" sx={{
+            p: 2, mb: 2.5, borderRadius: 2.5,
+            borderColor: alpha(theme.palette.info.main, 0.3),
+            bgcolor: alpha(theme.palette.info.main, 0.03),
+          }}>
+            <Stack direction="row" spacing={1.5} alignItems="flex-start">
+              <InfoIcon sx={{ color: 'info.main', fontSize: 20, mt: 0.2 }} />
+              <Box>
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>거래처 매핑 방법</Typography>
+                <Stack direction="row" spacing={2} flexWrap="wrap">
+                  <Typography variant="caption" color="text.secondary">
+                    <Box component="span" sx={{ fontWeight: 700, color: 'primary.main' }}>신규 등록</Box> — 새 거래처 생성
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    <Box component="span" sx={{ fontWeight: 700, color: 'info.main' }}>기존 연결</Box> — 기존 거래처에 별칭 추가
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    <Box component="span" sx={{ fontWeight: 700, color: 'text.disabled' }}>건너뛰기</Box> — 나중에 처리
+                  </Typography>
+                </Stack>
+              </Box>
+            </Stack>
+          </Paper>
+
+          {/* 일괄 등록 결과 표시 - 성공 애니메이션 */}
           {batchResult && (
             <Alert
               severity={batchResult.created_count > 0 ? 'success' : 'info'}
-              sx={{ mb: 2.5, borderRadius: 2 }}
+              sx={{
+                mb: 2.5, borderRadius: 2.5,
+                animation: 'fadeIn 0.3s ease-in-out',
+                '@keyframes fadeIn': {
+                  '0%': { opacity: 0, transform: 'translateY(-10px)' },
+                  '100%': { opacity: 1, transform: 'translateY(0)' },
+                },
+              }}
+              icon={batchResult.created_count > 0 ? <CheckCircleIcon /> : <InfoIcon />}
               action={
-                <Button size="small" color="inherit" onClick={() => { setBatchResult(null); setMappingDialogOpen(false); }}>
-                  닫기
+                <Button size="small" color="inherit" onClick={() => { setBatchResult(null); setMappingDialogOpen(false); }}
+                  sx={{ fontWeight: 600 }}>
+                  완료
                 </Button>
               }
             >
               <AlertTitle sx={{ fontWeight: 700 }}>일괄 등록 결과</AlertTitle>
-              <Typography variant="body2">
-                ✅ {batchResult.created_count}건 신규 등록 완료 / ⏭ {batchResult.skipped_count}건 건너뜀
-              </Typography>
+              <Stack direction="row" spacing={2} sx={{ mb: 1 }}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h5" fontWeight={800} color="success.main">{batchResult.created_count}</Typography>
+                  <Typography variant="caption">등록 완료</Typography>
+                </Box>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h5" fontWeight={800} color="text.secondary">{batchResult.skipped_count}</Typography>
+                  <Typography variant="caption">건너뜀</Typography>
+                </Box>
+              </Stack>
               {batchResult.created.length > 0 && (
                 <Box sx={{ mt: 1 }}>
                   <Typography variant="caption" fontWeight={700}>등록된 거래처:</Typography>
                   <Stack direction="row" spacing={0.5} flexWrap="wrap" sx={{ mt: 0.5 }}>
-                    {batchResult.created.map((c) => (
-                      <Chip key={c.id} label={c.name} size="small" color="success" variant="outlined" sx={{ fontSize: '0.7rem', height: 20 }} />
+                    {batchResult.created.slice(0, 10).map((c) => (
+                      <Chip key={c.id} label={c.name} size="small" color="success" variant="filled"
+                        sx={{ fontSize: '0.7rem', height: 22, fontWeight: 600 }} />
                     ))}
+                    {batchResult.created.length > 10 && (
+                      <Chip label={`+${batchResult.created.length - 10}건`} size="small" variant="outlined"
+                        sx={{ fontSize: '0.7rem', height: 22 }} />
+                    )}
                   </Stack>
                 </Box>
               )}
@@ -1095,56 +1407,145 @@ export default function UploadJobsPage() {
             </Alert>
           )}
 
-          {/* 요약 칩 */}
-          <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-            <Chip icon={<PersonAddIcon />} label={`신규 등록 ${createCount}건`}
-              color="primary" size="small" variant={createCount > 0 ? 'filled' : 'outlined'} />
-            <Chip icon={<LinkIcon />} label={`기존 연결 ${linkCount}건`}
-              color="info" size="small" variant={linkCount > 0 ? 'filled' : 'outlined'} />
-            <Chip label={`건너뛰기 ${skipCount}건`}
-              size="small" variant="outlined" />
+          {/* 요약 카드 - 프리미엄 스타일 */}
+          <Stack direction="row" spacing={1.5} sx={{ mb: 2.5 }}>
+            <Paper
+              variant="outlined"
+              sx={{
+                flex: 1, p: 1.5, textAlign: 'center', borderRadius: 2,
+                borderColor: createCount > 0 ? 'primary.main' : 'divider',
+                bgcolor: createCount > 0 ? alpha(theme.palette.primary.main, 0.04) : 'transparent',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                '&:hover': { borderColor: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.06) },
+              }}
+              onClick={() => {
+                const updated = { ...mappingActions };
+                for (const name of mappingUnmatched) { updated[name] = { action: 'create' }; }
+                setMappingActions(updated);
+              }}
+            >
+              <PersonAddIcon sx={{ fontSize: 24, color: createCount > 0 ? 'primary.main' : 'text.disabled', mb: 0.5 }} />
+              <Typography variant="h6" fontWeight={800} color={createCount > 0 ? 'primary.main' : 'text.disabled'}>
+                {createCount}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">신규 등록</Typography>
+            </Paper>
+            <Paper
+              variant="outlined"
+              sx={{
+                flex: 1, p: 1.5, textAlign: 'center', borderRadius: 2,
+                borderColor: linkCount > 0 ? 'info.main' : 'divider',
+                bgcolor: linkCount > 0 ? alpha(theme.palette.info.main, 0.04) : 'transparent',
+              }}
+            >
+              <LinkIcon sx={{ fontSize: 24, color: linkCount > 0 ? 'info.main' : 'text.disabled', mb: 0.5 }} />
+              <Typography variant="h6" fontWeight={800} color={linkCount > 0 ? 'info.main' : 'text.disabled'}>
+                {linkCount}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">기존 연결</Typography>
+            </Paper>
+            <Paper
+              variant="outlined"
+              sx={{
+                flex: 1, p: 1.5, textAlign: 'center', borderRadius: 2,
+                borderColor: skipCount > 0 ? 'success.main' : 'divider',
+                bgcolor: skipCount > 0 ? alpha(theme.palette.success.main, 0.04) : 'transparent',
+              }}
+            >
+              <CheckCircleIcon sx={{ fontSize: 24, color: skipCount > 0 ? 'success.main' : 'text.disabled', mb: 0.5 }} />
+              <Typography variant="h6" fontWeight={800} color={skipCount > 0 ? 'success.main' : 'text.disabled'}>
+                {skipCount}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">처리 완료</Typography>
+            </Paper>
           </Stack>
 
-          {/* 매핑 테이블 */}
+          {/* 매핑 테이블 - Premium Design */}
           {mappingLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-              <CircularProgress size={28} />
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', py: 6 }}>
+              <CircularProgress size={32} />
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>거래처 목록 로딩 중...</Typography>
             </Box>
           ) : (
-            <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 400, borderRadius: 1 }}>
+            <TableContainer component={Paper} variant="outlined" sx={{
+              maxHeight: 350, borderRadius: 2,
+              boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+            }}>
               <Table stickyHeader size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ fontWeight: 700, width: 200, bgcolor: 'background.paper' }}>미매칭 거래처명</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 130, bgcolor: 'background.paper' }}>액션</TableCell>
-                    <TableCell sx={{ fontWeight: 700, bgcolor: 'background.paper' }}>연결 대상 (기존 거래처)</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 80, bgcolor: 'background.paper' }} align="center">실행</TableCell>
+                    <TableCell sx={{
+                      fontWeight: 700, width: 200, fontSize: '0.75rem', color: 'text.secondary',
+                      bgcolor: alpha(theme.palette.background.paper, 0.95),
+                    }}>미매칭 거래처명</TableCell>
+                    <TableCell sx={{
+                      fontWeight: 700, width: 140, fontSize: '0.75rem', color: 'text.secondary',
+                      bgcolor: alpha(theme.palette.background.paper, 0.95),
+                    }}>액션</TableCell>
+                    <TableCell sx={{
+                      fontWeight: 700, fontSize: '0.75rem', color: 'text.secondary',
+                      bgcolor: alpha(theme.palette.background.paper, 0.95),
+                    }}>연결 대상 / 설명</TableCell>
+                    <TableCell sx={{
+                      fontWeight: 700, width: 70, fontSize: '0.75rem', color: 'text.secondary',
+                      bgcolor: alpha(theme.palette.background.paper, 0.95),
+                    }} align="center">실행</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {mappingUnmatched.map((name) => {
                     const action = mappingActions[name] ?? { action: 'create' };
+                    const isSkipped = action.action === 'skip';
                     return (
                       <TableRow key={name} sx={{
-                        bgcolor: action.action === 'create' ? alpha(theme.palette.primary.main, 0.02)
+                        bgcolor: isSkipped ? alpha(theme.palette.success.main, 0.03)
+                          : action.action === 'create' ? alpha(theme.palette.primary.main, 0.02)
                           : action.action === 'link' ? alpha(theme.palette.info.main, 0.02)
                           : 'transparent',
+                        opacity: isSkipped ? 0.6 : 1,
+                        transition: 'all 0.15s',
+                        '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.04) },
                       }}>
                         <TableCell>
-                          <Typography variant="body2" fontWeight={600} noWrap sx={{ maxWidth: 200 }}>
-                            {name}
-                          </Typography>
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            {isSkipped && <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />}
+                            <Typography variant="body2" fontWeight={600} noWrap sx={{
+                              maxWidth: 180,
+                              textDecoration: isSkipped ? 'line-through' : 'none',
+                            }}>
+                              {name}
+                            </Typography>
+                          </Stack>
                         </TableCell>
                         <TableCell>
                           <FormControl size="small" fullWidth>
                             <Select
                               value={action.action}
                               onChange={(e) => handleMappingActionChange(name, e.target.value as 'skip' | 'link' | 'create')}
-                              sx={{ fontSize: '0.8rem', height: 32 }}
+                              sx={{
+                                fontSize: '0.8rem', height: 34, borderRadius: 1.5,
+                                '& .MuiSelect-select': { py: 0.8 },
+                              }}
                             >
-                              <MenuItem value="create">🆕 신규 등록</MenuItem>
-                              <MenuItem value="link">🔗 기존 연결</MenuItem>
-                              <MenuItem value="skip">⏭ 건너뛰기</MenuItem>
+                              <MenuItem value="create">
+                                <Stack direction="row" spacing={1} alignItems="center">
+                                  <PersonAddIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+                                  <span>신규 등록</span>
+                                </Stack>
+                              </MenuItem>
+                              <MenuItem value="link">
+                                <Stack direction="row" spacing={1} alignItems="center">
+                                  <LinkIcon sx={{ fontSize: 16, color: 'info.main' }} />
+                                  <span>기존 연결</span>
+                                </Stack>
+                              </MenuItem>
+                              <MenuItem value="skip">
+                                <Stack direction="row" spacing={1} alignItems="center">
+                                  <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                                  <span>처리 완료</span>
+                                </Stack>
+                              </MenuItem>
                             </Select>
                           </FormControl>
                         </TableCell>
@@ -1161,23 +1562,26 @@ export default function UploadJobsPage() {
                                   [name]: { ...prev[name], linkToId: val?.id },
                                 }));
                               }}
-                              renderInput={(params) => <TextField {...params} placeholder="거래처 검색..." />}
+                              renderInput={(params) => <TextField {...params} placeholder="거래처 검색..." size="small" />}
                               sx={{ minWidth: 200 }}
                               noOptionsText="검색 결과 없음"
                             />
                           ) : action.action === 'create' ? (
-                            <Typography variant="caption" color="primary.main">
+                            <Typography variant="caption" color="primary.main" fontWeight={500}>
                               &quot;{name}&quot; 이름으로 신규 거래처 생성
                             </Typography>
                           ) : (
-                            <Typography variant="caption" color="text.disabled">이번 처리에서 제외</Typography>
+                            <Typography variant="caption" color="success.main" fontWeight={500}>
+                              처리 완료됨
+                            </Typography>
                           )}
                         </TableCell>
                         <TableCell align="center">
                           {action.action === 'link' && action.linkToId && (
                             <Tooltip title={`"${name}" → 기존 거래처에 별칭으로 연결`}>
                               <IconButton size="small" color="info"
-                                onClick={() => handleLinkMapping(name, action.linkToId!)}>
+                                onClick={() => handleLinkMapping(name, action.linkToId!)}
+                                sx={{ bgcolor: alpha(theme.palette.info.main, 0.1), '&:hover': { bgcolor: alpha(theme.palette.info.main, 0.2) } }}>
                                 <LinkIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
@@ -1188,9 +1592,16 @@ export default function UploadJobsPage() {
                   })}
                   {mappingUnmatched.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} sx={{ textAlign: 'center', py: 4 }}>
-                        <CheckCircleIcon sx={{ fontSize: 32, color: 'success.main', mb: 1 }} />
-                        <Typography color="text.secondary">미매칭 거래처가 없습니다!</Typography>
+                      <TableCell colSpan={4} sx={{ textAlign: 'center', py: 6 }}>
+                        <Box sx={{
+                          width: 56, height: 56, borderRadius: '50%', mx: 'auto', mb: 2,
+                          bgcolor: alpha(theme.palette.success.main, 0.1),
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          <CheckCircleIcon sx={{ fontSize: 32, color: 'success.main' }} />
+                        </Box>
+                        <Typography variant="h6" fontWeight={600} gutterBottom>모든 거래처가 매칭되었습니다!</Typography>
+                        <Typography variant="body2" color="text.secondary">미매칭 거래처가 없습니다</Typography>
                       </TableCell>
                     </TableRow>
                   )}
@@ -1201,16 +1612,20 @@ export default function UploadJobsPage() {
         </DialogContent>
 
         <Divider />
-        <DialogActions sx={{ px: 3, py: 2 }}>
+        <DialogActions sx={{
+          px: 3, py: 2,
+          bgcolor: alpha(theme.palette.background.paper, 0.8),
+          backdropFilter: 'blur(8px)',
+        }}>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1 }}>
-            <Button size="small" variant="text"
+            <Button size="small" variant="outlined" color="primary"
               onClick={() => {
                 const updated = { ...mappingActions };
                 for (const name of mappingUnmatched) { updated[name] = { action: 'create' }; }
                 setMappingActions(updated);
               }}
               startIcon={<BatchIcon />}
-              sx={{ fontSize: '0.8rem' }}
+              sx={{ fontSize: '0.8rem', borderRadius: 2 }}
             >
               전체 신규 등록
             </Button>
@@ -1225,7 +1640,8 @@ export default function UploadJobsPage() {
               전체 건너뛰기
             </Button>
           </Stack>
-          <Button onClick={() => setMappingDialogOpen(false)} color="inherit" disabled={batchRegistering}>
+          <Button onClick={() => setMappingDialogOpen(false)} color="inherit" disabled={batchRegistering}
+            sx={{ borderRadius: 2 }}>
             닫기
           </Button>
           <Button
@@ -1233,8 +1649,12 @@ export default function UploadJobsPage() {
             color="primary"
             onClick={handleBatchRegister}
             disabled={batchRegistering || createCount === 0}
-            startIcon={batchRegistering ? <CircularProgress size={16} color="inherit" /> : <PersonAddIcon />}
-            sx={{ fontWeight: 700, px: 3, borderRadius: 2 }}
+            startIcon={batchRegistering ? <CircularProgress size={18} color="inherit" /> : <PersonAddIcon />}
+            sx={{
+              fontWeight: 700, px: 3, borderRadius: 2,
+              boxShadow: createCount > 0 ? 2 : 0,
+              background: createCount > 0 ? `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)` : undefined,
+            }}
           >
             {batchRegistering ? '등록 중...' : `신규 ${createCount}건 일괄 등록`}
           </Button>
@@ -1244,12 +1664,47 @@ export default function UploadJobsPage() {
   );
 }
 
-// ─── 요약 통계 박스 ───
+// ─── 요약 통계 박스 (기본) ───
 function StatBox({ label, count, color }: { label: string; count: number; color: string }) {
   return (
     <Paper variant="outlined" sx={{ px: 1.5, py: 0.8, minWidth: 70, textAlign: 'center', borderRadius: 1.5 }}>
       <Typography variant="h6" fontWeight={800} sx={{ color, lineHeight: 1.2 }}>{count}</Typography>
       <Typography variant="caption" color="text.secondary">{label}</Typography>
+    </Paper>
+  );
+}
+
+// ─── 요약 통계 박스 (프리미엄) ───
+function StatBoxPremium({ label, count, color, icon }: { label: string; count: number; color: string; icon: React.ReactNode }) {
+  return (
+    <Paper
+      variant="outlined"
+      sx={{
+        px: 2,
+        py: 1.2,
+        minWidth: 85,
+        textAlign: 'center',
+        borderRadius: 2,
+        borderColor: count > 0 ? color : 'divider',
+        bgcolor: count > 0 ? `${color}08` : 'transparent',
+        transition: 'all 0.2s ease',
+        '&:hover': {
+          transform: count > 0 ? 'translateY(-2px)' : 'none',
+          boxShadow: count > 0 ? '0 4px 12px rgba(0,0,0,0.08)' : 'none',
+        },
+      }}
+    >
+      <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center" sx={{ mb: 0.5 }}>
+        <Box sx={{ color: count > 0 ? color : 'text.disabled', display: 'flex', alignItems: 'center' }}>
+          {React.cloneElement(icon as React.ReactElement, { sx: { fontSize: 16 } })}
+        </Box>
+        <Typography variant="h5" fontWeight={800} sx={{ color: count > 0 ? color : 'text.disabled', lineHeight: 1 }}>
+          {count}
+        </Typography>
+      </Stack>
+      <Typography variant="caption" color={count > 0 ? 'text.primary' : 'text.disabled'} fontWeight={500}>
+        {label}
+      </Typography>
     </Paper>
   );
 }

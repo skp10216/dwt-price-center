@@ -290,12 +290,40 @@ export default function CounterpartiesPage() {
           </TableHead>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={9} align="center" sx={{ py: 8 }}>로딩 중...</TableCell></TableRow>
+              // Skeleton 로딩 상태
+              [...Array(5)].map((_, i) => (
+                <TableRow key={`skeleton-${i}`}>
+                  <TableCell padding="checkbox"><Box sx={{ width: 18, height: 18, bgcolor: 'action.hover', borderRadius: 0.5 }} /></TableCell>
+                  <TableCell><Box sx={{ width: '70%', height: 20, bgcolor: 'action.hover', borderRadius: 1 }} /></TableCell>
+                  <TableCell><Box sx={{ width: 80, height: 20, bgcolor: 'action.hover', borderRadius: 1 }} /></TableCell>
+                  <TableCell><Box sx={{ width: 50, height: 22, bgcolor: 'action.hover', borderRadius: 2 }} /></TableCell>
+                  <TableCell><Box sx={{ width: 60, height: 20, bgcolor: 'action.hover', borderRadius: 1 }} /></TableCell>
+                  <TableCell align="right"><Box sx={{ width: 60, height: 20, bgcolor: 'action.hover', borderRadius: 1, ml: 'auto' }} /></TableCell>
+                  <TableCell align="right"><Box sx={{ width: 60, height: 20, bgcolor: 'action.hover', borderRadius: 1, ml: 'auto' }} /></TableCell>
+                  <TableCell><Box sx={{ width: 50, height: 20, bgcolor: 'action.hover', borderRadius: 1 }} /></TableCell>
+                  <TableCell><Box sx={{ width: 80, height: 24, bgcolor: 'action.hover', borderRadius: 1, mx: 'auto' }} /></TableCell>
+                </TableRow>
+              ))
             ) : counterparties.length === 0 ? (
-              <TableRow><TableCell colSpan={9} align="center" sx={{ py: 8 }}>
-                <BusinessIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-                <Typography color="text.secondary">등록된 거래처가 없습니다</Typography>
-              </TableCell></TableRow>
+              <TableRow>
+                <TableCell colSpan={9} align="center" sx={{ py: 10 }}>
+                  <Box sx={{
+                    width: 72, height: 72, borderRadius: '50%', mx: 'auto', mb: 2,
+                    bgcolor: alpha(theme.palette.primary.main, 0.08),
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <BusinessIcon sx={{ fontSize: 36, color: 'primary.main' }} />
+                  </Box>
+                  <Typography variant="h6" fontWeight={600} gutterBottom>등록된 거래처가 없습니다</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    새 거래처를 등록하여 시작하세요
+                  </Typography>
+                  <Button variant="contained" startIcon={<AddIcon />} onClick={() => openDialog()}
+                    sx={{ borderRadius: 2, fontWeight: 600 }}>
+                    거래처 등록
+                  </Button>
+                </TableCell>
+              </TableRow>
             ) : (
               counterparties.map((cp) => {
                 const isChecked = selected.has(cp.id);

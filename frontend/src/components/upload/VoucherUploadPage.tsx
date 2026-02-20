@@ -29,7 +29,48 @@ import {
   FilterList as FilterIcon,
   Info as InfoIcon,
   History as HistoryIcon,
+  InsertDriveFile as FileIcon,
+  TaskAlt as TaskAltIcon,
+  Verified as VerifiedIcon,
 } from '@mui/icons-material';
+import StepConnector, { stepConnectorClasses } from '@mui/material/StepConnector';
+import { StepIconProps } from '@mui/material/StepIcon';
+import { styled, keyframes } from '@mui/material/styles';
+
+// ─── 애니메이션 ───
+const pulseAnimation = keyframes`
+  0% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); opacity: 0.8; }
+`;
+
+const bounceAnimation = keyframes`
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+`;
+
+// ─── 커스텀 스테퍼 커넥터 ───
+const PremiumConnector = styled(StepConnector)(({ theme }) => ({
+  [`&.${stepConnectorClasses.alternativeLabel}`]: {
+    top: 22,
+  },
+  [`&.${stepConnectorClasses.active}`]: {
+    [`& .${stepConnectorClasses.line}`]: {
+      background: `linear-gradient(90deg, ${theme.palette.primary.main} 0%, ${theme.palette.success.main} 100%)`,
+    },
+  },
+  [`&.${stepConnectorClasses.completed}`]: {
+    [`& .${stepConnectorClasses.line}`]: {
+      background: `linear-gradient(90deg, ${theme.palette.success.main} 0%, ${theme.palette.success.light} 100%)`,
+    },
+  },
+  [`& .${stepConnectorClasses.line}`]: {
+    height: 3,
+    border: 0,
+    backgroundColor: theme.palette.divider,
+    borderRadius: 1.5,
+  },
+}));
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
 import { useRouter } from 'next/navigation';
@@ -73,6 +114,35 @@ const VOUCHER_CONFIG = {
     successMsg: '매입 전표 업로드가 완료되었습니다',
   },
 };
+
+// ─── 커스텀 스텝 아이콘 ───
+function PremiumStepIcon(props: StepIconProps) {
+  const { active, completed, icon } = props;
+  const icons: { [index: string]: React.ReactElement } = {
+    1: <FileIcon />,
+    2: <PreviewIcon />,
+    3: <TaskAltIcon />,
+  };
+  return (
+    <Box
+      sx={{
+        width: 48,
+        height: 48,
+        borderRadius: '50%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        bgcolor: completed ? 'success.main' : active ? 'primary.main' : 'grey.200',
+        color: completed || active ? 'white' : 'grey.500',
+        boxShadow: active ? '0 4px 12px rgba(25, 118, 210, 0.35)' : completed ? '0 4px 12px rgba(46, 125, 50, 0.35)' : 'none',
+        transition: 'all 0.3s ease',
+        transform: active ? 'scale(1.1)' : 'scale(1)',
+      }}
+    >
+      {completed ? <CheckCircleIcon /> : icons[String(icon)]}
+    </Box>
+  );
+}
 
 // ─── 메인 컴포넌트 ───
 export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProps) {
@@ -380,11 +450,25 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
         </Button>
       </Stack>
 
-      {/* ─── 스테퍼 ─── */}
-      <Paper elevation={0} sx={{ px: 4, py: 2.5, mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-        <Stepper activeStep={activeStep} alternativeLabel>
-          {steps.map((label) => (
-            <Step key={label}><StepLabel>{label}</StepLabel></Step>
+      {/* ─── 스테퍼 (프리미엄) ─── */}
+      <Paper elevation={0} sx={{
+        px: 4, py: 3, mb: 3,
+        border: '1px solid', borderColor: 'divider', borderRadius: 3,
+        background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.02)} 0%, ${alpha(theme.palette.success.main, 0.02)} 100%)`,
+      }}>
+        <Stepper activeStep={activeStep} alternativeLabel connector={<PremiumConnector />}>
+          {steps.map((label, index) => (
+            <Step key={label}>
+              <StepLabel StepIconComponent={PremiumStepIcon}>
+                <Typography
+                  variant="body2"
+                  fontWeight={activeStep === index ? 700 : 500}
+                  color={activeStep === index ? 'primary.main' : activeStep > index ? 'success.main' : 'text.secondary'}
+                >
+                  {label}
+                </Typography>
+              </StepLabel>
+            </Step>
           ))}
         </Stepper>
       </Paper>
@@ -393,7 +477,7 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
       {uploading && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
 
       {/* ════════════════════════════════════════
-          Step 0: 파일 선택 (드래그 앤 드롭)
+          Step 0: 파일 선택 (드래그 앤 드롭) - Premium
          ════════════════════════════════════════ */}
       {activeStep === 0 && (
         <Fade in timeout={300}>
@@ -405,47 +489,140 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
               onDragOver={handleDragOver}
               onDrop={handleDrop}
               sx={{
-                p: 6,
+                p: 8,
                 border: '2px dashed',
-                borderColor: isDragging ? 'primary.main' : file ? 'primary.main' : 'divider',
-                borderRadius: 3,
+                borderColor: isDragging ? 'primary.main' : file ? 'success.main' : 'divider',
+                borderRadius: 4,
                 textAlign: 'center',
                 cursor: 'pointer',
+                position: 'relative',
+                overflow: 'hidden',
                 bgcolor: isDragging
-                  ? alpha(theme.palette.primary.main, 0.08)
+                  ? alpha(theme.palette.primary.main, 0.06)
                   : file
-                    ? alpha(theme.palette.primary.main, 0.03)
+                    ? alpha(theme.palette.success.main, 0.03)
                     : 'background.paper',
-                transition: 'all 0.2s ease-in-out',
-                transform: isDragging ? 'scale(1.005)' : 'scale(1)',
-                '&:hover': { borderColor: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.03) },
+                transition: 'all 0.3s ease-in-out',
+                transform: isDragging ? 'scale(1.01)' : 'scale(1)',
+                boxShadow: isDragging ? `0 0 0 4px ${alpha(theme.palette.primary.main, 0.15)}` : 'none',
+                '&:hover': {
+                  borderColor: file ? 'success.main' : 'primary.main',
+                  bgcolor: file ? alpha(theme.palette.success.main, 0.04) : alpha(theme.palette.primary.main, 0.03),
+                },
+                // 배경 패턴
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0, left: 0, right: 0, bottom: 0,
+                  background: `radial-gradient(circle at 30% 20%, ${alpha(theme.palette.primary.main, 0.03)} 0%, transparent 50%),
+                               radial-gradient(circle at 70% 80%, ${alpha(theme.palette.success.main, 0.03)} 0%, transparent 50%)`,
+                  pointerEvents: 'none',
+                },
               }}
               onClick={() => fileInputRef.current?.click()}
             >
               <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleFileSelect} />
               {file ? (
-                <Stack alignItems="center" spacing={1.5}>
-                  <DescriptionIcon sx={{ fontSize: 52, color: 'primary.main' }} />
-                  <Typography variant="h6" fontWeight={600}>{file.name}</Typography>
-                  <Typography variant="body2" color="text.secondary">{(file.size / 1024).toFixed(1)} KB</Typography>
-                  <Button variant="text" size="small" color="inherit" onClick={(e) => { e.stopPropagation(); handleReset(); }}>
+                <Stack alignItems="center" spacing={2} sx={{ position: 'relative', zIndex: 1 }}>
+                  {/* 파일 정보 카드 */}
+                  <Paper
+                    elevation={2}
+                    sx={{
+                      p: 3, borderRadius: 3, minWidth: 280,
+                      bgcolor: 'background.paper',
+                      border: '1px solid',
+                      borderColor: alpha(theme.palette.success.main, 0.3),
+                    }}
+                  >
+                    <Stack direction="row" spacing={2} alignItems="center">
+                      <Box sx={{
+                        width: 56, height: 56, borderRadius: 2,
+                        bgcolor: alpha(theme.palette.success.main, 0.1),
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <DescriptionIcon sx={{ fontSize: 32, color: 'success.main' }} />
+                      </Box>
+                      <Box sx={{ textAlign: 'left' }}>
+                        <Typography variant="subtitle1" fontWeight={700} noWrap sx={{ maxWidth: 200 }}>
+                          {file.name}
+                        </Typography>
+                        <Stack direction="row" spacing={1.5} alignItems="center">
+                          <Typography variant="caption" color="text.secondary">
+                            {(file.size / 1024).toFixed(1)} KB
+                          </Typography>
+                          <Chip
+                            label={file.name.split('.').pop()?.toUpperCase()}
+                            size="small"
+                            color="success"
+                            variant="outlined"
+                            sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700 }}
+                          />
+                        </Stack>
+                      </Box>
+                    </Stack>
+                  </Paper>
+                  <Button variant="text" size="small" color="inherit" onClick={(e) => { e.stopPropagation(); handleReset(); }}
+                    sx={{ fontWeight: 500 }}>
                     다른 파일 선택
                   </Button>
                 </Stack>
               ) : (
-                <Stack alignItems="center" spacing={1}>
-                  <CloudUploadIcon sx={{ fontSize: 52, color: isDragging ? 'primary.main' : 'text.disabled' }} />
-                  <Typography variant="h6" color={isDragging ? 'primary.main' : 'text.secondary'}>
-                    {isDragging ? '여기에 파일을 놓으세요' : '클릭하거나 파일을 드래그하세요'}
-                  </Typography>
-                  <Typography variant="body2" color="text.disabled">.xlsx, .xls, .csv 파일 지원 (최대 50MB)</Typography>
+                <Stack alignItems="center" spacing={2} sx={{ position: 'relative', zIndex: 1 }}>
+                  <Box sx={{
+                    width: 80, height: 80, borderRadius: '50%',
+                    bgcolor: isDragging ? alpha(theme.palette.primary.main, 0.15) : alpha(theme.palette.primary.main, 0.08),
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all 0.3s ease',
+                    animation: isDragging ? `${pulseAnimation} 1s ease-in-out infinite` : 'none',
+                  }}>
+                    <CloudUploadIcon sx={{
+                      fontSize: 40,
+                      color: isDragging ? 'primary.main' : 'text.secondary',
+                      animation: isDragging ? `${bounceAnimation} 0.6s ease-in-out infinite` : 'none',
+                    }} />
+                  </Box>
+                  <Box>
+                    <Typography variant="h5" fontWeight={700} color={isDragging ? 'primary.main' : 'text.primary'}>
+                      {isDragging ? '여기에 파일을 놓으세요' : '파일을 드래그하거나 클릭하세요'}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                      .xlsx, .xls, .csv 파일 지원 (최대 50MB)
+                    </Typography>
+                  </Box>
+                  <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                    {['XLSX', 'XLS', 'CSV'].map((ext) => (
+                      <Chip
+                        key={ext}
+                        label={ext}
+                        size="small"
+                        variant="outlined"
+                        sx={{ fontSize: '0.7rem', fontWeight: 600, color: 'text.secondary', borderColor: 'divider' }}
+                      />
+                    ))}
+                  </Stack>
                 </Stack>
               )}
             </Paper>
 
             {file && (
-              <Stack direction="row" spacing={2} sx={{ mt: 3 }} justifyContent="center">
-                <Button variant="contained" size="large" startIcon={<PreviewIcon />} onClick={handlePreview} disabled={uploading}>
+              <Stack direction="row" spacing={2} sx={{ mt: 4 }} justifyContent="center">
+                <Button
+                  variant="contained"
+                  size="large"
+                  startIcon={<PreviewIcon />}
+                  onClick={handlePreview}
+                  disabled={uploading}
+                  sx={{
+                    px: 5, py: 1.5, borderRadius: 3, fontWeight: 700,
+                    boxShadow: 3,
+                    background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+                    '&:hover': {
+                      boxShadow: 5,
+                      transform: 'translateY(-2px)',
+                    },
+                    transition: 'all 0.2s ease',
+                  }}
+                >
                   미리보기 · 검증
                 </Button>
               </Stack>
@@ -558,17 +735,18 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
               </Stack>
             </Paper>
 
-            {/* ── 데이터 테이블 ── */}
+            {/* ── 데이터 테이블 (프리미엄) ── */}
             <TableContainer
               component={Paper}
               elevation={0}
               sx={{
                 border: '1px solid',
                 borderColor: 'divider',
-                borderRadius: 2,
-                // 화면 높이에서 상단 요소 높이를 뺀 나머지를 테이블에 할당
-                maxHeight: 'calc(100vh - 380px)',
-                minHeight: 300,
+                borderRadius: 2.5,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                // 화면 높이에서 상단 요소 높이를 뺀 나머지를 테이블에 할당 (더 많은 행 표시)
+                maxHeight: 'calc(100vh - 320px)',
+                minHeight: 400,
               }}
             >
               <Table size="small" stickyHeader>
@@ -650,36 +828,94 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
       )}
 
       {/* ════════════════════════════════════════
-          Step 2: 완료
+          Step 2: 완료 (프리미엄)
          ════════════════════════════════════════ */}
       {activeStep === 2 && uploadResult && (
         <Fade in timeout={300}>
-          <Paper elevation={0} sx={{ p: 6, textAlign: 'center', border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
-            <CheckCircleIcon sx={{ fontSize: 64, color: 'success.main', mb: 2 }} />
-            <Typography variant="h5" fontWeight={700} sx={{ mb: 1 }}>
-              {config.completeTitle}
-            </Typography>
-            <Stack direction="row" spacing={4} justifyContent="center" sx={{ my: 3 }}>
-              <Box>
-                <Typography variant="h4" fontWeight={700}>{fmtNum(uploadResult.total)}</Typography>
-                <Typography variant="body2" color="text.secondary">전체</Typography>
+          <Paper elevation={0} sx={{
+            p: 8, textAlign: 'center',
+            border: '1px solid', borderColor: 'divider', borderRadius: 4,
+            position: 'relative', overflow: 'hidden',
+            background: `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.03)} 0%, ${alpha(theme.palette.primary.main, 0.02)} 100%)`,
+          }}>
+            {/* 배경 장식 */}
+            <Box sx={{
+              position: 'absolute', top: -50, right: -50,
+              width: 200, height: 200, borderRadius: '50%',
+              bgcolor: alpha(theme.palette.success.main, 0.05),
+            }} />
+            <Box sx={{
+              position: 'absolute', bottom: -30, left: -30,
+              width: 150, height: 150, borderRadius: '50%',
+              bgcolor: alpha(theme.palette.primary.main, 0.05),
+            }} />
+
+            <Box sx={{ position: 'relative', zIndex: 1 }}>
+              <Box sx={{
+                width: 100, height: 100, borderRadius: '50%', mx: 'auto', mb: 3,
+                bgcolor: alpha(theme.palette.success.main, 0.12),
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: `0 8px 24px ${alpha(theme.palette.success.main, 0.25)}`,
+              }}>
+                <VerifiedIcon sx={{ fontSize: 56, color: 'success.main' }} />
               </Box>
-              <Divider orientation="vertical" flexItem />
-              <Box>
-                <Typography variant="h4" fontWeight={700} color="success.main">{fmtNum(uploadResult.success)}</Typography>
-                <Typography variant="body2" color="text.secondary">성공</Typography>
-              </Box>
-              <Divider orientation="vertical" flexItem />
-              <Box>
-                <Typography variant="h4" fontWeight={700} color="error.main">{fmtNum(uploadResult.error)}</Typography>
-                <Typography variant="body2" color="text.secondary">실패</Typography>
-              </Box>
-            </Stack>
-            <Stack direction="row" spacing={2} justifyContent="center">
-              <Button variant="outlined" onClick={handleReset} startIcon={<RefreshIcon />}>추가 업로드</Button>
-              <Button variant="contained" onClick={() => router.push('/settlement/vouchers')}>전표 원장 보기</Button>
-              {jobId && <Button variant="text" onClick={() => router.push('/settlement/upload/jobs')}>작업 내역 보기</Button>}
-            </Stack>
+              <Typography variant="h4" fontWeight={800} sx={{ mb: 1 }}>
+                {config.completeTitle}
+              </Typography>
+              <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
+                업로드가 완료되었습니다. 작업 내역에서 확정 처리를 진행해주세요.
+              </Typography>
+
+              {/* 결과 통계 카드 */}
+              <Stack direction="row" spacing={3} justifyContent="center" sx={{ mb: 5 }}>
+                <Paper elevation={0} sx={{
+                  p: 3, minWidth: 120, borderRadius: 3,
+                  border: '1px solid', borderColor: 'divider',
+                  bgcolor: 'background.paper',
+                }}>
+                  <Typography variant="h3" fontWeight={800}>{fmtNum(uploadResult.total)}</Typography>
+                  <Typography variant="body2" color="text.secondary" fontWeight={500}>전체</Typography>
+                </Paper>
+                <Paper elevation={0} sx={{
+                  p: 3, minWidth: 120, borderRadius: 3,
+                  border: '1px solid', borderColor: alpha(theme.palette.success.main, 0.3),
+                  bgcolor: alpha(theme.palette.success.main, 0.04),
+                }}>
+                  <Typography variant="h3" fontWeight={800} color="success.main">{fmtNum(uploadResult.success)}</Typography>
+                  <Typography variant="body2" color="text.secondary" fontWeight={500}>성공</Typography>
+                </Paper>
+                {uploadResult.error > 0 && (
+                  <Paper elevation={0} sx={{
+                    p: 3, minWidth: 120, borderRadius: 3,
+                    border: '1px solid', borderColor: alpha(theme.palette.error.main, 0.3),
+                    bgcolor: alpha(theme.palette.error.main, 0.04),
+                  }}>
+                    <Typography variant="h3" fontWeight={800} color="error.main">{fmtNum(uploadResult.error)}</Typography>
+                    <Typography variant="body2" color="text.secondary" fontWeight={500}>실패</Typography>
+                  </Paper>
+                )}
+              </Stack>
+
+              <Stack direction="row" spacing={2} justifyContent="center">
+                <Button variant="outlined" onClick={handleReset} startIcon={<RefreshIcon />}
+                  sx={{ borderRadius: 2.5, px: 3 }}>
+                  추가 업로드
+                </Button>
+                <Button variant="contained" onClick={() => router.push('/settlement/upload/jobs')}
+                  startIcon={<HistoryIcon />}
+                  sx={{
+                    borderRadius: 2.5, px: 4, fontWeight: 700,
+                    background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+                    boxShadow: 3,
+                  }}>
+                  작업 내역에서 확정
+                </Button>
+                <Button variant="text" onClick={() => router.push('/settlement/vouchers')}
+                  sx={{ borderRadius: 2.5 }}>
+                  전표 목록 보기
+                </Button>
+              </Stack>
+            </Box>
           </Paper>
         </Fade>
       )}

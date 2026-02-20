@@ -15,6 +15,7 @@ from decimal import Decimal, InvalidOperation
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Body
 from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 import pandas as pd
@@ -587,6 +588,19 @@ async def _handle_voucher_upload(
     return UploadJobResponse.model_validate(job)
 
 
+def _job_to_response(job: UploadJob) -> dict:
+    """UploadJob 모델을 응답 dict로 변환 (작업자 정보 포함)"""
+    data = UploadJobResponse.model_validate(job).model_dump()
+    data["created_by"] = job.created_by
+    if job.created_by_user:
+        data["created_by_name"] = job.created_by_user.name
+        data["created_by_email"] = job.created_by_user.email
+    else:
+        data["created_by_name"] = None
+        data["created_by_email"] = None
+    return data
+
+
 @router.get("/jobs", response_model=dict)
 async def list_upload_jobs(
     job_type: Optional[str] = Query(None, description="작업 타입 필터"),
@@ -597,7 +611,9 @@ async def list_upload_jobs(
     current_user: User = Depends(get_current_user),
 ):
     """업로드 작업 내역 조회"""
-    query = select(UploadJob).where(
+    query = select(UploadJob).options(
+        selectinload(UploadJob.created_by_user)
+    ).where(
         UploadJob.job_type.in_([
             JobType.VOUCHER_SALES_EXCEL,
             JobType.VOUCHER_PURCHASE_EXCEL,
@@ -609,7 +625,14 @@ async def list_upload_jobs(
     if status_filter:
         query = query.where(UploadJob.status == status_filter)
 
-    count_q = select(func.count()).select_from(query.subquery())
+    count_q = select(func.count()).select_from(
+        select(UploadJob).where(
+            UploadJob.job_type.in_([
+                JobType.VOUCHER_SALES_EXCEL,
+                JobType.VOUCHER_PURCHASE_EXCEL,
+            ])
+        ).subquery()
+    )
     total = (await db.execute(count_q)).scalar() or 0
 
     query = query.order_by(UploadJob.created_at.desc())
@@ -618,7 +641,7 @@ async def list_upload_jobs(
     jobs = result.scalars().all()
 
     return {
-        "jobs": [UploadJobResponse.model_validate(j) for j in jobs],
+        "jobs": [_job_to_response(j) for j in jobs],
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -633,11 +656,16 @@ async def get_upload_job(
     current_user: User = Depends(get_current_user),
 ):
     """업로드 작업 상세 조회 (미리보기 포함)"""
-    job = await db.get(UploadJob, job_id)
+    result = await db.execute(
+        select(UploadJob)
+        .options(selectinload(UploadJob.created_by_user))
+        .where(UploadJob.id == job_id)
+    )
+    job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
 
-    base = UploadJobResponse.model_validate(job)
+    base_data = _job_to_response(job)
 
     # Redis에서 미리보기 데이터 가져오기
     preview_key = f"settlement:upload:preview:{job_id}"
@@ -649,7 +677,7 @@ async def get_upload_job(
     unmatched = json.loads(unmatched_data) if unmatched_data else []
 
     return UploadJobDetailResponse(
-        **base.model_dump(),
+        **base_data,
         preview_rows=preview_rows,
         unmatched_counterparties=unmatched,
     )

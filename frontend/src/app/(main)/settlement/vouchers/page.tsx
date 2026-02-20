@@ -322,16 +322,40 @@ export default function VouchersPage() {
           </TableHead>
           <TableBody>
             {loading ? (
-              <TableRow>
-                <TableCell colSpan={11} align="center" sx={{ py: 8 }}>
-                  <Typography color="text.secondary">로딩 중...</Typography>
-                </TableCell>
-              </TableRow>
+              // Skeleton 로딩 상태
+              [...Array(8)].map((_, i) => (
+                <TableRow key={`skeleton-${i}`}>
+                  <TableCell padding="checkbox"><Box sx={{ width: 18, height: 18, bgcolor: 'action.hover', borderRadius: 0.5 }} /></TableCell>
+                  <TableCell><Box sx={{ width: 80, height: 20, bgcolor: 'action.hover', borderRadius: 1 }} /></TableCell>
+                  <TableCell><Box sx={{ width: '80%', height: 20, bgcolor: 'action.hover', borderRadius: 1 }} /></TableCell>
+                  <TableCell><Box sx={{ width: 60, height: 20, bgcolor: 'action.hover', borderRadius: 1 }} /></TableCell>
+                  <TableCell><Box sx={{ width: 50, height: 22, bgcolor: 'action.hover', borderRadius: 2 }} /></TableCell>
+                  <TableCell align="right"><Box sx={{ width: 40, height: 20, bgcolor: 'action.hover', borderRadius: 1, ml: 'auto' }} /></TableCell>
+                  <TableCell align="right"><Box sx={{ width: 70, height: 20, bgcolor: 'action.hover', borderRadius: 1, ml: 'auto' }} /></TableCell>
+                  <TableCell align="center"><Box sx={{ width: 50, height: 22, bgcolor: 'action.hover', borderRadius: 2, mx: 'auto' }} /></TableCell>
+                  <TableCell align="right"><Box sx={{ width: 60, height: 20, bgcolor: 'action.hover', borderRadius: 1, ml: 'auto' }} /></TableCell>
+                  <TableCell align="right"><Box sx={{ width: 60, height: 20, bgcolor: 'action.hover', borderRadius: 1, ml: 'auto' }} /></TableCell>
+                  <TableCell align="center"><Box sx={{ width: 28, height: 28, bgcolor: 'action.hover', borderRadius: 1, mx: 'auto' }} /></TableCell>
+                </TableRow>
+              ))
             ) : sortedVouchers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={11} align="center" sx={{ py: 8 }}>
-                  <ReceiptIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-                  <Typography color="text.secondary">전표가 없습니다</Typography>
+                <TableCell colSpan={11} align="center" sx={{ py: 10 }}>
+                  <Box sx={{
+                    width: 72, height: 72, borderRadius: '50%', mx: 'auto', mb: 2,
+                    bgcolor: alpha(theme.palette.info.main, 0.08),
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <ReceiptIcon sx={{ fontSize: 36, color: 'info.main' }} />
+                  </Box>
+                  <Typography variant="h6" fontWeight={600} gutterBottom>전표가 없습니다</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    UPM 전표를 업로드하여 시작하세요
+                  </Typography>
+                  <Button variant="contained" onClick={() => router.push('/settlement/upload/sales')}
+                    sx={{ borderRadius: 2, fontWeight: 600 }}>
+                    전표 업로드하기
+                  </Button>
                 </TableCell>
               </TableRow>
             ) : (

@@ -64,17 +64,7 @@ import {
   Receipt as ReceiptIcon,
   AccountBalance as AccountBalanceIcon,
   CloudUpload as CloudUploadIcon,
-  FactCheck as FactCheckIcon,
-  TrendingUp as TrendingUpIcon,
-  TrendingDown as TrendingDownIcon,
   Lock as LockIcon,
-  Storefront as StorefrontIcon,
-  VerifiedUser as VerifiedUserIcon,
-  WorkHistory as WorkHistoryIcon,
-  Description as DescriptionIcon,
-  Sell as SellIcon,
-  ShoppingCart as ShoppingCartIcon,
-  SwapHoriz as SwapHorizIcon,
 } from '@mui/icons-material';
 import { useAuthStore, useUIStore, useDomainStore, useAuthHydrated, useThemeStore, type ThemeMode } from '@/lib/store';
 import { getDomainType, getDefaultPath } from '@/lib/domain';
@@ -148,63 +138,14 @@ const adminMenus: MenuItemType[] = [
   { id: 'appearance-settings', label: '외관 설정', icon: <PaletteIcon />, path: '/admin/settings/appearance' },
 ];
 
-// 정산 도메인 메뉴 (settlement.dwt.price)
+// 정산 도메인 메뉴 (settlement.dwt.price) - 단순화된 6개 메뉴
 const settlementMenus: MenuItemType[] = [
   { id: 'stl-dashboard', label: '대시보드', icon: <DashboardIcon />, path: '/settlement/dashboard' },
-  {
-    id: 'stl-upload',
-    label: '업로드(UPM)',
-    icon: <CloudUploadIcon />,
-    children: [
-      { id: 'stl-upload-sales', label: 'UPM 판매 전표 업로드', icon: <SellIcon />, path: '/settlement/upload/sales' },
-      { id: 'stl-upload-purchase', label: 'UPM 매입 전표 업로드', icon: <ShoppingCartIcon />, path: '/settlement/upload/purchase' },
-      { id: 'stl-upload-jobs', label: '업로드 작업 내역', icon: <WorkHistoryIcon />, path: '/settlement/upload/jobs' },
-      { id: 'stl-upload-templates', label: '템플릿/매핑 관리', icon: <DescriptionIcon />, path: '/settlement/upload/templates' },
-    ],
-  },
-  {
-    id: 'stl-vouchers',
-    label: '전표 원장(UPM)',
-    icon: <ReceiptIcon />,
-    children: [
-      { id: 'stl-voucher-list', label: '전표 목록', icon: <ReceiptIcon />, path: '/settlement/vouchers' },
-    ],
-  },
-  {
-    id: 'stl-verification',
-    label: '검증/승인',
-    icon: <FactCheckIcon />,
-    children: [
-      { id: 'stl-changes', label: '변경 감지/승인', icon: <SwapHorizIcon />, path: '/settlement/verification/changes' },
-      { id: 'stl-unmatched', label: '미매칭 거래처 처리', icon: <StorefrontIcon />, path: '/settlement/verification/unmatched-counterparties' },
-    ],
-  },
-  {
-    id: 'stl-status',
-    label: '정산 현황',
-    icon: <AccountBalanceIcon />,
-    children: [
-      { id: 'stl-receivables', label: '미수 현황', icon: <TrendingUpIcon />, path: '/settlement/status/receivables' },
-      { id: 'stl-payables', label: '미지급 현황', icon: <TrendingDownIcon />, path: '/settlement/status/payables' },
-    ],
-  },
-  {
-    id: 'stl-counterparties',
-    label: '거래처',
-    icon: <BusinessIcon />,
-    children: [
-      { id: 'stl-cp-list', label: '거래처 목록/수정', icon: <BusinessIcon />, path: '/settlement/counterparties' },
-    ],
-  },
-  {
-    id: 'stl-lock',
-    label: '마감(LOCK)',
-    icon: <LockIcon />,
-    children: [
-      { id: 'stl-lock-mgmt', label: '전표 마감 관리', icon: <LockIcon />, path: '/settlement/lock' },
-      { id: 'stl-lock-history', label: '마감 내역/감사로그', icon: <HistoryIcon />, path: '/settlement/lock/history' },
-    ],
-  },
+  { id: 'stl-upload', label: 'UPM 전표 업로드', icon: <CloudUploadIcon />, path: '/settlement/upload' },
+  { id: 'stl-vouchers', label: '전표 목록', icon: <ReceiptIcon />, path: '/settlement/vouchers' },
+  { id: 'stl-status', label: '거래처 현황', icon: <AccountBalanceIcon />, path: '/settlement/status' },
+  { id: 'stl-counterparties', label: '거래처 관리', icon: <BusinessIcon />, path: '/settlement/counterparties' },
+  { id: 'stl-lock', label: '마감 관리', icon: <LockIcon />, path: '/settlement/lock' },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
