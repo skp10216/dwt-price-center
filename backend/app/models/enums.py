@@ -148,6 +148,7 @@ class AuditAction(str, enum.Enum):
     # 전표 관련
     VOUCHER_CREATE = "voucher_create"
     VOUCHER_UPDATE = "voucher_update"
+    VOUCHER_DELETE = "voucher_delete"
     VOUCHER_UPSERT = "voucher_upsert"
     VOUCHER_LOCK = "voucher_lock"
     VOUCHER_UNLOCK = "voucher_unlock"
@@ -165,6 +166,9 @@ class AuditAction(str, enum.Enum):
     # 거래처 관련 (정산)
     COUNTERPARTY_CREATE = "counterparty_create"
     COUNTERPARTY_UPDATE = "counterparty_update"
+    COUNTERPARTY_DELETE = "counterparty_delete"
+    COUNTERPARTY_BATCH_DELETE = "counterparty_batch_delete"
+    COUNTERPARTY_BATCH_CREATE = "counterparty_batch_create"
     COUNTERPARTY_ALIAS_CREATE = "counterparty_alias_create"
     COUNTERPARTY_ALIAS_DELETE = "counterparty_alias_delete"
     

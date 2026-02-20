@@ -80,7 +80,7 @@ export default function VoucherDetailPage() {
     try {
       setLoading(true);
       const res = await settlementApi.getVoucher(voucherId);
-      setVoucher(res.data as VoucherDetail);
+      setVoucher(res.data as unknown as VoucherDetail);
     } catch {
       enqueueSnackbar('전표를 불러오지 못했습니다', { variant: 'error' });
     } finally {

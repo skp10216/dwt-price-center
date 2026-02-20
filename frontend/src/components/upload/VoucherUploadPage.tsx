@@ -14,6 +14,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   TableSortLabel,
   Chip, Divider, Tooltip, IconButton, Fade,
+  Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress,
 } from '@mui/material';
 import {
   CloudUpload as CloudUploadIcon,
@@ -97,6 +98,25 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
   const [sortField, setSortField] = useState<SortField>('row_number');
   const [sortDir, setSortDir] = useState<SortDirection>('asc');
 
+  // ── 확인 다이얼로그 상태 ──
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    cautions: string[];
+    confirmLabel: string;
+    confirmColor: 'primary' | 'error' | 'warning' | 'success' | 'info';
+    loading: boolean;
+    onConfirm: () => void;
+  }>({
+    open: false, title: '', description: '', cautions: [], confirmLabel: '확인', confirmColor: 'primary', loading: false, onConfirm: () => {},
+  });
+
+  const openConfirmDialog = (opts: Omit<typeof confirmDialog, 'open' | 'loading'>) => {
+    setConfirmDialog({ ...opts, open: true, loading: false });
+  };
+  const closeConfirmDialog = () => setConfirmDialog((prev) => ({ ...prev, open: false }));
+
   const steps = ['파일 선택', '미리보기 · 검증', '업로드 완료'];
 
   // ── 통계 (excluded 제외) ──
@@ -178,13 +198,13 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
     return fallback;
   };
 
-  const handlePreview = async () => {
+  const executePreview = async () => {
     if (!file) return;
     try {
       setUploading(true);
       setError(null);
       const res = await settlementApi.previewUpload(file, voucherType, templateId || undefined);
-      const data = res.data as { rows: PreviewRow[] };
+      const data = res.data as unknown as { rows: PreviewRow[] };
       setPreview(data.rows || []);
       setActiveStep(1);
       setFilter('all');
@@ -197,7 +217,23 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
     }
   };
 
-  const handleUpload = async () => {
+  const handlePreview = () => {
+    if (!file) return;
+    openConfirmDialog({
+      title: '미리보기 검증 실행',
+      description: `"${file.name}" 파일을 분석하여 데이터를 검증합니다. 이 단계에서는 실제 업로드가 진행되지 않습니다.`,
+      cautions: [
+        '파일 크기에 따라 수 초에서 수십 초가 소요될 수 있습니다.',
+        '합계/소계 행은 자동으로 감지되어 제외됩니다.',
+        '오류가 있는 행은 업로드 전에 확인하실 수 있습니다.',
+      ],
+      confirmLabel: '검증 시작',
+      confirmColor: 'primary',
+      onConfirm: () => { closeConfirmDialog(); executePreview(); },
+    });
+  };
+
+  const executeUpload = async () => {
     if (!file) return;
     try {
       setUploading(true);
@@ -223,6 +259,26 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleUpload = () => {
+    if (!file) return;
+    const dataRows = preview.filter((r) => r.status !== 'excluded');
+    const warningCount = dataRows.filter((r) => r.status === 'warning').length;
+    const cautions = [
+      '업로드 후 작업 내역 페이지에서 확정 처리가 필요합니다.',
+      '기존 전표와 동일한 데이터가 있으면 UPSERT(갱신)로 처리됩니다.',
+    ];
+    if (warningCount > 0) cautions.push(`경고 ${warningCount}건이 포함되어 있습니다. 업로드 후 확인해주세요.`);
+    if (stats.excluded > 0) cautions.push(`합계/소계 ${stats.excluded}건은 자동 제외됩니다.`);
+    openConfirmDialog({
+      title: '업로드 실행',
+      description: `"${file.name}" 파일의 ${dataRows.length}건 데이터를 업로드합니다.`,
+      cautions,
+      confirmLabel: '업로드 시작',
+      confirmColor: 'success',
+      onConfirm: () => { closeConfirmDialog(); executeUpload(); },
+    });
   };
 
   const handleReset = () => {
@@ -627,6 +683,86 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
           </Paper>
         </Fade>
       )}
+
+      {/* ════════════════════════════════════════
+          공통 확인 다이얼로그 (프리미엄)
+         ════════════════════════════════════════ */}
+      <Dialog
+        open={confirmDialog.open}
+        onClose={closeConfirmDialog}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: { borderRadius: 3, overflow: 'hidden' },
+        }}
+      >
+        {/* 상단 색상 바 */}
+        <Box sx={{
+          height: 4,
+          bgcolor: confirmDialog.confirmColor === 'error' ? 'error.main'
+            : confirmDialog.confirmColor === 'warning' ? 'warning.main'
+            : confirmDialog.confirmColor === 'info' ? 'info.main'
+            : confirmDialog.confirmColor === 'success' ? 'success.main'
+            : 'primary.main',
+        }} />
+        <DialogTitle sx={{ pt: 2.5, pb: 1 }}>
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Box sx={{
+              width: 40, height: 40, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              bgcolor: confirmDialog.confirmColor === 'error' ? alpha(theme.palette.error.main, 0.1)
+                : confirmDialog.confirmColor === 'warning' ? alpha(theme.palette.warning.main, 0.1)
+                : confirmDialog.confirmColor === 'success' ? alpha(theme.palette.success.main, 0.1)
+                : confirmDialog.confirmColor === 'info' ? alpha(theme.palette.info.main, 0.1)
+                : alpha(theme.palette.primary.main, 0.1),
+            }}>
+              {confirmDialog.confirmColor === 'error' ? <ErrorIcon color="error" />
+                : confirmDialog.confirmColor === 'warning' ? <WarningIcon color="warning" />
+                : confirmDialog.confirmColor === 'success' ? <CheckCircleIcon color="success" />
+                : confirmDialog.confirmColor === 'info' ? <InfoIcon color="info" />
+                : <PreviewIcon color="primary" />}
+            </Box>
+            <Typography variant="h6" fontWeight={700}>{confirmDialog.title}</Typography>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {confirmDialog.description}
+          </Typography>
+          {confirmDialog.cautions.length > 0 && (
+            <Paper variant="outlined" sx={{
+              p: 2, borderRadius: 2, borderColor: 'divider',
+              bgcolor: alpha(theme.palette.warning.main, 0.03),
+            }}>
+              <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ mb: 1 }}>
+                <WarningIcon sx={{ fontSize: 16, color: 'warning.main', mt: 0.2 }} />
+                <Typography variant="caption" fontWeight={700} color="warning.dark">주의사항</Typography>
+              </Stack>
+              {confirmDialog.cautions.map((caution, idx) => (
+                <Stack key={idx} direction="row" spacing={1} alignItems="flex-start" sx={{ ml: 3, mb: 0.3 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                    •  {caution}
+                  </Typography>
+                </Stack>
+              ))}
+            </Paper>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5, pt: 1 }}>
+          <Button onClick={closeConfirmDialog} color="inherit" sx={{ fontWeight: 600, mr: 1 }}>
+            취소
+          </Button>
+          <Button
+            onClick={confirmDialog.onConfirm}
+            color={confirmDialog.confirmColor}
+            variant="contained"
+            sx={{ fontWeight: 700, px: 3, borderRadius: 2 }}
+            disabled={uploading}
+            startIcon={uploading ? <CircularProgress size={16} color="inherit" /> : undefined}
+          >
+            {uploading ? '처리중...' : confirmDialog.confirmLabel}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

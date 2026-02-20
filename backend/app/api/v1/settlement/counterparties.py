@@ -1,11 +1,12 @@
 """
-정산 도메인 - 거래처 CRUD + 별칭 관리
+정산 도메인 - 거래처 CRUD + 별칭 관리 + 일괄 등록/삭제
 """
 
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -24,6 +25,17 @@ from app.schemas.settlement import (
     CounterpartyAliasCreate, CounterpartyAliasResponse,
     CounterpartyResponse, CounterpartySummary,
 )
+
+
+class BatchCreateCounterpartyItem(BaseModel):
+    """일괄 등록 항목"""
+    name: str
+    counterparty_type: str = "both"
+
+
+class BatchCreateCounterpartiesRequest(BaseModel):
+    """일괄 거래처 등록 요청"""
+    items: List[BatchCreateCounterpartyItem]
 
 router = APIRouter()
 
@@ -172,6 +184,192 @@ async def update_counterparty(
     await db.flush()
     await db.refresh(cp, ["aliases"])
     return CounterpartyResponse.model_validate(cp)
+
+
+# ============================================================================
+# 거래처 삭제 / 일괄 삭제 / 일괄 등록
+# ============================================================================
+
+@router.delete("/{counterparty_id}", status_code=200)
+async def delete_counterparty(
+    counterparty_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """거래처 삭제 (연결 전표가 있으면 차단)"""
+    result = await db.execute(
+        select(Counterparty)
+        .options(selectinload(Counterparty.aliases))
+        .where(Counterparty.id == counterparty_id)
+    )
+    cp = result.scalar_one_or_none()
+    if not cp:
+        raise HTTPException(status_code=404, detail="거래처를 찾을 수 없습니다")
+
+    # 연결 전표 건수 확인
+    voucher_count = (await db.execute(
+        select(func.count(Voucher.id)).where(Voucher.counterparty_id == counterparty_id)
+    )).scalar() or 0
+
+    if voucher_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"해당 거래처에 연결된 전표가 {voucher_count}건 있어 삭제할 수 없습니다. 먼저 전표를 다른 거래처로 이전하거나 삭제해주세요."
+        )
+
+    # 별칭 먼저 삭제
+    aliases_result = await db.execute(
+        select(CounterpartyAlias).where(CounterpartyAlias.counterparty_id == counterparty_id)
+    )
+    for alias in aliases_result.scalars().all():
+        await db.delete(alias)
+
+    db.add(AuditLog(
+        user_id=current_user.id,
+        action=AuditAction.COUNTERPARTY_DELETE,
+        target_type="counterparty",
+        target_id=cp.id,
+        before_data={"name": cp.name},
+    ))
+
+    await db.delete(cp)
+    await db.flush()
+    return {"deleted": True, "name": cp.name}
+
+
+@router.post("/batch-delete", response_model=dict)
+async def batch_delete_counterparties(
+    counterparty_ids: list[str] = Body(..., description="삭제할 거래처 ID 목록"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """거래처 일괄 삭제 (전표 연결이 없는 건만 삭제)"""
+    deleted = []
+    skipped = []
+
+    for cid_str in counterparty_ids:
+        try:
+            cid = UUID(cid_str)
+        except ValueError:
+            skipped.append({"id": cid_str, "reason": "잘못된 ID 형식"})
+            continue
+
+        result = await db.execute(
+            select(Counterparty)
+            .options(selectinload(Counterparty.aliases))
+            .where(Counterparty.id == cid)
+        )
+        cp = result.scalar_one_or_none()
+        if not cp:
+            skipped.append({"id": cid_str, "reason": "거래처 없음"})
+            continue
+
+        voucher_count = (await db.execute(
+            select(func.count(Voucher.id)).where(Voucher.counterparty_id == cid)
+        )).scalar() or 0
+
+        if voucher_count > 0:
+            skipped.append({"id": cid_str, "name": cp.name, "reason": f"전표 {voucher_count}건 연결"})
+            continue
+
+        # 별칭 삭제
+        aliases_result = await db.execute(
+            select(CounterpartyAlias).where(CounterpartyAlias.counterparty_id == cid)
+        )
+        for alias in aliases_result.scalars().all():
+            await db.delete(alias)
+
+        db.add(AuditLog(
+            user_id=current_user.id,
+            action=AuditAction.COUNTERPARTY_BATCH_DELETE,
+            target_type="counterparty",
+            target_id=cp.id,
+            before_data={"name": cp.name},
+        ))
+        deleted.append({"id": str(cp.id), "name": cp.name})
+        await db.delete(cp)
+
+    await db.flush()
+    return {"deleted_count": len(deleted), "skipped_count": len(skipped), "deleted": deleted, "skipped": skipped}
+
+
+@router.post("/batch-create", response_model=dict, status_code=201)
+async def batch_create_counterparties(
+    data: BatchCreateCounterpartiesRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """거래처 일괄 등록 (미매칭 거래처 → 신규 등록 + 별칭 자동 추가)"""
+    created = []
+    skipped = []
+
+    for item in data.items:
+        name = item.name.strip()
+        if not name:
+            skipped.append({"name": name, "reason": "빈 이름"})
+            continue
+
+        # 중복 체크 (이름)
+        existing = await db.execute(
+            select(Counterparty).where(Counterparty.name == name)
+        )
+        if existing.scalar_one_or_none():
+            # 이미 존재하면 별칭만 등록 (없는 경우)
+            existing_cp = (await db.execute(
+                select(Counterparty).where(Counterparty.name == name)
+            )).scalar_one()
+            alias_check = await db.execute(
+                select(CounterpartyAlias).where(CounterpartyAlias.alias_name == name)
+            )
+            if not alias_check.scalar_one_or_none():
+                db.add(CounterpartyAlias(
+                    counterparty_id=existing_cp.id,
+                    alias_name=name,
+                    created_by=current_user.id,
+                ))
+            skipped.append({"name": name, "reason": "이미 존재 (별칭 보완)"})
+            continue
+
+        # 별칭 중복 체크
+        alias_exists = await db.execute(
+            select(CounterpartyAlias).where(CounterpartyAlias.alias_name == name)
+        )
+        if alias_exists.scalar_one_or_none():
+            skipped.append({"name": name, "reason": "동일 별칭이 다른 거래처에 이미 등록됨"})
+            continue
+
+        # 신규 거래처 생성
+        cp = Counterparty(
+            name=name,
+            counterparty_type=item.counterparty_type,
+        )
+        db.add(cp)
+        await db.flush()  # ID 확보
+
+        # 거래처명 자체를 별칭으로 등록
+        db.add(CounterpartyAlias(
+            counterparty_id=cp.id,
+            alias_name=name,
+            created_by=current_user.id,
+        ))
+
+        created.append({"id": str(cp.id), "name": name})
+
+    if created:
+        db.add(AuditLog(
+            user_id=current_user.id,
+            action=AuditAction.COUNTERPARTY_BATCH_CREATE,
+            target_type="counterparty",
+            after_data={"count": len(created), "names": [c["name"] for c in created[:20]]},
+        ))
+
+    await db.flush()
+    return {
+        "created_count": len(created),
+        "skipped_count": len(skipped),
+        "created": created,
+        "skipped": skipped,
+    }
 
 
 # ============================================================================

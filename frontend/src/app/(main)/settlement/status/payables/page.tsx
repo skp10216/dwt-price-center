@@ -49,7 +49,7 @@ export default function PayablesPage() {
     try {
       setLoading(true);
       const res = await settlementApi.getPayables({ page: page + 1, page_size: pageSize, search: search || undefined });
-      const data = res.data as { rows: PayableRow[]; total: number; summary: PayableSummary };
+      const data = res.data as unknown as { rows: PayableRow[]; total: number; summary: PayableSummary };
       setRows(data.rows || []);
       setTotal(data.total || 0);
       setSummary(data.summary || null);

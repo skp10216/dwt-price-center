@@ -15,6 +15,7 @@ from decimal import Decimal, InvalidOperation
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Body
 from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 import pandas as pd
 
@@ -379,20 +380,42 @@ async def _handle_preview(
             val = _safe_decimal(row_data.get(column_map["purchase_cost"]))
             amount = val if val else Decimal("0")
 
-        # ── 합계/소계 행 자동 감지 → excluded 처리 ──
-        # 패턴: 거래일 없음 + (전표번호에 '건' 포함 또는 거래처에 '합계/소계/총계' 포함)
+        # ── 합계/소계/통계 행 자동 감지 → excluded 처리 ──
+        _SUMMARY_KEYWORDS = r'합계|소계|총계|통계|평균|TOTAL|SUM|AVERAGE|SUBTOTAL'
         is_summary = False
-        if not trade_date_val:
-            # 전표번호에 "건" 이 포함된 경우 (예: "360건")
-            if v_number and _re.search(r'\d+건', v_number):
+        summary_reason = ""
+
+        # 1) 거래처명/전표번호에 합계·통계 키워드가 포함
+        if cp_name and _re.search(_SUMMARY_KEYWORDS, cp_name, _re.IGNORECASE):
+            is_summary = True
+            summary_reason = f"거래처 컬럼에 통계 키워드 감지 ('{cp_name}')"
+        elif v_number and _re.search(_SUMMARY_KEYWORDS, v_number, _re.IGNORECASE):
+            is_summary = True
+            summary_reason = f"전표번호 컬럼에 통계 키워드 감지 ('{v_number}')"
+
+        # 2) 전표번호에 "N건" 형태 (예: "360건")
+        if not is_summary and v_number and _re.search(r'^\d+건$', v_number.strip()):
+            is_summary = True
+            summary_reason = f"전표번호가 건수 집계 ('{v_number}')"
+
+        # 3) 거래일이 없는 상태에서 필수값(거래처/전표번호) 중 하나 이상 누락 + 금액 존재
+        #    → 통계/요약 행일 가능성 높음
+        if not is_summary and not trade_date_val:
+            missing_count = sum([not cp_name, not v_number])
+            if missing_count >= 1 and amount != Decimal("0"):
                 is_summary = True
-            # 거래처명에 합계 키워드
-            if cp_name and _re.search(r'합계|소계|총계|TOTAL|SUM', cp_name, _re.IGNORECASE):
+                summary_reason = "거래일 없음 + 필수값 누락 + 금액 존재 (통계/요약 행)"
+            # 모든 필수값이 비어있으면 빈 행이거나 합산 행
+            elif not cp_name and not v_number:
                 is_summary = True
-            # 거래일도 없고 거래처도 없지만 금액이 매우 크면 (마지막 행이 합산)
-            if not trade_date_val and not cp_name and not v_number and amount > Decimal("0"):
-                # 모든 필수값이 비어있는데 금액만 있으면 합계행일 가능성 높음
+                summary_reason = "필수값(거래일/거래처/전표번호) 모두 누락 (통계/빈 행)"
+
+        # 4) 모든 셀이 한 행에서 읽은 텍스트에 합계 키워드가 포함 (폭넓은 체크)
+        if not is_summary and not trade_date_val:
+            all_vals = " ".join(str(v) for v in [cp_name, v_number, memo] if v)
+            if _re.search(_SUMMARY_KEYWORDS, all_vals, _re.IGNORECASE):
                 is_summary = True
+                summary_reason = f"행 데이터에 통계 키워드 감지"
 
         # 상태/메시지 결정
         status = "ok"
@@ -400,7 +423,7 @@ async def _handle_preview(
 
         if is_summary:
             status = "excluded"
-            message = "합계/소계 행 (자동 제외)"
+            message = f"통계/요약 행 (자동 제외): {summary_reason}"
             excluded_count += 1
         elif not trade_date_val:
             status = "error"
@@ -746,6 +769,125 @@ async def batch_delete_upload_jobs(
     }
 
 
+@router.post("/jobs/{job_id}/rematch", response_model=dict)
+async def rematch_upload_job(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    업로드 작업 재매칭 — 미매칭 거래처를 현재 거래처/별칭 테이블로 다시 매칭 시도.
+    신규 거래처 등록 후 호출하면 미매칭이 줄어듭니다.
+    """
+    from app.models.counterparty import CounterpartyAlias, Counterparty
+
+    job = await db.get(UploadJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+
+    # Redis에서 미리보기 데이터 가져오기
+    preview_key = f"settlement:upload:preview:{job_id}"
+    preview_data = await redis.get(preview_key)
+    if not preview_data:
+        raise HTTPException(status_code=400, detail="미리보기 데이터가 만료되었습니다. 엑셀을 다시 업로드해 주세요.")
+
+    rows = json.loads(preview_data)
+    unmatched_key = f"settlement:upload:unmatched:{job_id}"
+
+    rematched_count = 0
+    still_unmatched = set()
+    updated_rows = []
+
+    for row in rows:
+        if row.get("status") != "unmatched":
+            updated_rows.append(row)
+            continue
+
+        cp_name = (row.get("counterparty_name") or "").strip()
+        if not cp_name:
+            updated_rows.append(row)
+            still_unmatched.add(cp_name)
+            continue
+
+        # 1) 별칭 테이블에서 매칭
+        alias_result = await db.execute(
+            select(CounterpartyAlias.counterparty_id).where(
+                CounterpartyAlias.alias_name == cp_name
+            ).limit(1)
+        )
+        cp_id = alias_result.scalar_one_or_none()
+
+        # 2) 거래처 표준명에서 매칭
+        if not cp_id:
+            name_result = await db.execute(
+                select(Counterparty.id).where(
+                    Counterparty.name == cp_name,
+                    Counterparty.is_active == True,
+                ).limit(1)
+            )
+            cp_id = name_result.scalar_one_or_none()
+
+        if cp_id:
+            # 매칭 성공 → 상태를 'new'로 변경
+            row["status"] = "new"
+            row["counterparty_id"] = str(cp_id)
+            row["error"] = None
+            rematched_count += 1
+        else:
+            still_unmatched.add(cp_name)
+
+        updated_rows.append(row)
+
+    # Redis 갱신 (TTL 연장: 2시간)
+    await redis.setex(
+        preview_key,
+        7200,
+        json.dumps(updated_rows, ensure_ascii=False, default=str),
+    )
+    still_unmatched_list = sorted(list(still_unmatched))
+    await redis.setex(
+        unmatched_key,
+        7200,
+        json.dumps(still_unmatched_list, ensure_ascii=False),
+    )
+
+    # 결과 요약도 업데이트 (DB의 result_summary)
+    new_summary = {
+        "total_rows": len(updated_rows),
+        "new": sum(1 for r in updated_rows if r.get("status") == "new"),
+        "update": sum(1 for r in updated_rows if r.get("status") == "update"),
+        "conflict": sum(1 for r in updated_rows if r.get("status") == "conflict"),
+        "locked": sum(1 for r in updated_rows if r.get("status") == "locked"),
+        "unmatched": sum(1 for r in updated_rows if r.get("status") == "unmatched"),
+        "error": sum(1 for r in updated_rows if r.get("status") == "error"),
+        "excluded": sum(1 for r in updated_rows if r.get("status") == "excluded"),
+        "unmatched_names": still_unmatched_list,
+    }
+    # 기존 result_summary 보존하면서 카운트만 업데이트
+    existing_summary = job.result_summary or {}
+    existing_summary.update({
+        "new_count": new_summary["new"],
+        "update_count": new_summary["update"],
+        "conflict_count": new_summary["conflict"],
+        "locked_count": new_summary["locked"],
+        "unmatched_count": new_summary["unmatched"],
+        "error_count": new_summary["error"],
+        "excluded_count": new_summary["excluded"],
+        "unmatched_names": still_unmatched_list,
+    })
+    job.result_summary = existing_summary
+    flag_modified(job, "result_summary")
+    await db.commit()
+
+    return {
+        "rematched_count": rematched_count,
+        "still_unmatched_count": len(still_unmatched),
+        "still_unmatched": still_unmatched_list,
+        "summary": existing_summary,
+    }
+
+
 @router.post("/jobs/{job_id}/confirm", response_model=dict)
 async def confirm_upload_job(
     job_id: uuid.UUID,
@@ -785,20 +927,27 @@ async def confirm_upload_job(
     vtype = VoucherType.SALES if job.job_type == JobType.VOUCHER_SALES_EXCEL else VoucherType.PURCHASE
 
     for row in rows:
-        # unmatched는 스킵
-        if row.get("status") == "unmatched" or not row.get("counterparty_id"):
-            skipped += 1
-            continue
+        status = row.get("status")
 
-        # locked는 스킵
-        if row.get("status") == "locked":
+        # unmatched, locked, excluded, error는 스킵
+        if status in ("unmatched", "locked", "excluded", "error") or not row.get("counterparty_id"):
             skipped += 1
             continue
 
         data = row.get("data", {})
         counterparty_id = row["counterparty_id"]
-        trade_date = row["trade_date"]
+        trade_date_str = row["trade_date"]
         voucher_number = row["voucher_number"]
+
+        # trade_date 문자열 → date 객체 변환
+        try:
+            if isinstance(trade_date_str, str):
+                trade_date = date.fromisoformat(trade_date_str)
+            else:
+                trade_date = trade_date_str
+        except (ValueError, TypeError):
+            skipped += 1
+            continue
 
         # 기존 전표 조회
         existing = await db.execute(

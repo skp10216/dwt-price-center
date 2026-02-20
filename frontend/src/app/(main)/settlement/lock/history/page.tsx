@@ -44,7 +44,7 @@ export default function LockHistoryPage() {
     try {
       setLoading(true);
       const res = await settlementApi.getLockAuditLogs({ year: selectedYear, page: page + 1, page_size: pageSize });
-      const data = res.data as { logs: AuditLogEntry[]; total: number };
+      const data = res.data as unknown as { logs: AuditLogEntry[]; total: number };
       setLogs(data.logs || []);
       setTotal(data.total || 0);
     } catch {

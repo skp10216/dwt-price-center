@@ -49,7 +49,7 @@ export default function ReceivablesPage() {
     try {
       setLoading(true);
       const res = await settlementApi.getReceivables({ page: page + 1, page_size: pageSize, search: search || undefined });
-      const data = res.data as { rows: ReceivableRow[]; total: number; summary: ReceivableSummary };
+      const data = res.data as unknown as { rows: ReceivableRow[]; total: number; summary: ReceivableSummary };
       setRows(data.rows || []);
       setTotal(data.total || 0);
       setSummary(data.summary || null);

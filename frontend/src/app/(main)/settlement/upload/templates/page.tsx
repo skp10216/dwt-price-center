@@ -50,7 +50,7 @@ export default function UploadTemplatesPage() {
     try {
       setLoading(true);
       const res = await settlementApi.listUploadTemplates();
-      const data = res.data as { templates: UploadTemplate[]; total: number };
+      const data = res.data as unknown as { templates: UploadTemplate[]; total: number };
       setTemplates(data.templates || []);
     } catch {
       // handle

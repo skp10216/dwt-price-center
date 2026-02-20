@@ -506,6 +506,15 @@ export const settlementApi = {
   updateVoucher: (id: string, data: unknown) =>
     api.patch<ApiResponse<unknown>>(`/settlement/vouchers/${id}`, data),
 
+  deleteVoucher: (id: string) =>
+    api.delete<ApiResponse<unknown>>(`/settlement/vouchers/${id}`),
+
+  batchDeleteVouchers: (voucherIds: string[]) =>
+    api.post<ApiResponse<{ deleted_count: number; skipped_count: number; errors: string[] }>>(
+      '/settlement/vouchers/batch-delete',
+      voucherIds,
+    ),
+
   // 입금
   createReceipt: (voucherId: string, data: unknown) =>
     api.post<ApiResponse<unknown>>(`/settlement/vouchers/${voucherId}/receipts`, data),
@@ -579,6 +588,11 @@ export const settlementApi = {
       params: { exclude_conflicts: excludeConflicts },
     }),
 
+  rematchUploadJob: (id: string) =>
+    api.post<ApiResponse<{ rematched_count: number; still_unmatched_count: number; still_unmatched: string[] }>>(
+      `/settlement/upload/jobs/${id}/rematch`,
+    ),
+
   // 템플릿
   listUploadTemplates: (params?: Record<string, unknown>) =>
     api.get<ApiResponse<{ templates: unknown[]; total: number }>>('/settlement/upload/templates', { params }),
@@ -635,6 +649,21 @@ export const settlementApi = {
 
   deleteCounterpartyAlias: (counterpartyId: string, aliasId: string) =>
     api.delete(`/settlement/counterparties/${counterpartyId}/aliases/${aliasId}`),
+
+  deleteCounterparty: (id: string) =>
+    api.delete<ApiResponse<{ deleted: boolean; name: string }>>(`/settlement/counterparties/${id}`),
+
+  batchDeleteCounterparties: (ids: string[]) =>
+    api.post<ApiResponse<{ deleted_count: number; skipped_count: number; deleted: { id: string; name: string }[]; skipped: { id: string; name: string; reason: string }[] }>>(
+      '/settlement/counterparties/batch-delete',
+      ids,
+    ),
+
+  batchCreateCounterparties: (items: { name: string; counterparty_type?: string }[]) =>
+    api.post<ApiResponse<{ created_count: number; skipped_count: number; created: { id: string; name: string }[]; skipped: { name: string; reason: string }[] }>>(
+      '/settlement/counterparties/batch-create',
+      { items },
+    ),
 
   // 마감
   lockVoucher: (voucherId: string, memo?: string) =>

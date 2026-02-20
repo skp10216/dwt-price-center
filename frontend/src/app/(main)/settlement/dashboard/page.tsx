@@ -60,7 +60,7 @@ export default function SettlementDashboardPage() {
         settlementApi.getTopReceivables(5),
         settlementApi.getTopPayables(5),
       ]);
-      setData(summaryRes.data as DashboardData);
+      setData(summaryRes.data as unknown as DashboardData);
       const rData = receivablesRes.data as unknown as { items: TopItem[] };
       const pData = payablesRes.data as unknown as { items: TopItem[] };
       setTopReceivables(rData?.items ?? []);

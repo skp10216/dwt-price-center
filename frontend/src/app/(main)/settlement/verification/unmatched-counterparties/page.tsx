@@ -5,8 +5,11 @@ import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Button, Stack, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, alpha, useTheme, IconButton, Tooltip,
-  Chip, Autocomplete, Alert,
+  Chip, Autocomplete, Alert, CircularProgress,
 } from '@mui/material';
+import {
+  Warning as WarningIcon,
+} from '@mui/icons-material';
 import {
   Link as LinkIcon,
   Refresh as RefreshIcon,
@@ -40,12 +43,16 @@ export default function UnmatchedCounterpartiesPage() {
   const [selectedAlias, setSelectedAlias] = useState('');
   const [selectedCounterparty, setSelectedCounterparty] = useState<CounterpartyOption | null>(null);
   const [newCounterpartyName, setNewCounterpartyName] = useState('');
+  const [mapping, setMapping] = useState(false);
+
+  // ── 확인 다이얼로그 ──
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
 
   const loadUnmatched = useCallback(async () => {
     try {
       setLoading(true);
       const res = await settlementApi.listUnmatchedCounterparties();
-      const data = res.data as { unmatched: UnmatchedItem[]; total: number };
+      const data = res.data as unknown as { unmatched: UnmatchedItem[]; total: number };
       setUnmatched(data.unmatched || []);
     } catch {
       // handle
@@ -57,7 +64,7 @@ export default function UnmatchedCounterpartiesPage() {
   const loadCounterparties = useCallback(async () => {
     try {
       const res = await settlementApi.listCounterparties({ page_size: 9999 });
-      const data = res.data as { counterparties: CounterpartyOption[] };
+      const data = res.data as unknown as { counterparties: CounterpartyOption[] };
       setCounterparties(data.counterparties || []);
     } catch {
       // handle
@@ -73,24 +80,29 @@ export default function UnmatchedCounterpartiesPage() {
     setDialogOpen(true);
   };
 
-  const handleMap = async () => {
+  const executeMap = async () => {
     try {
+      setMapping(true);
       if (selectedCounterparty) {
-        await settlementApi.mapUnmatchedCounterparty(selectedAlias, selectedCounterparty.id);
+        await settlementApi.mapUnmatchedCounterparty(selectedAlias, { counterparty_id: selectedCounterparty.id });
         enqueueSnackbar(`"${selectedAlias}"을(를) "${selectedCounterparty.name}"에 매핑했습니다`, { variant: 'success' });
       } else if (newCounterpartyName) {
-        // 새 거래처 생성 후 매핑
-        const createRes = await settlementApi.createCounterparty({ name: newCounterpartyName });
-        const newCp = createRes.data as CounterpartyOption;
-        await settlementApi.mapUnmatchedCounterparty(selectedAlias, newCp.id);
+        await settlementApi.mapUnmatchedCounterparty(selectedAlias, { new_counterparty_name: newCounterpartyName });
         enqueueSnackbar(`"${selectedAlias}" → 새 거래처 "${newCounterpartyName}" 생성 및 매핑 완료`, { variant: 'success' });
       }
       setDialogOpen(false);
+      setConfirmDialogOpen(false);
       loadUnmatched();
       loadCounterparties();
     } catch {
       enqueueSnackbar('매핑에 실패했습니다', { variant: 'error' });
+    } finally {
+      setMapping(false);
     }
+  };
+
+  const handleMap = () => {
+    setConfirmDialogOpen(true);
   };
 
   return (
@@ -158,11 +170,12 @@ export default function UnmatchedCounterpartiesPage() {
       </TableContainer>
 
       {/* 매핑 다이얼로그 */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>거래처 매핑</DialogTitle>
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 700 }}>거래처 매핑</DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 1 }}>
-            <Alert severity="info" sx={{ mb: 2 }}>
+            <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
               <strong>&quot;{selectedAlias}&quot;</strong>을(를) 기존 거래처에 매핑하거나 새 거래처를 생성합니다.
             </Alert>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>기존 거래처에 매핑</Typography>
@@ -184,14 +197,86 @@ export default function UnmatchedCounterpartiesPage() {
             />
           </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>취소</Button>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setDialogOpen(false)} color="inherit">취소</Button>
           <Button
             variant="contained"
             onClick={handleMap}
             disabled={!selectedCounterparty && !newCounterpartyName}
+            sx={{ fontWeight: 700, borderRadius: 2 }}
           >
             매핑 확정
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 매핑 확인 다이얼로그 (프리미엄) */}
+      <Dialog
+        open={confirmDialogOpen}
+        onClose={() => setConfirmDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}
+      >
+        <Box sx={{ height: 4, bgcolor: 'primary.main' }} />
+        <DialogTitle sx={{ pt: 2.5, pb: 1 }}>
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Box sx={{
+              width: 40, height: 40, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              bgcolor: alpha(theme.palette.primary.main, 0.1),
+            }}>
+              <LinkIcon color="primary" />
+            </Box>
+            <Typography variant="h6" fontWeight={700}>거래처 매핑 확인</Typography>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {selectedCounterparty
+              ? <>미매칭 거래처 <strong>&quot;{selectedAlias}&quot;</strong>을(를) 기존 거래처 <strong>&quot;{selectedCounterparty.name}&quot;</strong>에 매핑합니다.</>
+              : <>미매칭 거래처 <strong>&quot;{selectedAlias}&quot;</strong>을(를) 새 거래처 <strong>&quot;{newCounterpartyName}&quot;</strong>으로 등록 및 매핑합니다.</>
+            }
+          </Typography>
+          <Paper variant="outlined" sx={{
+            p: 2, borderRadius: 2, borderColor: 'divider',
+            bgcolor: alpha(theme.palette.warning.main, 0.03),
+          }}>
+            <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ mb: 1 }}>
+              <WarningIcon sx={{ fontSize: 16, color: 'warning.main', mt: 0.2 }} />
+              <Typography variant="caption" fontWeight={700} color="warning.dark">주의사항</Typography>
+            </Stack>
+            <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ ml: 3, mb: 0.3 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                •  매핑 후 해당 별칭의 모든 전표가 지정된 거래처로 연결됩니다.
+              </Typography>
+            </Stack>
+            <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ ml: 3, mb: 0.3 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                •  잘못된 매핑은 거래처 관리 페이지에서 수정할 수 있습니다.
+              </Typography>
+            </Stack>
+            {!selectedCounterparty && newCounterpartyName && (
+              <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ ml: 3, mb: 0.3 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                  •  새 거래처가 시스템에 등록됩니다.
+                </Typography>
+              </Stack>
+            )}
+          </Paper>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5, pt: 1 }}>
+          <Button onClick={() => setConfirmDialogOpen(false)} color="inherit" sx={{ fontWeight: 600, mr: 1 }}>
+            취소
+          </Button>
+          <Button
+            onClick={executeMap}
+            color="primary"
+            variant="contained"
+            disabled={mapping}
+            sx={{ fontWeight: 700, px: 3, borderRadius: 2 }}
+            startIcon={mapping ? <CircularProgress size={16} color="inherit" /> : undefined}
+          >
+            {mapping ? '처리중...' : '매핑 실행'}
           </Button>
         </DialogActions>
       </Dialog>

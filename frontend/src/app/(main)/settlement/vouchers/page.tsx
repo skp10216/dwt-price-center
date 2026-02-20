@@ -1,19 +1,23 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Paper, TextField, MenuItem, Select, InputLabel, FormControl,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination,
   Chip, IconButton, Tooltip, Button, Stack, alpha, InputAdornment, useTheme,
+  Checkbox, Dialog, DialogTitle, DialogContent, DialogActions, Alert, AlertTitle,
+  TableSortLabel,
 } from '@mui/material';
 import {
   Search as SearchIcon,
   Visibility as ViewIcon,
-  FilterList as FilterIcon,
   Receipt as ReceiptIcon,
+  Delete as DeleteIcon,
+  Warning as WarningIcon,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 import { settlementApi } from '@/lib/api';
+import { useSnackbar } from 'notistack';
 
 interface VoucherRow {
   id: string;
@@ -29,6 +33,9 @@ interface VoucherRow {
   total_payments: number;
   balance: number;
 }
+
+type SortField = 'trade_date' | 'counterparty_name' | 'voucher_number' | 'quantity' | 'total_amount' | 'balance';
+type SortOrder = 'asc' | 'desc';
 
 const statusColors: Record<string, 'default' | 'warning' | 'success' | 'error' | 'info'> = {
   open: 'error',
@@ -51,11 +58,13 @@ const statusLabels: Record<string, string> = {
 };
 
 /**
- * 전표 원장 - 전표 목록 (필터/검색/페이징)
+ * 전표 원장 - 전표 목록 (필터/검색/페이징/정렬/다중선택/일괄삭제)
  */
 export default function VouchersPage() {
   const router = useRouter();
   const theme = useTheme();
+  const { enqueueSnackbar } = useSnackbar();
+
   const [vouchers, setVouchers] = useState<VoucherRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -63,6 +72,17 @@ export default function VouchersPage() {
   const [search, setSearch] = useState('');
   const [voucherType, setVoucherType] = useState('');
   const [loading, setLoading] = useState(true);
+
+  // 정렬 상태
+  const [sortField, setSortField] = useState<SortField>('trade_date');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+
+  // 다중 선택 상태
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // 삭제 다이얼로그 상태
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const loadVouchers = useCallback(async () => {
     try {
@@ -75,20 +95,104 @@ export default function VouchersPage() {
       if (voucherType) params.voucher_type = voucherType;
 
       const res = await settlementApi.listVouchers(params);
-      const data = res.data as { vouchers: VoucherRow[]; total: number };
+      const data = res.data as unknown as { vouchers: VoucherRow[]; total: number };
       setVouchers(data.vouchers || []);
       setTotal(data.total || 0);
+      // 페이지 변경 시 선택 초기화
+      setSelected(new Set());
     } catch {
-      // 에러 핸들링
+      enqueueSnackbar('전표 목록 조회에 실패했습니다', { variant: 'error' });
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, voucherType]);
+  }, [page, pageSize, search, voucherType, enqueueSnackbar]);
 
   useEffect(() => { loadVouchers(); }, [loadVouchers]);
 
+  // 클라이언트 정렬 (서버 정렬이 없는 경우)
+  const sortedVouchers = useMemo(() => {
+    const sorted = [...vouchers];
+    sorted.sort((a, b) => {
+      let aVal: string | number = a[sortField];
+      let bVal: string | number = b[sortField];
+
+      // 숫자 필드
+      if (['quantity', 'total_amount', 'balance'].includes(sortField)) {
+        aVal = Number(aVal) || 0;
+        bVal = Number(bVal) || 0;
+        return sortOrder === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
+      }
+
+      // 문자열 필드
+      aVal = String(aVal || '');
+      bVal = String(bVal || '');
+      return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    });
+    return sorted;
+  }, [vouchers, sortField, sortOrder]);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('desc');
+    }
+  };
+
+  // 선택 핸들러
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      // 마감되지 않은 전표만 선택
+      const selectable = sortedVouchers.filter(v => v.settlement_status !== 'locked' && v.payment_status !== 'locked');
+      setSelected(new Set(selectable.map(v => v.id)));
+    } else {
+      setSelected(new Set());
+    }
+  };
+
+  const handleSelectOne = (id: string, checked: boolean) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const selectableVouchers = sortedVouchers.filter(v => v.settlement_status !== 'locked' && v.payment_status !== 'locked');
+  const isAllSelected = selectableVouchers.length > 0 && selectableVouchers.every(v => selected.has(v.id));
+  const isSomeSelected = selectableVouchers.some(v => selected.has(v.id)) && !isAllSelected;
+
+  // 일괄 삭제
+  const handleBatchDelete = async () => {
+    if (selected.size === 0) return;
+    setDeleting(true);
+    try {
+      const res = await settlementApi.batchDeleteVouchers(Array.from(selected));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = (res.data as any)?.data ?? res.data;
+      enqueueSnackbar(
+        `${result.deleted_count}건 삭제 완료${result.skipped_count > 0 ? ` / ${result.skipped_count}건 건너뜀` : ''}`,
+        { variant: result.deleted_count > 0 ? 'success' : 'warning' }
+      );
+      if (result.errors && result.errors.length > 0) {
+        result.errors.slice(0, 3).forEach((err: string) => enqueueSnackbar(err, { variant: 'warning' }));
+      }
+      setDeleteDialogOpen(false);
+      setSelected(new Set());
+      loadVouchers();
+    } catch {
+      enqueueSnackbar('삭제에 실패했습니다', { variant: 'error' });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const formatAmount = (amount: number) =>
     new Intl.NumberFormat('ko-KR').format(amount);
+
+  const isLocked = (v: VoucherRow) => v.settlement_status === 'locked' || v.payment_status === 'locked';
 
   return (
     <Box>
@@ -99,6 +203,16 @@ export default function VouchersPage() {
             UPM 판매/매입 전표 SSOT
           </Typography>
         </Box>
+        {selected.size > 0 && (
+          <Button
+            variant="contained"
+            color="error"
+            startIcon={<DeleteIcon />}
+            onClick={() => setDeleteDialogOpen(true)}
+          >
+            {selected.size}건 삭제
+          </Button>
+        )}
       </Box>
 
       {/* 필터 바 */}
@@ -138,81 +252,154 @@ export default function VouchersPage() {
         <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: alpha(theme.palette.info.main, 0.04) }}>
-              <TableCell sx={{ fontWeight: 700 }}>매입/판매일</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>거래처</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>전표번호</TableCell>
+              <TableCell padding="checkbox" sx={{ width: 42 }}>
+                <Checkbox
+                  size="small"
+                  indeterminate={isSomeSelected}
+                  checked={isAllSelected}
+                  onChange={(e) => handleSelectAll(e.target.checked)}
+                />
+              </TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>
+                <TableSortLabel
+                  active={sortField === 'trade_date'}
+                  direction={sortField === 'trade_date' ? sortOrder : 'desc'}
+                  onClick={() => handleSort('trade_date')}
+                >
+                  매입/판매일
+                </TableSortLabel>
+              </TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>
+                <TableSortLabel
+                  active={sortField === 'counterparty_name'}
+                  direction={sortField === 'counterparty_name' ? sortOrder : 'desc'}
+                  onClick={() => handleSort('counterparty_name')}
+                >
+                  거래처
+                </TableSortLabel>
+              </TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>
+                <TableSortLabel
+                  active={sortField === 'voucher_number'}
+                  direction={sortField === 'voucher_number' ? sortOrder : 'desc'}
+                  onClick={() => handleSort('voucher_number')}
+                >
+                  전표번호
+                </TableSortLabel>
+              </TableCell>
               <TableCell sx={{ fontWeight: 700 }}>타입</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>수량</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>금액</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700 }}>
+                <TableSortLabel
+                  active={sortField === 'quantity'}
+                  direction={sortField === 'quantity' ? sortOrder : 'desc'}
+                  onClick={() => handleSort('quantity')}
+                >
+                  수량
+                </TableSortLabel>
+              </TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700 }}>
+                <TableSortLabel
+                  active={sortField === 'total_amount'}
+                  direction={sortField === 'total_amount' ? sortOrder : 'desc'}
+                  onClick={() => handleSort('total_amount')}
+                >
+                  금액
+                </TableSortLabel>
+              </TableCell>
               <TableCell align="center" sx={{ fontWeight: 700 }}>정산상태</TableCell>
               <TableCell align="center" sx={{ fontWeight: 700 }}>지급상태</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>잔액</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700 }}>
+                <TableSortLabel
+                  active={sortField === 'balance'}
+                  direction={sortField === 'balance' ? sortOrder : 'desc'}
+                  onClick={() => handleSort('balance')}
+                >
+                  잔액
+                </TableSortLabel>
+              </TableCell>
               <TableCell align="center" sx={{ fontWeight: 700 }}>상세</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={10} align="center" sx={{ py: 8 }}>
+                <TableCell colSpan={11} align="center" sx={{ py: 8 }}>
                   <Typography color="text.secondary">로딩 중...</Typography>
                 </TableCell>
               </TableRow>
-            ) : vouchers.length === 0 ? (
+            ) : sortedVouchers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} align="center" sx={{ py: 8 }}>
+                <TableCell colSpan={11} align="center" sx={{ py: 8 }}>
                   <ReceiptIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
                   <Typography color="text.secondary">전표가 없습니다</Typography>
                 </TableCell>
               </TableRow>
             ) : (
-              vouchers.map((v) => (
-                <TableRow
-                  key={v.id}
-                  hover
-                  sx={{ cursor: 'pointer', '&:hover': { bgcolor: alpha(theme.palette.info.main, 0.04) } }}
-                  onClick={() => router.push(`/settlement/vouchers/${v.id}`)}
-                >
-                  <TableCell>{v.trade_date}</TableCell>
-                  <TableCell sx={{ fontWeight: 500 }}>{v.counterparty_name}</TableCell>
-                  <TableCell><code style={{ fontSize: '0.85em' }}>{v.voucher_number}</code></TableCell>
-                  <TableCell>
-                    <Chip
-                      label={v.voucher_type === 'sales' ? '판매' : '매입'}
-                      size="small"
-                      color={v.voucher_type === 'sales' ? 'primary' : 'secondary'}
-                      variant="outlined"
-                    />
-                  </TableCell>
-                  <TableCell align="right">{v.quantity}</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600 }}>
-                    {formatAmount(v.total_amount)}
-                  </TableCell>
-                  <TableCell align="center">
-                    <Chip
-                      label={statusLabels[v.settlement_status] || v.settlement_status}
-                      size="small"
-                      color={statusColors[v.settlement_status] || 'default'}
-                    />
-                  </TableCell>
-                  <TableCell align="center">
-                    <Chip
-                      label={statusLabels[v.payment_status] || v.payment_status}
-                      size="small"
-                      color={statusColors[v.payment_status] || 'default'}
-                    />
-                  </TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600, color: v.balance > 0 ? 'error.main' : 'success.main' }}>
-                    {formatAmount(v.balance)}
-                  </TableCell>
-                  <TableCell align="center">
-                    <Tooltip title="상세 보기">
-                      <IconButton size="small" onClick={(e) => { e.stopPropagation(); router.push(`/settlement/vouchers/${v.id}`); }}>
-                        <ViewIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-              ))
+              sortedVouchers.map((v) => {
+                const locked = isLocked(v);
+                const isChecked = selected.has(v.id);
+                return (
+                  <TableRow
+                    key={v.id}
+                    hover
+                    selected={isChecked}
+                    sx={{
+                      cursor: 'pointer',
+                      '&:hover': { bgcolor: alpha(theme.palette.info.main, 0.04) },
+                      opacity: locked ? 0.7 : 1,
+                    }}
+                    onClick={() => router.push(`/settlement/vouchers/${v.id}`)}
+                  >
+                    <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        size="small"
+                        checked={isChecked}
+                        disabled={locked}
+                        onChange={(e) => handleSelectOne(v.id, e.target.checked)}
+                      />
+                    </TableCell>
+                    <TableCell>{v.trade_date}</TableCell>
+                    <TableCell sx={{ fontWeight: 500 }}>{v.counterparty_name}</TableCell>
+                    <TableCell><code style={{ fontSize: '0.85em' }}>{v.voucher_number}</code></TableCell>
+                    <TableCell>
+                      <Chip
+                        label={v.voucher_type === 'sales' ? '판매' : '매입'}
+                        size="small"
+                        color={v.voucher_type === 'sales' ? 'primary' : 'secondary'}
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell align="right">{v.quantity}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>
+                      {formatAmount(v.total_amount)}
+                    </TableCell>
+                    <TableCell align="center">
+                      <Chip
+                        label={statusLabels[v.settlement_status] || v.settlement_status}
+                        size="small"
+                        color={statusColors[v.settlement_status] || 'default'}
+                      />
+                    </TableCell>
+                    <TableCell align="center">
+                      <Chip
+                        label={statusLabels[v.payment_status] || v.payment_status}
+                        size="small"
+                        color={statusColors[v.payment_status] || 'default'}
+                      />
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600, color: v.balance > 0 ? 'error.main' : 'success.main' }}>
+                      {formatAmount(v.balance)}
+                    </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="상세 보기">
+                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); router.push(`/settlement/vouchers/${v.id}`); }}>
+                          <ViewIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -227,6 +414,42 @@ export default function VouchersPage() {
           labelRowsPerPage="페이지당 행:"
         />
       </TableContainer>
+
+      {/* 일괄 삭제 확인 다이얼로그 */}
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WarningIcon color="error" />
+          전표 일괄 삭제
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <AlertTitle>주의</AlertTitle>
+            선택한 <strong>{selected.size}건</strong>의 전표를 삭제합니다.
+          </Alert>
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            • 마감된 전표는 삭제되지 않습니다.
+          </Typography>
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            • 입금/송금 내역이 연결된 전표는 삭제되지 않습니다.
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            • 삭제된 전표는 복구할 수 없습니다.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
+            취소
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleBatchDelete}
+            disabled={deleting}
+          >
+            {deleting ? '삭제 중...' : `${selected.size}건 삭제`}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

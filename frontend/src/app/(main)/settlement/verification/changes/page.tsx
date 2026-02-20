@@ -5,7 +5,7 @@ import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TablePagination, Chip, Button, Stack, Dialog,
   DialogTitle, DialogContent, DialogActions, TextField, alpha, useTheme,
-  IconButton, Tooltip, Grid, Divider, Card, CardContent,
+  IconButton, Tooltip, Grid, Divider, Card, CardContent, Alert,
 } from '@mui/material';
 import {
   CheckCircle as ApproveIcon,
@@ -64,7 +64,7 @@ export default function VerificationChangesPage() {
     try {
       setLoading(true);
       const res = await settlementApi.listVoucherChangeRequests({ page: page + 1, page_size: pageSize });
-      const data = res.data as { requests: ChangeRequest[]; total: number };
+      const data = res.data as unknown as { requests: ChangeRequest[]; total: number };
       setRequests(data.requests || []);
       setTotal(data.total || 0);
     } catch {
@@ -107,7 +107,7 @@ export default function VerificationChangesPage() {
   };
 
   const renderDiff = (old_data: Record<string, unknown>, new_data: Record<string, unknown>) => {
-    const allKeys = [...new Set([...Object.keys(old_data), ...Object.keys(new_data)])];
+    const allKeys = Array.from(new Set([...Object.keys(old_data), ...Object.keys(new_data)]));
     return (
       <Grid container spacing={2}>
         <Grid item xs={6}>

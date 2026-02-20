@@ -63,7 +63,7 @@ export default function LockManagementPage() {
     try {
       setLoading(true);
       const res = await settlementApi.listLocks({ year: selectedYear });
-      const data = res.data as { locks: LockEntry[] };
+      const data = res.data as unknown as { locks: LockEntry[] };
       setLocks(data.locks || []);
     } catch {
       // handle
@@ -105,7 +105,7 @@ export default function LockManagementPage() {
   const openAuditLog = async () => {
     try {
       const res = await settlementApi.getLockAuditLogs({ year: selectedYear });
-      const data = res.data as { logs: AuditLogEntry[] };
+      const data = res.data as unknown as { logs: AuditLogEntry[] };
       setAuditLogs(data.logs || []);
       setAuditOpen(true);
     } catch {

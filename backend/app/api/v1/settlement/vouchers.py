@@ -3,11 +3,11 @@
 UPSERT 기반: (counterparty_id, trade_date, voucher_number)
 """
 
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, status
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -43,15 +43,11 @@ def _compute_total_amount(voucher: Voucher) -> Decimal:
 
 async def _enrich_voucher(v: Voucher, db: AsyncSession) -> VoucherResponse:
     """전표에 거래처명, 누적 입금/송금 정보 추가"""
-    # 거래처명
-    cp_name = None
-    if v.counterparty:
-        cp_name = v.counterparty.name
-    else:
-        cp_result = await db.execute(
-            select(Counterparty.name).where(Counterparty.id == v.counterparty_id)
-        )
-        cp_name = cp_result.scalar_one_or_none()
+    # 거래처명 (async에서는 lazy loading 불가 → 직접 조회)
+    cp_result = await db.execute(
+        select(Counterparty.name).where(Counterparty.id == v.counterparty_id)
+    )
+    cp_name = cp_result.scalar_one_or_none()
 
     # 누적 입금
     total_receipts = (await db.execute(
@@ -281,3 +277,113 @@ async def update_voucher(
 
     await db.flush()
     return await _enrich_voucher(v, db)
+
+
+@router.delete("/{voucher_id}", status_code=200)
+async def delete_voucher(
+    voucher_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """전표 삭제 (마감된 전표 삭제 불가)"""
+    v = await db.get(Voucher, voucher_id)
+    if not v:
+        raise HTTPException(status_code=404, detail="전표를 찾을 수 없습니다")
+
+    # 마감 체크
+    if v.settlement_status == SettlementStatus.LOCKED or v.payment_status == PaymentStatus.LOCKED:
+        raise HTTPException(status_code=400, detail="마감된 전표는 삭제할 수 없습니다")
+
+    # 연결된 입금/송금 내역 확인
+    receipt_count = (await db.execute(
+        select(func.count(Receipt.id)).where(Receipt.voucher_id == voucher_id)
+    )).scalar() or 0
+    payment_count = (await db.execute(
+        select(func.count(Payment.id)).where(Payment.voucher_id == voucher_id)
+    )).scalar() or 0
+
+    if receipt_count > 0 or payment_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"연결된 입금 {receipt_count}건, 송금 {payment_count}건이 있어 삭제할 수 없습니다. 먼저 입금/송금 내역을 삭제해주세요."
+        )
+
+    # 감사로그
+    db.add(AuditLog(
+        user_id=current_user.id,
+        action=AuditAction.VOUCHER_DELETE,
+        target_type="voucher",
+        target_id=v.id,
+        before_data={
+            "trade_date": str(v.trade_date),
+            "voucher_number": v.voucher_number,
+            "counterparty_id": str(v.counterparty_id),
+            "total_amount": str(v.total_amount),
+        },
+    ))
+
+    await db.delete(v)
+    await db.commit()
+    return {"message": "전표가 삭제되었습니다."}
+
+
+@router.post("/batch-delete", status_code=200)
+async def batch_delete_vouchers(
+    voucher_ids: List[UUID] = Body(..., description="삭제할 전표 ID 목록"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """전표 일괄 삭제 (마감된 전표, 입금/송금 내역이 있는 전표 제외)"""
+    deleted_count = 0
+    skipped_count = 0
+    errors = []
+
+    for vid in voucher_ids:
+        v = await db.get(Voucher, vid)
+        if not v:
+            skipped_count += 1
+            errors.append(f"전표 ID {vid}를 찾을 수 없습니다.")
+            continue
+
+        # 마감 체크
+        if v.settlement_status == SettlementStatus.LOCKED or v.payment_status == PaymentStatus.LOCKED:
+            skipped_count += 1
+            errors.append(f"전표 '{v.voucher_number}' (ID: {vid})는 마감 상태입니다.")
+            continue
+
+        # 연결된 입금/송금 내역 확인
+        receipt_count = (await db.execute(
+            select(func.count(Receipt.id)).where(Receipt.voucher_id == vid)
+        )).scalar() or 0
+        payment_count = (await db.execute(
+            select(func.count(Payment.id)).where(Payment.voucher_id == vid)
+        )).scalar() or 0
+
+        if receipt_count > 0 or payment_count > 0:
+            skipped_count += 1
+            errors.append(f"전표 '{v.voucher_number}'에 입금 {receipt_count}건, 송금 {payment_count}건이 연결되어 있습니다.")
+            continue
+
+        # 감사로그
+        db.add(AuditLog(
+            user_id=current_user.id,
+            action=AuditAction.VOUCHER_DELETE,
+            target_type="voucher",
+            target_id=v.id,
+            before_data={
+                "trade_date": str(v.trade_date),
+                "voucher_number": v.voucher_number,
+                "counterparty_id": str(v.counterparty_id),
+                "total_amount": str(v.total_amount),
+            },
+        ))
+
+        await db.delete(v)
+        deleted_count += 1
+
+    await db.commit()
+    return {
+        "deleted_count": deleted_count,
+        "skipped_count": skipped_count,
+        "errors": errors,
+    }

@@ -291,12 +291,12 @@ class UploadTemplateResponse(BaseModel):
 class UploadPreviewRow(BaseModel):
     """업로드 미리보기 행"""
     row_index: int
-    status: str = "new"  # new / update / conflict / unmatched / locked
-    counterparty_name: str
+    status: str = "new"  # new / update / conflict / unmatched / locked / excluded / error
+    counterparty_name: str = ""
     counterparty_id: Optional[UUID] = None
-    trade_date: date
-    voucher_number: str
-    data: dict  # UPM 원본 컬럼 전체
+    trade_date: Optional[date] = None  # excluded/error 행은 None 가능
+    voucher_number: str = ""
+    data: dict = {}  # UPM 원본 컬럼 전체
     diff: Optional[dict] = None  # 기존 전표와 차이 (update일 때)
     error: Optional[str] = None
 

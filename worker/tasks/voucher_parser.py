@@ -8,9 +8,12 @@
   - LOCKED → 차단 (스킵)
 """
 
+import io
 import os
+import re
 import json
 import uuid
+import logging
 from datetime import datetime, date
 from decimal import Decimal, InvalidOperation
 from typing import Optional
@@ -19,6 +22,8 @@ import pandas as pd
 import redis
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import sessionmaker, Session
+
+logger = logging.getLogger(__name__)
 
 # 환경 변수
 DATABASE_URL = os.getenv(
@@ -166,8 +171,89 @@ def _build_column_map(df, mapping: dict) -> dict:
     return column_map
 
 
+def _detect_header_row(file_path: str, max_scan: int = 10) -> Optional[int]:
+    """
+    엑셀 파일에서 실제 헤더 행을 자동 감지한다.
+    UPM 엑셀은 첫 행이 제목이거나 빈 행인 경우가 있어,
+    한글/영문 텍스트가 가장 많은 행을 헤더로 판단한다.
+    """
+    try:
+        df_scan = pd.read_excel(file_path, engine="openpyxl", header=None, nrows=max_scan)
+    except Exception:
+        return None
+
+    best_row = 0
+    best_score = 0
+    for row_idx in range(min(max_scan, len(df_scan))):
+        score = 0
+        for val in df_scan.iloc[row_idx]:
+            s = str(val).strip() if val is not None and not (isinstance(val, float) and pd.isna(val)) else ""
+            # 한글/영문 텍스트(2자 이상)가 있으면 헤더 후보
+            if re.search(r'[가-힣a-zA-Z]{2,}', s):
+                score += 1
+        if score > best_score:
+            best_score = score
+            best_row = row_idx
+
+    return best_row if best_row > 0 else None
+
+
+def _is_sum_row(row, column_map: dict) -> tuple:
+    """
+    합계/소계/통계/요약 행인지 판단 (자동 제외 대상)
+    Returns: (is_summary: bool, reason: str)
+    """
+    _SUMMARY_KEYWORDS = r'합계|소계|총계|통계|평균|TOTAL|SUM|AVERAGE|SUBTOTAL'
+
+    # 1) 거래처명 컬럼에 통계 키워드 포함
+    cp_col = column_map.get("counterparty_name")
+    cp_val = ""
+    if cp_col:
+        cp_val = str(row.get(cp_col, "")).strip()
+        if re.search(_SUMMARY_KEYWORDS, cp_val, re.IGNORECASE):
+            return True, f"거래처 컬럼에 통계 키워드 감지 ('{cp_val}')"
+
+    # 2) 전표번호 컬럼에 통계 키워드 포함
+    vn_col = column_map.get("voucher_number")
+    vn_val = ""
+    if vn_col:
+        vn_val = str(row.get(vn_col, "")).strip()
+        if re.search(_SUMMARY_KEYWORDS, vn_val, re.IGNORECASE):
+            return True, f"전표번호 컬럼에 통계 키워드 감지 ('{vn_val}')"
+
+    # 3) 전표번호에 "N건" 형태 (예: "360건")
+    if vn_val and re.search(r'^\d+건$', vn_val):
+        return True, f"전표번호가 건수 집계 ('{vn_val}')"
+
+    # 4) 거래일 없는 상태에서 필수값 부분 누락 + 금액 존재
+    td_col = column_map.get("trade_date")
+    td_val = _safe_date(row.get(td_col)) if td_col else None
+    if not td_val:
+        missing_count = sum([not cp_val, not vn_val])
+        # 금액 필드 중 하나라도 값이 있으면 통계 행 가능성
+        amount_cols = ["actual_sale_price", "actual_purchase_price", "purchase_cost", "sale_amount"]
+        has_amount = any(
+            _safe_decimal(row.get(column_map.get(f)))
+            for f in amount_cols if f in column_map
+        )
+        if missing_count >= 1 and has_amount:
+            return True, "거래일 없음 + 필수값 누락 + 금액 존재 (통계/요약 행)"
+        # 모든 필수값이 비어있으면 빈 행이거나 합산 행
+        if not cp_val and not vn_val:
+            return True, "필수값(거래일/거래처/전표번호) 모두 누락 (통계/빈 행)"
+
+    # 5) 비고(memo) 등 다른 컬럼에 통계 키워드
+    memo_col = column_map.get("memo")
+    memo_val = str(row.get(memo_col, "")).strip() if memo_col else ""
+    all_text = " ".join([cp_val, vn_val, memo_val])
+    if not td_val and re.search(_SUMMARY_KEYWORDS, all_text, re.IGNORECASE):
+        return True, "행 데이터에 통계 키워드 감지"
+
+    return False, ""
+
+
 def _get_template_mapping(session: Session, voucher_type: str) -> Optional[dict]:
-    """DB에서 기본 템플릿 매핑 가져오기"""
+    """DB에서 기본 템플릿 매핑 가져오기 (트랜잭션 안전)"""
     try:
         result = session.execute(
             text("""
@@ -175,13 +261,15 @@ def _get_template_mapping(session: Session, voucher_type: str) -> Optional[dict]
                 WHERE voucher_type = :vtype AND is_default = true
                 LIMIT 1
             """),
-            {"vtype": voucher_type}
+            {"vtype": voucher_type.upper()}
         )
         row = result.fetchone()
         if row:
             return row[0] if isinstance(row[0], dict) else json.loads(row[0])
-    except Exception:
-        pass
+    except Exception as e:
+        # enum 불일치 등 에러 시 반드시 롤백하여 트랜잭션 정상화
+        logger.warning(f"[Worker] 템플릿 조회 실패 (rollback): {e}")
+        session.rollback()
     return None
 
 
@@ -256,25 +344,41 @@ def _compute_diff(existing_row: dict, new_data: dict) -> Optional[dict]:
 
 
 def _update_job_progress(session: Session, job_id: str, progress: int):
-    """Job 진행률 업데이트 (raw SQL)"""
-    session.execute(
-        text("UPDATE upload_jobs SET progress = :p WHERE id = :jid"),
-        {"p": progress, "jid": job_id}
-    )
-    session.commit()
+    """Job 진행률 업데이트 (raw SQL, 트랜잭션 안전)"""
+    try:
+        session.execute(
+            text("UPDATE upload_jobs SET progress = :p WHERE id = :jid"),
+            {"p": progress, "jid": job_id}
+        )
+        session.commit()
+    except Exception as e:
+        logger.warning(f"[Worker] progress 업데이트 실패: {e}")
+        session.rollback()
 
 
 def _update_job_failed(session: Session, job_id: str, error_message: str):
-    """Job 실패 상태로 업데이트 (raw SQL) - enum은 대문자"""
-    session.execute(
-        text("""
-            UPDATE upload_jobs
-            SET status = 'FAILED', error_message = :msg, completed_at = :now
-            WHERE id = :jid
-        """),
-        {"jid": job_id, "msg": error_message, "now": datetime.utcnow()}
-    )
-    session.commit()
+    """Job 실패 상태로 업데이트 (raw SQL, 트랜잭션 안전 - 항상 rollback 후 실행)"""
+    try:
+        session.rollback()  # 이전 트랜잭션 에러 해소
+    except Exception:
+        pass
+
+    try:
+        session.execute(
+            text("""
+                UPDATE upload_jobs
+                SET status = 'FAILED', error_message = :msg, completed_at = :now
+                WHERE id = :jid
+            """),
+            {"jid": job_id, "msg": error_message[:2000], "now": datetime.utcnow()}
+        )
+        session.commit()
+    except Exception as e:
+        logger.error(f"[Worker] FAILED 상태 업데이트 실패: {e}")
+        try:
+            session.rollback()
+        except Exception:
+            pass
 
 
 def parse_voucher_excel(job_id: str) -> dict:
@@ -282,7 +386,7 @@ def parse_voucher_excel(job_id: str) -> dict:
     UPM 전표 엑셀 파싱 태스크 (메인 엔트리)
 
     1. Job 조회 + 상태 업데이트
-    2. 엑셀 파일 읽기
+    2. 엑셀 파일 읽기 (헤더 행 자동 감지)
     3. 컬럼 매핑 (템플릿 기반 or 기본)
     4. 거래처 매칭 (별칭 테이블)
     5. 기존 전표 대비 diff 비교 + 변경 감지 규칙 적용
@@ -325,14 +429,22 @@ def parse_voucher_excel(job_id: str) -> dict:
         )
         session.commit()
 
-        is_sales = ("sales" in str(job_type_str))
+        is_sales = ("sales" in str(job_type_str).lower())
         voucher_type = "sales" if is_sales else "purchase"
 
         # =====================================================================
-        # Step 2: 엑셀 파일 읽기
+        # Step 2: 엑셀 파일 읽기 (헤더 행 자동 감지)
         # =====================================================================
+        if not os.path.exists(file_path):
+            _update_job_failed(session, job_id, f"파일을 찾을 수 없습니다: {file_path}")
+            return {"error": "File not found"}
+
+        # 헤더 행 자동 감지 (UPM 엑셀은 첫 행이 제목인 경우가 있음)
+        header_row = _detect_header_row(file_path) or 0
+        logger.info(f"[Worker] 감지된 헤더 행: {header_row} (file: {file_path})")
+
         try:
-            df = pd.read_excel(file_path, engine="openpyxl")
+            df = pd.read_excel(file_path, engine="openpyxl", header=header_row)
         except Exception as e:
             _update_job_failed(session, job_id, f"엑셀 파일 읽기 실패: {str(e)}")
             return {"error": str(e)}
@@ -340,6 +452,12 @@ def parse_voucher_excel(job_id: str) -> dict:
         if df.empty:
             _update_job_failed(session, job_id, "엑셀 파일이 비어있습니다")
             return {"error": "Empty file"}
+
+        # 컬럼명 정리: 'Unnamed:' 컬럼 제거, 앞뒤 공백 제거
+        df.columns = [
+            str(c).strip() if not str(c).startswith("Unnamed") else f"col_{i}"
+            for i, c in enumerate(df.columns)
+        ]
 
         # 빈 행 제거
         df = df.dropna(how="all").reset_index(drop=True)
@@ -363,7 +481,7 @@ def parse_voucher_excel(job_id: str) -> dict:
         if missing:
             err_msg = (
                 f"필수 컬럼을 찾을 수 없습니다: {', '.join(missing)}. "
-                f"엑셀 헤더: {list(df.columns)}"
+                f"엑셀 헤더(행 {header_row}): {list(df.columns)}"
             )
             _update_job_failed(session, job_id, err_msg)
             return {"error": err_msg}
@@ -383,15 +501,32 @@ def parse_voucher_excel(job_id: str) -> dict:
             "locked": 0,
             "unmatched": 0,
             "error": 0,
+            "excluded": 0,
         }
 
         for idx, row in df.iterrows():
+            # 합계/소계/통계 행 감지 → 자동 제외
+            is_summary, summary_reason = _is_sum_row(row, column_map)
+            if is_summary:
+                preview_rows.append({
+                    "row_index": int(idx),
+                    "status": "excluded",
+                    "counterparty_name": _safe_str(row.get(column_map.get("counterparty_name"))) or "",
+                    "counterparty_id": None,
+                    "trade_date": None,
+                    "voucher_number": _safe_str(row.get(column_map.get("voucher_number"))) or "",
+                    "data": {},
+                    "error": f"통계/요약 행 (자동 제외): {summary_reason}",
+                })
+                stats["excluded"] += 1
+                continue
+
             # 파싱
             trade_date_val = _safe_date(row.get(column_map.get("trade_date")))
             cp_name = _safe_str(row.get(column_map.get("counterparty_name")))
             v_number = _safe_str(row.get(column_map.get("voucher_number")))
 
-            # 필수 값 검증
+            # 필수 값 검증 (통계 행 감지를 통과한 진짜 오류만)
             if not trade_date_val or not cp_name or not v_number:
                 preview_rows.append({
                     "row_index": int(idx),
@@ -421,7 +556,7 @@ def parse_voucher_excel(job_id: str) -> dict:
                         val = _safe_decimal(row.get(column_map[field]))
                         data[field] = float(val) if val is not None else None
 
-            string_fields = ["upm_settlement_status", "payment_info"]
+            string_fields = ["upm_settlement_status", "payment_info", "memo"]
             for field in string_fields:
                 if field in column_map:
                     data[field] = _safe_str(row.get(column_map[field]))
@@ -582,8 +717,10 @@ def parse_voucher_excel(job_id: str) -> dict:
             "locked_count": stats["locked"],
             "unmatched_count": stats["unmatched"],
             "error_count": stats["error"],
+            "excluded_count": stats["excluded"],
             "unmatched_names": unmatched_list,
             "column_mapping_used": {k: str(v) for k, v in column_map.items()},
+            "header_row_detected": header_row,
         }
 
         session.execute(
@@ -603,14 +740,12 @@ def parse_voucher_excel(job_id: str) -> dict:
         )
         session.commit()
 
+        logger.info(f"[Worker] Job {job_id} 완료: {stats}")
         return result_summary
 
     except Exception as e:
-        session.rollback()
-        try:
-            _update_job_failed(session, job_id, str(e)[:2000])
-        except Exception:
-            pass
+        logger.error(f"[Worker] Job {job_id} 예외: {e}")
+        _update_job_failed(session, job_id, str(e)[:2000])
         return {"error": str(e)}
 
     finally:
