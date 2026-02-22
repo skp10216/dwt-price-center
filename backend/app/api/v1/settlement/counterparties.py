@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
-from app.models.counterparty import Counterparty, CounterpartyAlias
+from app.models.counterparty import Counterparty, CounterpartyAlias, UserCounterpartyFavorite
 from app.models.voucher import Voucher
 from app.models.receipt import Receipt
 from app.models.payment import Payment
@@ -45,6 +45,7 @@ async def list_counterparties(
     search: Optional[str] = Query(None, description="검색어 (이름/코드/별칭)"),
     counterparty_type: Optional[str] = Query(None),
     is_active: Optional[bool] = Query(None),
+    favorites_only: Optional[bool] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -70,6 +71,15 @@ async def list_counterparties(
     if is_active is not None:
         query = query.where(Counterparty.is_active == is_active)
 
+    # 즐겨찾기 필터
+    if favorites_only:
+        fav_join = (
+            UserCounterpartyFavorite.counterparty_id == Counterparty.id
+        ) & (
+            UserCounterpartyFavorite.user_id == current_user.id
+        )
+        query = query.join(UserCounterpartyFavorite, fav_join)
+
     # 카운트
     count_q = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_q)).scalar() or 0
@@ -79,12 +89,58 @@ async def list_counterparties(
     result = await db.execute(query)
     items = result.scalars().all()
 
+    # N+1 방지: 즐겨찾기 집합 한 번에 로드
+    counterparty_ids = [c.id for c in items]
+    favorite_ids: set = set()
+    if counterparty_ids:
+        fav_result = await db.execute(
+            select(UserCounterpartyFavorite.counterparty_id).where(
+                UserCounterpartyFavorite.user_id == current_user.id,
+                UserCounterpartyFavorite.counterparty_id.in_(counterparty_ids)
+            )
+        )
+        favorite_ids = {row[0] for row in fav_result.all()}
+
+    def to_response(c: Counterparty) -> CounterpartyResponse:
+        resp = CounterpartyResponse.model_validate(c)
+        resp.is_favorite = c.id in favorite_ids
+        return resp
+
     return {
-        "counterparties": [CounterpartyResponse.model_validate(c) for c in items],
+        "counterparties": [to_response(c) for c in items],
         "total": total,
         "page": page,
         "page_size": page_size,
     }
+
+
+@router.post("/{counterparty_id}/favorite", response_model=dict)
+async def toggle_counterparty_favorite(
+    counterparty_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """거래처 즐겨찾기 토글 (추가/제거)"""
+    result = await db.execute(select(Counterparty).where(Counterparty.id == counterparty_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="거래처를 찾을 수 없습니다")
+
+    fav_result = await db.execute(
+        select(UserCounterpartyFavorite).where(
+            UserCounterpartyFavorite.user_id == current_user.id,
+            UserCounterpartyFavorite.counterparty_id == counterparty_id
+        )
+    )
+    existing = fav_result.scalar_one_or_none()
+
+    if existing:
+        await db.delete(existing)
+        await db.commit()
+        return {"is_favorite": False}
+    else:
+        db.add(UserCounterpartyFavorite(user_id=current_user.id, counterparty_id=counterparty_id))
+        await db.commit()
+        return {"is_favorite": True}
 
 
 @router.post("", response_model=CounterpartyResponse, status_code=201)

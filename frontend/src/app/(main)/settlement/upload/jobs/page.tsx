@@ -12,7 +12,7 @@
  * - KST 시간대 자동 변환
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TablePagination, Chip, IconButton, Tooltip,
@@ -219,7 +219,7 @@ export default function UploadJobsPage() {
   const [jobs, setJobs] = useState<UploadJob[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(100);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
@@ -535,6 +535,18 @@ export default function UploadJobsPage() {
     return counts;
   }, [jobDetail]);
 
+  // ─── 판매/매입 각각 최신 확정 job ID ───
+  const { latestSalesId, latestPurchaseId } = useMemo(() => {
+    const confirmed = jobs.filter((j) => j.is_confirmed);
+    const salesLatest = confirmed
+      .filter((j) => j.job_type.toLowerCase().includes('sales'))
+      .sort((a, b) => new Date(b.confirmed_at!).getTime() - new Date(a.confirmed_at!).getTime())[0];
+    const purchaseLatest = confirmed
+      .filter((j) => j.job_type.toLowerCase().includes('purchase'))
+      .sort((a, b) => new Date(b.confirmed_at!).getTime() - new Date(a.confirmed_at!).getTime())[0];
+    return { latestSalesId: salesLatest?.id ?? null, latestPurchaseId: purchaseLatest?.id ?? null };
+  }, [jobs]);
+
   // ─── 결과 요약 Chip 렌더링 (클릭 가능) ───
   const renderSummary = (job: UploadJob) => {
     if (isFailed(job.status) && job.error_message) {
@@ -750,8 +762,14 @@ export default function UploadJobsPage() {
                       </Stack>
                     </TableCell>
                     <TableCell align="center">
-                      <Chip label={typeInfo.label} size="small" color={typeInfo.color} variant="outlined"
-                        sx={{ fontWeight: 600, fontSize: '0.7rem' }} />
+                      <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
+                        <Chip label={typeInfo.label} size="small" color={typeInfo.color} variant="outlined"
+                          sx={{ fontWeight: 600, fontSize: '0.7rem' }} />
+                        {(job.id === latestSalesId || job.id === latestPurchaseId) && (
+                          <Chip label="최신" size="small" color="success"
+                            sx={{ fontWeight: 700, fontSize: '0.65rem', height: 20 }} />
+                        )}
+                      </Stack>
                     </TableCell>
                     <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       <Stack direction="row" spacing={1} alignItems="center">
@@ -815,7 +833,7 @@ export default function UploadJobsPage() {
         <TablePagination component="div" count={total} page={page}
           onPageChange={(_, p) => setPage(p)} rowsPerPage={pageSize}
           onRowsPerPageChange={(e) => { setPageSize(parseInt(e.target.value, 10)); setPage(0); }}
-          rowsPerPageOptions={[10, 25, 50]} labelRowsPerPage="페이지당 행:" />
+          rowsPerPageOptions={[25, 50, 100]} labelRowsPerPage="페이지당 행:" />
       </TableContainer>
 
       {/* ═══════════════════════════════════════════════════════════════════════

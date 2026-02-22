@@ -88,6 +88,8 @@ class User(Base):
     user_lists = relationship("UserList", back_populates="user")
     favorites = relationship("UserFavorite", back_populates="user")
     upload_jobs = relationship("UploadJob", back_populates="created_by_user")
+    partner_favorites = relationship("UserPartnerFavorite", back_populates="user")
+    counterparty_favorites = relationship("UserCounterpartyFavorite", back_populates="user")
     
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email}, role={self.role})>"

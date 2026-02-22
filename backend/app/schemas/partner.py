@@ -38,6 +38,7 @@ class PartnerResponse(BaseModel):
     updated_at: datetime
     price_count: Optional[int] = None  # 등록된 가격 수
     last_upload_at: Optional[datetime] = None  # 최근 업로드 일시
+    is_favorite: bool = False  # 현재 사용자의 즐겨찾기 여부 (API 레이어에서 주입)
     
     class Config:
         from_attributes = True

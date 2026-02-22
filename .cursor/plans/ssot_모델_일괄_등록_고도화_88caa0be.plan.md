@@ -27,15 +27,16 @@ todos:
     dependencies:
       - frontend-api
       - frontend-confirm
+isProject: false
 ---
 
 # SSOT 모델 일괄 등록 기능 고도화
 
 ## 현재 상태 분석
 
-- **현재 구현**: 단건 등록만 가능 ([`frontend/src/app/(main)/admin/models/page.tsx`](frontend/src/app/\\(main)/admin/models/page.tsx))
-- **기존 API**: `POST /ssot-models` 단일 모델 생성만 지원 ([`backend/app/api/v1/ssot_models.py`](backend/app/api/v1/ssot_models.py))
-- **감사로그**: `trace_id` 필드 존재하나 일괄 등록용으로 활용 안 됨 ([`backend/app/models/audit_log.py`](backend/app/models/audit_log.py))
+- **현재 구현**: 단건 등록만 가능 (`[frontend/src/app/(main)/admin/models/page.tsx](frontend/src/app/\\(main)`/admin/models/page.tsx))
+- **기존 API**: `POST /ssot-models` 단일 모델 생성만 지원 (`[backend/app/api/v1/ssot_models.py](backend/app/api/v1/ssot_models.py)`)
+- **감사로그**: `trace_id` 필드 존재하나 일괄 등록용으로 활용 안 됨 (`[backend/app/models/audit_log.py](backend/app/models/audit_log.py)`)
 
 ---
 
@@ -64,6 +65,8 @@ sequenceDiagram
     API->>DB: 감사로그 INSERT (trace_id 묶음)
     API-->>UI: 생성 결과
 ```
+
+
 
 ### 데이터 흐름
 
@@ -95,11 +98,13 @@ flowchart TB
     PreviewGen --> TxStart --> BulkInsert --> AuditLog --> TxCommit
 ```
 
+
+
 ---
 
 ## 1. Backend 구현
 
-### 1.1 스키마 추가 ([`backend/app/schemas/ssot_model.py`](backend/app/schemas/ssot_model.py))
+### 1.1 스키마 추가 (`[backend/app/schemas/ssot_model.py](backend/app/schemas/ssot_model.py)`)
 
 ```python
 # 다중 스토리지 일괄 생성 요청
@@ -148,7 +153,7 @@ class BulkCommitResponse(BaseModel):
     created_models: list[SSOTModelResponse]
 ```
 
-### 1.2 API 엔드포인트 추가 ([`backend/app/api/v1/ssot_models.py`](backend/app/api/v1/ssot_models.py))
+### 1.2 API 엔드포인트 추가 (`[backend/app/api/v1/ssot_models.py](backend/app/api/v1/ssot_models.py)`)
 
 | 엔드포인트 | 설명 |
 
@@ -200,7 +205,7 @@ async def validate_bulk_models(models: list[dict], db: AsyncSession) -> BulkVali
     return BulkValidateResponse(validation_id=validation_id, ...)
 ```
 
-### 1.4 감사로그 확장 ([`backend/app/models/enums.py`](backend/app/models/enums.py))
+### 1.4 감사로그 확장 (`[backend/app/models/enums.py](backend/app/models/enums.py)`)
 
 ```python
 class AuditAction(str, enum.Enum):
@@ -212,7 +217,7 @@ class AuditAction(str, enum.Enum):
 
 ## 2. Frontend 구현
 
-### 2.1 UI 구조 변경 ([`frontend/src/app/(main)/admin/models/page.tsx`](frontend/src/app/\\(main)/admin/models/page.tsx))
+### 2.1 UI 구조 변경 (`[frontend/src/app/(main)/admin/models/page.tsx](frontend/src/app/\\(main)`/admin/models/page.tsx))
 
 기존 단일 Dialog를 **탭 기반 다이얼로그**로 확장:
 
@@ -304,7 +309,7 @@ class AuditAction(str, enum.Enum):
 +------------------------------------------+
 ```
 
-### 2.5 API 클라이언트 확장 ([`frontend/src/lib/api.ts`](frontend/src/lib/api.ts))
+### 2.5 API 클라이언트 확장 (`[frontend/src/lib/api.ts](frontend/src/lib/api.ts)`)
 
 ```typescript
 export const ssotModelsApi = {
@@ -379,14 +384,14 @@ export const ssotModelsApi = {
 
 |------|----------|
 
-| [`backend/app/schemas/ssot_model.py`](backend/app/schemas/ssot_model.py) | 일괄 등록 스키마 추가 |
+| `[backend/app/schemas/ssot_model.py](backend/app/schemas/ssot_model.py)` | 일괄 등록 스키마 추가 |
 
-| [`backend/app/api/v1/ssot_models.py`](backend/app/api/v1/ssot_models.py) | validate/commit API 추가 |
+| `[backend/app/api/v1/ssot_models.py](backend/app/api/v1/ssot_models.py)` | validate/commit API 추가 |
 
-| [`backend/app/models/enums.py`](backend/app/models/enums.py) | `MODEL_BULK_CREATE` 액션 추가 |
+| `[backend/app/models/enums.py](backend/app/models/enums.py)` | `MODEL_BULK_CREATE` 액션 추가 |
 
-| [`frontend/src/lib/api.ts`](frontend/src/lib/api.ts) | 일괄 등록 API 함수 추가 |
+| `[frontend/src/lib/api.ts](frontend/src/lib/api.ts)` | 일괄 등록 API 함수 추가 |
 
-| [`frontend/src/app/(main)/admin/models/page.tsx`](frontend/src/app/\\(main)/admin/models/page.tsx) | 탭 기반 등록 UI 전면 개편 |
+| `[frontend/src/app/(main)/admin/models/page.tsx](frontend/src/app/\\(main)`/admin/models/page.tsx) | 탭 기반 등록 UI 전면 개편 |
 
-| [`frontend/src/components/ui/ConfirmDialog.tsx`](frontend/src/components/ui/ConfirmDialog.tsx) | 요약 정보 children 지원 추가 |
+| `[frontend/src/components/ui/ConfirmDialog.tsx](frontend/src/components/ui/ConfirmDialog.tsx)` | 요약 정보 children 지원 추가 |

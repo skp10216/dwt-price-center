@@ -37,9 +37,12 @@ api.interceptors.response.use(
   (response) => response,
   (error: AxiosError<{ error: { code: string; message: string } }>) => {
     if (error.response?.status === 401) {
-      // 토큰 만료 시 로그아웃
+      // 토큰 만료 시 로그아웃 (localStorage + 쿠키 모두 정리)
       if (typeof window !== 'undefined') {
         localStorage.removeItem('access_token');
+        localStorage.removeItem('auth-storage'); // Zustand persist 상태 제거
+        document.cookie = 'token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+        document.cookie = 'user_role=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
         window.location.href = '/login';
       }
     }
@@ -353,15 +356,18 @@ export const deductionsApi = {
 export const partnersApi = {
   list: (params?: Record<string, unknown>) =>
     api.get<ApiResponse<{ partners: unknown[]; total: number }>>('/partners', { params }),
-  
+
   get: (id: string) =>
     api.get<ApiResponse<unknown>>(`/partners/${id}`),
-  
+
   create: (data: unknown) =>
     api.post<ApiResponse<unknown>>('/partners', data),
-  
+
   update: (id: string, data: unknown) =>
     api.patch<ApiResponse<unknown>>(`/partners/${id}`, data),
+
+  toggleFavorite: (partnerId: string) =>
+    api.post<ApiResponse<{ is_favorite: boolean }>>(`/partners/${partnerId}/favorite`),
 };
 
 export const uploadsApi = {
@@ -641,6 +647,9 @@ export const settlementApi = {
   getCounterpartySummary: (id: string) =>
     api.get<ApiResponse<unknown>>(`/settlement/counterparties/${id}/summary`),
 
+  toggleCounterpartyFavorite: (counterpartyId: string) =>
+    api.post<ApiResponse<{ is_favorite: boolean }>>(`/settlement/counterparties/${counterpartyId}/favorite`),
+
   listAliases: (counterpartyId: string) =>
     api.get<ApiResponse<unknown[]>>(`/settlement/counterparties/${counterpartyId}/aliases`),
 
@@ -693,6 +702,12 @@ export const settlementApi = {
 
   getLockAuditLogs: (params?: Record<string, unknown>) =>
     api.get<ApiResponse<{ logs: unknown[] }>>('/settlement/lock/audit-logs', { params }),
+
+  // 작업 내역
+  listActivityLogs: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<{ logs: unknown[]; total: number; page: number; page_size: number }>>('/settlement/activity', { params }),
+  listTraceActivityLogs: (traceId: string) =>
+    api.get<ApiResponse<{ logs: unknown[]; total: number }>>(`/settlement/activity/trace/${traceId}`),
 };
 
 export default api;

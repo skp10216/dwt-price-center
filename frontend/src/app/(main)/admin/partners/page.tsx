@@ -21,8 +21,16 @@ import {
   DialogContent,
   DialogActions,
   Grid,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
-import { Search as SearchIcon, Add as AddIcon, Edit as EditIcon } from '@mui/icons-material';
+import {
+  Search as SearchIcon,
+  Add as AddIcon,
+  Edit as EditIcon,
+  Star as StarIcon,
+  StarBorder as StarBorderIcon,
+} from '@mui/icons-material';
 import { DataGrid, GridColDef, GridActionsCellItem } from '@mui/x-data-grid';
 import { useSnackbar } from 'notistack';
 import PageHeader from '@/components/ui/PageHeader';
@@ -35,7 +43,13 @@ interface Partner {
   contact_info: string | null;
   memo: string | null;
   is_active: boolean;
+  is_favorite: boolean;
 }
+
+const sortByFavorite = (list: Partner[]) =>
+  [...list].sort((a, b) =>
+    a.is_favorite === b.is_favorite ? 0 : a.is_favorite ? -1 : 1
+  );
 
 export default function PartnersPage() {
   const { enqueueSnackbar } = useSnackbar();
@@ -43,6 +57,7 @@ export default function PartnersPage() {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
@@ -57,8 +72,12 @@ export default function PartnersPage() {
   const fetchPartners = async () => {
     setLoading(true);
     try {
-      const response = await partnersApi.list({ search: search || undefined });
-      setPartners(response.data.data.partners as Partner[]);
+      const response = await partnersApi.list({
+        search: search || undefined,
+        favorites_only: favoritesOnly || undefined,
+      });
+      const fetched = response.data.data.partners as Partner[];
+      setPartners(sortByFavorite(fetched));
     } catch (error) {
       enqueueSnackbar('거래처 목록을 불러오는데 실패했습니다', { variant: 'error' });
     } finally {
@@ -68,7 +87,30 @@ export default function PartnersPage() {
 
   useEffect(() => {
     fetchPartners();
-  }, [search]);
+  }, [search, favoritesOnly]);
+
+  // 즐겨찾기 토글 (옵티미스틱 업데이트)
+  const handleToggleFavorite = async (partner: Partner) => {
+    const next = !partner.is_favorite;
+    setPartners((prev) =>
+      sortByFavorite(prev.map((p) => (p.id === partner.id ? { ...p, is_favorite: next } : p)))
+    );
+
+    try {
+      await partnersApi.toggleFavorite(partner.id);
+      enqueueSnackbar(next ? '즐겨찾기에 추가되었습니다' : '즐겨찾기에서 제거되었습니다', {
+        variant: 'success',
+      });
+    } catch {
+      // 실패 시 롤백
+      setPartners((prev) =>
+        sortByFavorite(
+          prev.map((p) => (p.id === partner.id ? { ...p, is_favorite: partner.is_favorite } : p))
+        )
+      );
+      enqueueSnackbar('즐겨찾기 변경에 실패했습니다', { variant: 'error' });
+    }
+  };
 
   // 다이얼로그 열기
   const openDialog = (partner?: Partner) => {
@@ -128,6 +170,28 @@ export default function PartnersPage() {
 
   const columns: GridColDef[] = [
     {
+      field: 'is_favorite',
+      headerName: '',
+      width: 50,
+      sortable: false,
+      renderCell: (params) => (
+        <IconButton
+          size="small"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleToggleFavorite(params.row as Partner);
+          }}
+          color={params.row.is_favorite ? 'warning' : 'default'}
+        >
+          {params.row.is_favorite ? (
+            <StarIcon fontSize="small" />
+          ) : (
+            <StarBorderIcon fontSize="small" />
+          )}
+        </IconButton>
+      ),
+    },
+    {
       field: 'is_active',
       headerName: '상태',
       width: 80,
@@ -169,23 +233,39 @@ export default function PartnersPage() {
         }}
       />
 
-      {/* 검색 */}
+      {/* 검색 + 필터 탭 */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
-          <TextField
-            size="small"
-            placeholder="거래처명/지역 검색"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            sx={{ minWidth: 250 }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon color="action" />
-                </InputAdornment>
-              ),
-            }}
-          />
+          <Stack direction="row" spacing={2} alignItems="center">
+            <TextField
+              size="small"
+              placeholder="거래처명/지역 검색"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              sx={{ minWidth: 250 }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon color="action" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <ToggleButtonGroup
+              value={favoritesOnly ? 'favorites' : 'all'}
+              exclusive
+              onChange={(_, v) => {
+                if (v !== null) setFavoritesOnly(v === 'favorites');
+              }}
+              size="small"
+            >
+              <ToggleButton value="all">전체</ToggleButton>
+              <ToggleButton value="favorites">
+                <StarIcon sx={{ mr: 0.5, fontSize: 16 }} />
+                즐겨찾기
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Stack>
         </CardContent>
       </Card>
 

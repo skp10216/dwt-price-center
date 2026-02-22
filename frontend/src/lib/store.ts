@@ -74,31 +74,27 @@ interface AuthState {
   logout: () => void;
 }
 
-// Hydration 상태 추적용 (zustand persist의 hydration 완료 여부)
-let hasHydrated = false;
-
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       user: null,
       token: null,
       isAuthenticated: false,
-      setAuth: (user, token, expiresIn) => {
+      setAuth: (user, token, _expiresIn) => {
         if (typeof localStorage !== 'undefined') {
           localStorage.setItem('access_token', token);
         }
-        // 쿠키 만료 기간 계산 (expiresIn이 있으면 해당 기간, 없으면 7일)
-        const cookieDays = expiresIn ? expiresIn / 86400 : 7;
-        // 미들웨어에서 사용할 쿠키 설정
-        setCookie('token', token, cookieDays);
-        setCookie('user_role', user.role, cookieDays);
+        // 쿠키는 항상 7일로 고정 (JWT 만료와 별개로, 미들웨어 인증용)
+        // JWT 만료 시 클라이언트에서 401 처리로 로그아웃됨
+        setCookie('token', token, 7);
+        setCookie('user_role', user.role, 7);
         set({ user, token, isAuthenticated: true });
       },
       logout: () => {
         if (typeof localStorage !== 'undefined') {
           localStorage.removeItem('access_token');
+          localStorage.removeItem('auth-storage');
         }
-        // 쿠키 삭제
         deleteCookie('token');
         deleteCookie('user_role');
         set({ user: null, token: null, isAuthenticated: false });
@@ -109,10 +105,8 @@ export const useAuthStore = create<AuthState>()(
       partialize: (state) => ({ user: state.user, token: state.token, isAuthenticated: state.isAuthenticated }),
       onRehydrateStorage: () => {
         return (state) => {
-          hasHydrated = true;
-          // 새로고침 시 localStorage에서 복원된 인증 정보를 쿠키에도 동기화
+          // 새로고침 시 localStorage 인증 정보를 쿠키에 재동기화 (미들웨어용)
           if (state && state.isAuthenticated && state.user && state.token) {
-            // 쿠키가 없거나 만료된 경우를 대비하여 다시 설정 (7일 기본)
             setCookie('token', state.token, 7);
             setCookie('user_role', state.user.role, 7);
           }
@@ -123,26 +117,21 @@ export const useAuthStore = create<AuthState>()(
 );
 
 // Hydration 완료 여부 확인 훅
+// persist.hasHydrated()를 직접 사용하여 모듈 변수 경쟁 조건 제거
 export const useAuthHydrated = () => {
-  const [hydrated, setHydrated] = useState(hasHydrated);
-  
+  const [hydrated, setHydrated] = useState(() => useAuthStore.persist?.hasHydrated() ?? false);
+
   useEffect(() => {
-    // 이미 hydration 완료된 경우
-    if (hasHydrated) {
-      setHydrated(true);
-      return;
-    }
-    
-    // hydration 완료 대기
+    // 구독 먼저 등록 후, 이미 완료된 경우 즉시 처리 (순서 바뀜 방지)
     const unsubscribe = useAuthStore.persist.onFinishHydration(() => {
       setHydrated(true);
     });
-    
-    return () => {
-      unsubscribe();
-    };
+    if (useAuthStore.persist.hasHydrated()) {
+      setHydrated(true);
+    }
+    return unsubscribe;
   }, []);
-  
+
   return hydrated;
 };
 

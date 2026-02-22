@@ -31,7 +31,6 @@ class SSOTModel(Base):
     # 예시: SP-AP-IPHONE16PRO-IPHONE16PROMAX
     model_key: Mapped[str] = mapped_column(
         String(100),
-        index=True,
         nullable=False,
         comment="불변 모델 키 (동일 기종 공유, 스토리지 미포함)"
     )

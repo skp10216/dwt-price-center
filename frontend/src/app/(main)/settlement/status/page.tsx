@@ -2,7 +2,7 @@
 
 /**
  * 거래처 현황 페이지 (미수/미지급 통합)
- * 탭으로 판매(미수)/매입(미지급) 현황을 전환하여 조회
+ * 즐겨찾기 기반 필터 + 탭으로 판매(미수)/매입(미지급) 현황 전환
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
@@ -10,7 +10,8 @@ import {
   Box, Typography, Paper, Stack, Tab, Tabs, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TableSortLabel, TablePagination,
   TextField, InputAdornment, Chip, IconButton, Tooltip, LinearProgress,
-  alpha, useTheme, Button, Avatar, Skeleton, Fade,
+  alpha, useTheme, Avatar, Skeleton, Fade, ToggleButtonGroup, ToggleButton,
+  Divider,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -19,10 +20,12 @@ import {
   TrendingDown as TrendingDownIcon,
   AccountBalance as AccountBalanceIcon,
   Business as BusinessIcon,
-  ArrowForward as ArrowForwardIcon,
   Visibility as VisibilityIcon,
   AttachMoney as AttachMoneyIcon,
   MoneyOff as MoneyOffIcon,
+  Star as StarIcon,
+  StarBorder as StarBorderIcon,
+  FilterList as FilterListIcon,
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
@@ -39,6 +42,7 @@ interface CounterpartyStatus {
   paid_amount: number;
   balance: number;
   last_transaction_date: string | null;
+  is_favorite: boolean;
 }
 
 type TabValue = 'receivables' | 'payables';
@@ -46,12 +50,11 @@ type SortField = 'name' | 'total_vouchers' | 'total_amount' | 'paid_amount' | 'b
 type SortDirection = 'asc' | 'desc';
 
 // ─── 유틸리티 ───
-const formatCurrency = (amount: number) => new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW' }).format(amount);
+const formatCurrency = (amount: number) =>
+  new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW' }).format(amount);
 const formatNumber = (n: number) => new Intl.NumberFormat('ko-KR').format(n);
-const formatDate = (dateStr: string | null) => {
-  if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleDateString('ko-KR');
-};
+const formatDate = (dateStr: string | null) =>
+  dateStr ? new Date(dateStr).toLocaleDateString('ko-KR') : '—';
 
 function getAvatarColor(name: string): string {
   const colors = ['#1976d2', '#388e3c', '#d32f2f', '#7b1fa2', '#1565c0', '#00838f', '#ef6c00', '#5d4037', '#455a64', '#6a1b9a'];
@@ -66,7 +69,6 @@ function getInitials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-// ─── 테이블 헤더 ───
 const headCells: { id: SortField; label: string; numeric: boolean }[] = [
   { id: 'name', label: '거래처명', numeric: false },
   { id: 'total_vouchers', label: '전표 수', numeric: true },
@@ -81,46 +83,78 @@ export default function CounterpartyStatusPage() {
   const router = useRouter();
   const { enqueueSnackbar } = useSnackbar();
 
-  // ─── 상태 ───
   const [tab, setTab] = useState<TabValue>('receivables');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<CounterpartyStatus[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(20);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
   const [orderBy, setOrderBy] = useState<SortField>('balance');
   const [order, setOrder] = useState<SortDirection>('desc');
 
-  // ─── 요약 통계 ───
-  const summary = useMemo(() => {
-    const totalAmount = data.reduce((sum, d) => sum + d.total_amount, 0);
-    const paidAmount = data.reduce((sum, d) => sum + d.paid_amount, 0);
-    const balance = data.reduce((sum, d) => sum + d.balance, 0);
-    const totalCounterparties = data.length;
-    const withBalance = data.filter(d => d.balance > 0).length;
-    return { totalAmount, paidAmount, balance, totalCounterparties, withBalance };
-  }, [data]);
+  // ─── 즐겨찾기 목록 로드 ───
+  const loadFavorites = useCallback(async () => {
+    try {
+      const res = await settlementApi.listCounterparties({ favorites_only: true, page_size: 200 });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const list = (res.data as any).counterparties as Array<{ id: string }>;
+      setFavoriteIds(new Set(list.map((c) => c.id)));
+    } catch { /* silent */ }
+  }, []);
 
-  // ─── 데이터 로드 ───
+  // ─── 거래처 현황 로드 ───
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      // TODO: 실제 API 연동 필요
-      // const res = await settlementApi.getCounterpartyStatus({ type: tab });
-      // setData(res.data.items);
-      
-      // 임시 더미 데이터
-      const dummyData: CounterpartyStatus[] = Array.from({ length: 25 }, (_, i) => ({
-        id: `cp-${i + 1}`,
-        name: `거래처 ${String.fromCharCode(65 + (i % 26))}${i + 1}`,
-        type: tab === 'receivables' ? 'customer' : 'vendor',
-        total_vouchers: Math.floor(Math.random() * 50) + 5,
-        total_amount: Math.floor(Math.random() * 50000000) + 1000000,
-        paid_amount: Math.floor(Math.random() * 30000000),
-        balance: Math.floor(Math.random() * 20000000),
-        last_transaction_date: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(),
-      }));
-      setData(dummyData);
+      if (tab === 'receivables') {
+        const res = await settlementApi.getReceivables({ page: 1, page_size: 200 });
+        const result = res.data as unknown as {
+          receivables: Array<{
+            counterparty_id: string;
+            counterparty_name: string;
+            total_amount: number;
+            total_received: number;
+            balance: number;
+            voucher_count: number;
+          }>;
+        };
+        setData((result.receivables || []).map((item) => ({
+          id: String(item.counterparty_id),
+          name: item.counterparty_name,
+          type: 'customer',
+          total_vouchers: item.voucher_count,
+          total_amount: Number(item.total_amount),
+          paid_amount: Number(item.total_received),
+          balance: Number(item.balance),
+          last_transaction_date: null,
+          is_favorite: false, // favoriteIds 병합 후 처리
+        })));
+      } else {
+        const res = await settlementApi.getPayables({ page: 1, page_size: 200 });
+        const result = res.data as unknown as {
+          payables: Array<{
+            counterparty_id: string;
+            counterparty_name: string;
+            total_amount: number;
+            total_paid: number;
+            balance: number;
+            voucher_count: number;
+          }>;
+        };
+        setData((result.payables || []).map((item) => ({
+          id: String(item.counterparty_id),
+          name: item.counterparty_name,
+          type: 'vendor',
+          total_vouchers: item.voucher_count,
+          total_amount: Number(item.total_amount),
+          paid_amount: Number(item.total_paid),
+          balance: Number(item.balance),
+          last_transaction_date: null,
+          is_favorite: false,
+        })));
+      }
     } catch {
       enqueueSnackbar('데이터 로드에 실패했습니다', { variant: 'error' });
     } finally {
@@ -128,219 +162,257 @@ export default function CounterpartyStatusPage() {
     }
   }, [tab, enqueueSnackbar]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { loadFavorites(); }, [loadFavorites]);
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // ─── 즐겨찾기 토글 ───
+  const handleToggleFavorite = async (row: CounterpartyStatus, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !favoriteIds.has(row.id);
+    // 옵티미스틱 업데이트: favoriteIds만 변경 (is_favorite는 useMemo에서 파생)
+    setFavoriteIds((prev) => {
+      const s = new Set(prev);
+      next ? s.add(row.id) : s.delete(row.id);
+      return s;
+    });
+    try {
+      await settlementApi.toggleCounterpartyFavorite(row.id);
+      enqueueSnackbar(
+        next ? `"${row.name}" 즐겨찾기 추가` : `"${row.name}" 즐겨찾기 해제`,
+        { variant: 'success', autoHideDuration: 1500 }
+      );
+    } catch {
+      // 롤백: 반대 방향으로 되돌리기
+      setFavoriteIds((prev) => {
+        const s = new Set(prev);
+        next ? s.delete(row.id) : s.add(row.id);
+        return s;
+      });
+      enqueueSnackbar('즐겨찾기 변경에 실패했습니다', { variant: 'error' });
+    }
+  };
+
+  const handleRefresh = () => { loadData(); loadFavorites(); };
+
+  // ─── 요약 통계 ───
+  // is_favorite은 favoriteIds에서 직접 파생 (race condition 방지)
+  const baseData = useMemo(() => {
+    const enriched = data.map((d) => ({ ...d, is_favorite: favoriteIds.has(d.id) }));
+    return favoritesOnly ? enriched.filter((d) => d.is_favorite) : enriched;
+  }, [data, favoriteIds, favoritesOnly]);
+
+  const summary = useMemo(() => ({
+    totalAmount: baseData.reduce((s, d) => s + d.total_amount, 0),
+    paidAmount: baseData.reduce((s, d) => s + d.paid_amount, 0),
+    balance: baseData.reduce((s, d) => s + d.balance, 0),
+    totalCounterparties: baseData.length,
+    withBalance: baseData.filter((d) => d.balance > 0).length,
+  }), [baseData]);
 
   // ─── 정렬/필터 ───
   const filteredData = useMemo(() => {
-    let result = [...data];
-    
-    // 검색 필터
+    let result = [...baseData];
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      result = result.filter(d => d.name.toLowerCase().includes(q));
+      result = result.filter((d) => d.name.toLowerCase().includes(q));
     }
-
-    // 정렬
     result.sort((a, b) => {
-      let aVal = a[orderBy];
-      let bVal = b[orderBy];
-
+      let aVal: string | number | null = a[orderBy];
+      let bVal: string | number | null = b[orderBy];
       if (aVal === null) aVal = '';
       if (bVal === null) bVal = '';
-
-      if (typeof aVal === 'string' && typeof bVal === 'string') {
+      if (typeof aVal === 'string' && typeof bVal === 'string')
         return order === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-      }
-      if (typeof aVal === 'number' && typeof bVal === 'number') {
+      if (typeof aVal === 'number' && typeof bVal === 'number')
         return order === 'asc' ? aVal - bVal : bVal - aVal;
-      }
       return 0;
     });
-
     return result;
-  }, [data, searchQuery, orderBy, order]);
+  }, [baseData, searchQuery, orderBy, order]);
 
-  const paginatedData = useMemo(() => {
-    return filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
-  }, [filteredData, page, rowsPerPage]);
+  const paginatedData = useMemo(
+    () => filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+    [filteredData, page, rowsPerPage]
+  );
 
   const handleSort = (field: SortField) => {
-    const isAsc = orderBy === field && order === 'asc';
-    setOrder(isAsc ? 'desc' : 'asc');
+    setOrder(orderBy === field && order === 'asc' ? 'desc' : 'asc');
     setOrderBy(field);
   };
 
-  const handleViewDetail = (id: string) => {
-    router.push(`/settlement/counterparties/${id}`);
-  };
+  const isReceivables = tab === 'receivables';
+  const accentColor = isReceivables ? theme.palette.success.main : theme.palette.error.main;
 
   return (
     <Box sx={{ maxWidth: 1600, mx: 'auto' }}>
       {/* ─── 헤더 ─── */}
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>
+      <Stack direction="row" alignItems="flex-start" justifyContent="space-between" sx={{ mb: 3 }}>
         <Box>
-          <Typography variant="h5" fontWeight={800} gutterBottom>
-            거래처 현황
-          </Typography>
+          <Typography variant="h5" fontWeight={800} gutterBottom>거래처 현황</Typography>
           <Typography variant="body2" color="text.secondary">
-            {tab === 'receivables' ? '판매 거래처의 미수금 현황을 조회합니다' : '매입 거래처의 미지급금 현황을 조회합니다'}
+            {isReceivables ? '판매 거래처의 미수금 현황' : '매입 거래처의 미지급금 현황'}
+            {favoritesOnly && (
+              <Chip
+                icon={<StarIcon sx={{ fontSize: '13px !important' }} />}
+                label="즐겨찾기 필터 적용 중"
+                size="small"
+                color="warning"
+                variant="outlined"
+                sx={{ ml: 1, fontWeight: 600, height: 20, fontSize: '0.7rem' }}
+              />
+            )}
           </Typography>
         </Box>
-        <IconButton onClick={loadData} disabled={loading}>
-          <RefreshIcon />
-        </IconButton>
+        <Tooltip title="새로고침">
+          <IconButton onClick={handleRefresh} disabled={loading}>
+            <RefreshIcon />
+          </IconButton>
+        </Tooltip>
       </Stack>
-
-      {/* ─── 탭 ─── */}
-      <Paper elevation={0} sx={{ mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
-        <Tabs
-          value={tab}
-          onChange={(_, v) => { setTab(v); setPage(0); }}
-          sx={{
-            px: 2,
-            '& .MuiTab-root': {
-              fontWeight: 600,
-              py: 2,
-            },
-          }}
-        >
-          <Tab
-            value="receivables"
-            icon={<TrendingUpIcon />}
-            iconPosition="start"
-            label="미수 현황 (판매)"
-            sx={{ color: tab === 'receivables' ? 'success.main' : 'text.secondary' }}
-          />
-          <Tab
-            value="payables"
-            icon={<TrendingDownIcon />}
-            iconPosition="start"
-            label="미지급 현황 (매입)"
-            sx={{ color: tab === 'payables' ? 'error.main' : 'text.secondary' }}
-          />
-        </Tabs>
-      </Paper>
 
       {/* ─── 요약 카드 ─── */}
       <Stack direction="row" spacing={2} sx={{ mb: 3 }} flexWrap="wrap" useFlexGap>
-        <Paper elevation={0} sx={{
-          p: 3, minWidth: 180, borderRadius: 3,
-          border: '1px solid', borderColor: 'divider',
-          background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.04)} 0%, ${alpha(theme.palette.primary.main, 0.01)} 100%)`,
-        }}>
-          <Stack direction="row" spacing={2} alignItems="center">
-            <Box sx={{
-              width: 48, height: 48, borderRadius: 2,
-              bgcolor: alpha(theme.palette.primary.main, 0.1),
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <BusinessIcon sx={{ color: 'primary.main', fontSize: 28 }} />
-            </Box>
-            <Box>
-              <Typography variant="h4" fontWeight={800}>{formatNumber(summary.totalCounterparties)}</Typography>
-              <Typography variant="body2" color="text.secondary">전체 거래처</Typography>
-            </Box>
-          </Stack>
-        </Paper>
-
-        <Paper elevation={0} sx={{
-          p: 3, minWidth: 200, borderRadius: 3,
-          border: '1px solid', borderColor: 'divider',
-          background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.04)} 0%, ${alpha(theme.palette.info.main, 0.01)} 100%)`,
-        }}>
-          <Stack direction="row" spacing={2} alignItems="center">
-            <Box sx={{
-              width: 48, height: 48, borderRadius: 2,
-              bgcolor: alpha(theme.palette.info.main, 0.1),
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <AccountBalanceIcon sx={{ color: 'info.main', fontSize: 28 }} />
-            </Box>
-            <Box>
-              <Typography variant="h5" fontWeight={800}>{formatCurrency(summary.totalAmount)}</Typography>
-              <Typography variant="body2" color="text.secondary">총 거래액</Typography>
-            </Box>
-          </Stack>
-        </Paper>
-
-        <Paper elevation={0} sx={{
-          p: 3, minWidth: 200, borderRadius: 3,
-          border: '1px solid', borderColor: 'divider',
-          background: `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.04)} 0%, ${alpha(theme.palette.success.main, 0.01)} 100%)`,
-        }}>
-          <Stack direction="row" spacing={2} alignItems="center">
-            <Box sx={{
-              width: 48, height: 48, borderRadius: 2,
-              bgcolor: alpha(theme.palette.success.main, 0.1),
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <AttachMoneyIcon sx={{ color: 'success.main', fontSize: 28 }} />
-            </Box>
-            <Box>
-              <Typography variant="h5" fontWeight={800}>{formatCurrency(summary.paidAmount)}</Typography>
-              <Typography variant="body2" color="text.secondary">정산 완료</Typography>
-            </Box>
-          </Stack>
-        </Paper>
-
-        <Paper elevation={0} sx={{
-          p: 3, minWidth: 200, borderRadius: 3,
-          border: '1px solid',
-          borderColor: tab === 'receivables' ? alpha(theme.palette.success.main, 0.3) : alpha(theme.palette.error.main, 0.3),
-          background: tab === 'receivables'
-            ? `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.08)} 0%, ${alpha(theme.palette.success.main, 0.02)} 100%)`
-            : `linear-gradient(135deg, ${alpha(theme.palette.error.main, 0.08)} 0%, ${alpha(theme.palette.error.main, 0.02)} 100%)`,
-        }}>
-          <Stack direction="row" spacing={2} alignItems="center">
-            <Box sx={{
-              width: 48, height: 48, borderRadius: 2,
-              bgcolor: tab === 'receivables' ? alpha(theme.palette.success.main, 0.15) : alpha(theme.palette.error.main, 0.15),
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <MoneyOffIcon sx={{ color: tab === 'receivables' ? 'success.main' : 'error.main', fontSize: 28 }} />
-            </Box>
-            <Box>
-              <Typography variant="h5" fontWeight={800} color={tab === 'receivables' ? 'success.main' : 'error.main'}>
-                {formatCurrency(summary.balance)}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {tab === 'receivables' ? '미수금 잔액' : '미지급금 잔액'}
-              </Typography>
-            </Box>
-          </Stack>
-        </Paper>
+        {[
+          {
+            icon: <BusinessIcon sx={{ color: 'primary.main', fontSize: 28 }} />,
+            bg: theme.palette.primary.main,
+            value: formatNumber(summary.totalCounterparties),
+            label: favoritesOnly ? '즐겨찾기 거래처' : '전체 거래처',
+            sub: summary.withBalance > 0 ? `잔액 ${formatNumber(summary.withBalance)}개` : '',
+          },
+          {
+            icon: <AccountBalanceIcon sx={{ color: 'info.main', fontSize: 28 }} />,
+            bg: theme.palette.info.main,
+            value: formatCurrency(summary.totalAmount),
+            label: '총 거래액',
+          },
+          {
+            icon: <AttachMoneyIcon sx={{ color: 'success.main', fontSize: 28 }} />,
+            bg: theme.palette.success.main,
+            value: formatCurrency(summary.paidAmount),
+            label: '정산 완료',
+          },
+          {
+            icon: <MoneyOffIcon sx={{ color: isReceivables ? 'success.main' : 'error.main', fontSize: 28 }} />,
+            bg: accentColor,
+            value: formatCurrency(summary.balance),
+            label: isReceivables ? '미수금 잔액' : '미지급금 잔액',
+            highlight: true,
+          },
+        ].map((card, i) => (
+          <Paper key={i} elevation={0} sx={{
+            p: 3, minWidth: 190, flex: 1, borderRadius: 3,
+            border: '1px solid',
+            borderColor: card.highlight ? alpha(accentColor, 0.35) : 'divider',
+            background: `linear-gradient(135deg, ${alpha(card.bg, card.highlight ? 0.09 : 0.04)} 0%, transparent 100%)`,
+          }}>
+            <Stack direction="row" spacing={2} alignItems="center">
+              <Box sx={{
+                width: 48, height: 48, borderRadius: 2, flexShrink: 0,
+                bgcolor: alpha(card.bg, 0.12),
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {card.icon}
+              </Box>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant={i === 0 ? 'h4' : 'h6'} fontWeight={800} noWrap>
+                  {card.value}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">{card.label}</Typography>
+                {card.sub && (
+                  <Typography variant="caption" color="warning.main" fontWeight={600}>{card.sub}</Typography>
+                )}
+              </Box>
+            </Stack>
+          </Paper>
+        ))}
       </Stack>
 
-      {/* ─── 검색 ─── */}
-      <Paper elevation={0} sx={{ p: 2, mb: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-        <TextField
-          size="small"
-          placeholder="거래처명 검색..."
-          value={searchQuery}
-          onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon sx={{ color: 'text.secondary' }} />
-              </InputAdornment>
-            ),
-          }}
-          sx={{ width: 300 }}
-        />
+      {/* ─── 탭 ─── */}
+      <Paper elevation={0} sx={{ mb: 2, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
+        <Tabs
+          value={tab}
+          onChange={(_, v) => { setTab(v); setPage(0); }}
+          sx={{ px: 2, '& .MuiTab-root': { fontWeight: 600, py: 2 } }}
+        >
+          <Tab value="receivables" icon={<TrendingUpIcon />} iconPosition="start" label="미수 현황 (판매)" />
+          <Tab value="payables" icon={<TrendingDownIcon />} iconPosition="start" label="미지급 현황 (매입)" />
+        </Tabs>
+      </Paper>
+
+      {/* ─── 검색 + 즐겨찾기 필터 ─── */}
+      <Paper elevation={0} sx={{
+        p: 2, mb: 2,
+        border: '1px solid', borderColor: 'divider', borderRadius: 2,
+        background: favoritesOnly
+          ? `linear-gradient(135deg, ${alpha(theme.palette.warning.main, 0.05)} 0%, transparent 100%)`
+          : undefined,
+      }}>
+        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+          <TextField
+            size="small"
+            placeholder="거래처명 검색..."
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ color: 'text.secondary' }} />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ width: 280 }}
+          />
+
+          <Divider orientation="vertical" flexItem />
+
+          <ToggleButtonGroup
+            value={favoritesOnly ? 'favorites' : 'all'}
+            exclusive
+            size="small"
+            onChange={(_, v) => {
+              if (v !== null) { setFavoritesOnly(v === 'favorites'); setPage(0); }
+            }}
+          >
+            <ToggleButton value="all" sx={{ px: 2, fontWeight: 600 }}>
+              <FilterListIcon sx={{ mr: 0.5, fontSize: 16 }} />
+              전체
+            </ToggleButton>
+            <ToggleButton value="favorites" sx={{ px: 2, fontWeight: 600 }}>
+              <StarIcon sx={{ mr: 0.5, fontSize: 16, color: favoritesOnly ? 'warning.main' : 'inherit' }} />
+              즐겨찾기
+              {favoriteIds.size > 0 && (
+                <Chip
+                  label={favoriteIds.size}
+                  size="small"
+                  color="warning"
+                  sx={{ ml: 0.8, height: 18, fontSize: '0.65rem', fontWeight: 700, '& .MuiChip-label': { px: 0.8 } }}
+                />
+              )}
+            </ToggleButton>
+          </ToggleButtonGroup>
+
+          <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+            {filteredData.length}개 거래처
+          </Typography>
+        </Stack>
       </Paper>
 
       {/* ─── 테이블 ─── */}
       <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 3, overflow: 'hidden' }}>
         {loading && <LinearProgress />}
-        <TableContainer sx={{ maxHeight: 600 }}>
+        <TableContainer sx={{ maxHeight: 580 }}>
           <Table stickyHeader size="small">
             <TableHead>
               <TableRow sx={{
-                background: `linear-gradient(90deg, ${alpha(tab === 'receivables' ? theme.palette.success.main : theme.palette.error.main, 0.06)} 0%, ${alpha(theme.palette.background.paper, 1)} 100%)`,
+                background: `linear-gradient(90deg, ${alpha(accentColor, 0.07)} 0%, transparent 60%)`,
               }}>
-                <TableCell sx={{ fontWeight: 700, width: 50 }}>#</TableCell>
+                <TableCell sx={{ fontWeight: 700, width: 40 }}>#</TableCell>
+                <TableCell sx={{ fontWeight: 700, width: 52 }}>
+                  <Tooltip title="즐겨찾기">
+                    <StarBorderIcon sx={{ fontSize: 18, color: 'text.secondary', verticalAlign: 'middle' }} />
+                  </Tooltip>
+                </TableCell>
                 {headCells.map((cell) => (
                   <TableCell
                     key={cell.id}
@@ -362,58 +434,112 @@ export default function CounterpartyStatusPage() {
                     </TableSortLabel>
                   </TableCell>
                 ))}
-                <TableCell align="center" sx={{ fontWeight: 700, width: 80 }}>상세</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 700, width: 70 }}>상세</TableCell>
               </TableRow>
             </TableHead>
+
             <TableBody>
               {loading ? (
                 Array.from({ length: 10 }).map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell><Skeleton width={20} /></TableCell>
-                    <TableCell><Skeleton width={150} /></TableCell>
-                    <TableCell align="right"><Skeleton width={40} /></TableCell>
-                    <TableCell align="right"><Skeleton width={100} /></TableCell>
-                    <TableCell align="right"><Skeleton width={100} /></TableCell>
-                    <TableCell align="right"><Skeleton width={100} /></TableCell>
-                    <TableCell><Skeleton width={80} /></TableCell>
-                    <TableCell align="center"><Skeleton width={30} /></TableCell>
+                    {[20, 28, 150, 40, 100, 100, 100, 80, 30].map((w, j) => (
+                      <TableCell key={j} align={j > 2 && j < 7 ? 'right' : 'left'}>
+                        <Skeleton width={w} />
+                      </TableCell>
+                    ))}
                   </TableRow>
                 ))
               ) : paginatedData.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 8 }}>
-                    <BusinessIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
-                    <Typography color="text.secondary">
-                      {searchQuery ? '검색 결과가 없습니다' : '데이터가 없습니다'}
+                  <TableCell colSpan={9} align="center" sx={{ py: 10 }}>
+                    <Box sx={{
+                      width: 72, height: 72, borderRadius: '50%', mx: 'auto', mb: 2,
+                      bgcolor: favoritesOnly
+                        ? alpha(theme.palette.warning.main, 0.08)
+                        : alpha(accentColor, 0.08),
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {favoritesOnly
+                        ? <StarBorderIcon sx={{ fontSize: 36, color: 'warning.main' }} />
+                        : <BusinessIcon sx={{ fontSize: 36, color: accentColor }} />
+                      }
+                    </Box>
+                    <Typography variant="h6" fontWeight={600} gutterBottom>
+                      {favoritesOnly ? '즐겨찾기한 거래처 데이터가 없습니다' : '데이터가 없습니다'}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {favoritesOnly
+                        ? '거래처 관리에서 즐겨찾기를 추가하거나 전체 보기로 전환하세요'
+                        : searchQuery ? '검색 결과가 없습니다' : '거래 데이터가 존재하지 않습니다'
+                      }
                     </Typography>
                   </TableCell>
                 </TableRow>
               ) : (
                 paginatedData.map((row, index) => (
-                  <Fade in key={row.id} timeout={300} style={{ transitionDelay: `${index * 30}ms` }}>
+                  <Fade in key={row.id} timeout={200} style={{ transitionDelay: `${Math.min(index, 10) * 20}ms` }}>
                     <TableRow
                       hover
                       sx={{
                         cursor: 'pointer',
-                        '&:hover': {
-                          bgcolor: alpha(theme.palette.primary.main, 0.04),
-                        },
+                        transition: 'background 0.15s',
+                        '&:hover': { bgcolor: alpha(accentColor, 0.04) },
                       }}
-                      onClick={() => handleViewDetail(row.id)}
+                      onClick={() => router.push(`/settlement/counterparties/${row.id}`)}
                     >
-                      <TableCell sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
+                      <TableCell sx={{
+                        color: 'text.secondary', fontSize: '0.75rem',
+                        ...(row.is_favorite && {
+                          borderLeft: `3px solid ${theme.palette.warning.main}`,
+                        }),
+                      }}>
                         {page * rowsPerPage + index + 1}
                       </TableCell>
+
+                      {/* 즐겨찾기 버튼 */}
+                      <TableCell sx={{ py: 0.5 }}>
+                        <Tooltip title={row.is_favorite ? '즐겨찾기 해제' : '즐겨찾기 추가'} placement="right">
+                          <IconButton
+                            size="small"
+                            onClick={(e) => handleToggleFavorite(row, e)}
+                            sx={{
+                              color: row.is_favorite ? 'warning.main' : 'text.disabled',
+                              transition: 'all 0.2s',
+                              '&:hover': { color: 'warning.main', transform: 'scale(1.2)' },
+                            }}
+                          >
+                            {row.is_favorite
+                              ? <StarIcon fontSize="small" />
+                              : <StarBorderIcon fontSize="small" />
+                            }
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+
                       <TableCell>
                         <Stack direction="row" spacing={1.5} alignItems="center">
-                          <Avatar sx={{ width: 32, height: 32, fontSize: '0.75rem', bgcolor: getAvatarColor(row.name) }}>
+                          <Avatar sx={{
+                            width: 30, height: 30, fontSize: '0.7rem', flexShrink: 0,
+                            bgcolor: getAvatarColor(row.name),
+                            boxShadow: row.is_favorite ? `0 0 0 2px ${theme.palette.warning.main}` : 'none',
+                            transition: 'box-shadow 0.2s',
+                          }}>
                             {getInitials(row.name)}
                           </Avatar>
-                          <Typography fontWeight={600}>{row.name}</Typography>
+                          <Box>
+                            <Typography fontWeight={600} variant="body2">{row.name}</Typography>
+                            {row.is_favorite && (
+                              <Typography variant="caption" color="warning.main" fontWeight={600} sx={{ lineHeight: 1 }}>
+                                ★ 즐겨찾기
+                              </Typography>
+                            )}
+                          </Box>
                         </Stack>
                       </TableCell>
+
                       <TableCell align="right">
-                        <Chip label={formatNumber(row.total_vouchers)} size="small" variant="outlined" sx={{ fontSize: '0.7rem', height: 22 }} />
+                        <Chip label={formatNumber(row.total_vouchers)} size="small" variant="outlined"
+                          sx={{ fontSize: '0.7rem', height: 22 }} />
                       </TableCell>
                       <TableCell align="right" sx={{ fontWeight: 500 }}>
                         {formatCurrency(row.total_amount)}
@@ -423,18 +549,31 @@ export default function CounterpartyStatusPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography
+                          variant="body2"
                           fontWeight={700}
-                          color={row.balance > 0 ? (tab === 'receivables' ? 'success.main' : 'error.main') : 'text.secondary'}
+                          color={row.balance > 0 ? (isReceivables ? 'success.main' : 'error.main') : 'text.secondary'}
                         >
                           {formatCurrency(row.balance)}
                         </Typography>
+                        {row.balance > 0 && (
+                          <LinearProgress
+                            variant="determinate"
+                            value={Math.min((row.paid_amount / row.total_amount) * 100, 100)}
+                            color={isReceivables ? 'success' : 'error'}
+                            sx={{ mt: 0.5, height: 3, borderRadius: 2, bgcolor: alpha(accentColor, 0.12) }}
+                          />
+                        )}
                       </TableCell>
                       <TableCell sx={{ fontSize: '0.8rem', color: 'text.secondary' }}>
                         {formatDate(row.last_transaction_date)}
                       </TableCell>
                       <TableCell align="center">
                         <Tooltip title="상세 보기">
-                          <IconButton size="small" color="primary" onClick={(e) => { e.stopPropagation(); handleViewDetail(row.id); }}>
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={(e) => { e.stopPropagation(); router.push(`/settlement/counterparties/${row.id}`); }}
+                          >
                             <VisibilityIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
@@ -446,6 +585,7 @@ export default function CounterpartyStatusPage() {
             </TableBody>
           </Table>
         </TableContainer>
+
         <TablePagination
           component="div"
           count={filteredData.length}
@@ -453,7 +593,7 @@ export default function CounterpartyStatusPage() {
           onPageChange={(_, p) => setPage(p)}
           rowsPerPage={rowsPerPage}
           onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
-          rowsPerPageOptions={[10, 20, 50, 100]}
+          rowsPerPageOptions={[25, 50, 100]}
           labelRowsPerPage="페이지당 행:"
           sx={{ borderTop: '1px solid', borderColor: 'divider' }}
         />

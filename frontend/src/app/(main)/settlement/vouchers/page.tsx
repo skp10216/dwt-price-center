@@ -68,7 +68,7 @@ export default function VouchersPage() {
   const [vouchers, setVouchers] = useState<VoucherRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(100);
   const [search, setSearch] = useState('');
   const [voucherType, setVoucherType] = useState('');
   const [loading, setLoading] = useState(true);
@@ -434,7 +434,7 @@ export default function VouchersPage() {
           onPageChange={(_, p) => setPage(p)}
           rowsPerPage={pageSize}
           onRowsPerPageChange={(e) => { setPageSize(parseInt(e.target.value, 10)); setPage(0); }}
-          rowsPerPageOptions={[10, 25, 50, 100]}
+          rowsPerPageOptions={[25, 50, 100]}
           labelRowsPerPage="페이지당 행:"
         />
       </TableContainer>

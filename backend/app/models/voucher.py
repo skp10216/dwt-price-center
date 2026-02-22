@@ -31,7 +31,7 @@ class Voucher(Base):
 
     # ==================== UNIQUE KEY (매입일/판매일 + 매입처/판매처 + 번호) ====================
     trade_date: Mapped[date] = mapped_column(
-        Date, nullable=False, index=True, comment="매입일/판매일"
+        Date, nullable=False, comment="매입일/판매일"
     )
     counterparty_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

@@ -16,6 +16,8 @@ services:
     # 외부 포트 매핑 제거 (충돌 방지, 내부 네트워크에서만 접근)
     # ports:
     #   - "5432:5432"
+    ports:
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dwt_user} -d ${POSTGRES_DB:-dwt_price_center}"]
       interval: 10s
@@ -30,9 +32,8 @@ services:
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
-    # 외부 포트 매핑 제거 (충돌 방지, 내부 네트워크에서만 접근)
-    # ports:
-    #   - "6379:6379"
+    ports:
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -57,6 +58,8 @@ services:
       - USER_DOMAIN=${USER_DOMAIN:-dwt.price}
       - ADMIN_DOMAIN=${ADMIN_DOMAIN:-admin.dwt.price}
       - SETTLEMENT_DOMAIN=${SETTLEMENT_DOMAIN:-settlement.dwt.price}
+      # Windows Docker에서 파일 변경 감지를 위한 Polling 설정
+      - WATCHFILES_FORCE_POLLING=true
     volumes:
       - ./backend:/app
       - upload_files:/app/uploads
@@ -112,6 +115,9 @@ services:
     restart: unless-stopped
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
+      # Windows Docker에서 HMR 파일 감지를 위한 Polling 설정
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
       # 도메인 설정 (미들웨어에서 Host 기반 분기)
       - NEXT_PUBLIC_USER_DOMAIN=${USER_DOMAIN:-dwt.price}
       - NEXT_PUBLIC_ADMIN_DOMAIN=${ADMIN_DOMAIN:-admin.dwt.price}

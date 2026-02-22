@@ -6,7 +6,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Boolean, DateTime, Text, ForeignKey, Enum as SQLEnum, UniqueConstraint
+from sqlalchemy import String, Boolean, DateTime, Text, ForeignKey, Enum as SQLEnum, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -79,6 +79,7 @@ class Counterparty(Base):
         "CounterpartyAlias", back_populates="counterparty", cascade="all, delete-orphan"
     )
     vouchers = relationship("Voucher", back_populates="counterparty")
+    favorited_by = relationship("UserCounterpartyFavorite", back_populates="counterparty", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Counterparty(id={self.id}, name={self.name}, type={self.counterparty_type})>"
@@ -128,3 +129,29 @@ class CounterpartyAlias(Base):
 
     def __repr__(self) -> str:
         return f"<CounterpartyAlias(alias={self.alias_name}, counterparty_id={self.counterparty_id})>"
+
+
+class UserCounterpartyFavorite(Base):
+    """사용자 거래처 즐겨찾기 (정산 도메인)"""
+    __tablename__ = "user_counterparty_favorites"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    counterparty_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("counterparties.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="counterparty_favorites")
+    counterparty = relationship("Counterparty", back_populates="favorited_by")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "counterparty_id", name="uq_user_counterparty_favorite"),
+        Index("ix_user_counterparty_favorites_user_id", "user_id"),
+    )

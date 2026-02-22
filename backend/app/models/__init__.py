@@ -8,7 +8,7 @@ from app.models.ssot_model import SSOTModel
 from app.models.grade import Grade
 from app.models.grade_price import GradePrice
 from app.models.deduction import DeductionItem, DeductionLevel
-from app.models.partner import Partner
+from app.models.partner import Partner, UserPartnerFavorite
 from app.models.partner_price import PartnerPrice, PartnerMapping
 from app.models.user_list import UserList, UserListItem, UserFavorite
 from app.models.upload_job import UploadJob
@@ -17,7 +17,7 @@ from app.models.compare_list import CompareListModel
 from app.models.hq_price_apply import HQPriceApply, HQPriceApplyLock
 
 # 정산 도메인 모델
-from app.models.counterparty import Counterparty, CounterpartyAlias
+from app.models.counterparty import Counterparty, CounterpartyAlias, UserCounterpartyFavorite
 from app.models.voucher import Voucher
 from app.models.receipt import Receipt
 from app.models.payment import Payment
@@ -32,6 +32,7 @@ __all__ = [
     "DeductionItem",
     "DeductionLevel",
     "Partner",
+    "UserPartnerFavorite",
     "PartnerPrice",
     "PartnerMapping",
     "UserList",
@@ -45,6 +46,7 @@ __all__ = [
     # 정산 도메인
     "Counterparty",
     "CounterpartyAlias",
+    "UserCounterpartyFavorite",
     "Voucher",
     "Receipt",
     "Payment",

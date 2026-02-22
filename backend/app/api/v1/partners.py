@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.api.deps import get_current_user, get_current_admin_user
 from app.models.user import User
-from app.models.partner import Partner
+from app.models.partner import Partner, UserPartnerFavorite
 from app.models.audit_log import AuditLog
 from app.models.enums import AuditAction
 from app.schemas.partner import (
@@ -31,13 +31,14 @@ router = APIRouter()
 async def list_partners(
     is_active: Optional[bool] = Query(None),
     search: Optional[str] = Query(None),
+    favorites_only: Optional[bool] = Query(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """거래처 목록 조회"""
     query = select(Partner)
     count_query = select(func.count(Partner.id))
-    
+
     # Viewer는 활성 거래처만 조회
     if current_user.role.value == "viewer":
         query = query.where(Partner.is_active == True)
@@ -45,27 +46,87 @@ async def list_partners(
     elif is_active is not None:
         query = query.where(Partner.is_active == is_active)
         count_query = count_query.where(Partner.is_active == is_active)
-    
+
     if search:
         search_filter = Partner.name.ilike(f"%{search}%") | Partner.region.ilike(f"%{search}%")
         query = query.where(search_filter)
         count_query = count_query.where(search_filter)
-    
+
+    # 즐겨찾기 필터
+    if favorites_only:
+        fav_join = (
+            UserPartnerFavorite.partner_id == Partner.id
+        ) & (
+            UserPartnerFavorite.user_id == current_user.id
+        )
+        query = query.join(UserPartnerFavorite, fav_join)
+        count_query = count_query.join(UserPartnerFavorite, fav_join)
+
     query = query.order_by(Partner.name)
-    
+
     # 총 개수
     total_result = await db.execute(count_query)
     total = total_result.scalar()
-    
+
     result = await db.execute(query)
     partners = result.scalars().all()
-    
+
+    # N+1 방지: 즐겨찾기 집합 IN 쿼리 한 번으로 로드
+    partner_ids = [p.id for p in partners]
+    favorite_ids: set = set()
+    if partner_ids:
+        fav_result = await db.execute(
+            select(UserPartnerFavorite.partner_id).where(
+                UserPartnerFavorite.user_id == current_user.id,
+                UserPartnerFavorite.partner_id.in_(partner_ids)
+            )
+        )
+        favorite_ids = {row[0] for row in fav_result.all()}
+
+    def to_response(p: Partner) -> PartnerResponse:
+        resp = PartnerResponse.model_validate(p)
+        resp.is_favorite = p.id in favorite_ids
+        return resp
+
     return SuccessResponse(
         data=PartnerListResponse(
-            partners=[PartnerResponse.model_validate(p) for p in partners],
+            partners=[to_response(p) for p in partners],
             total=total
         )
     )
+
+
+@router.post("/{partner_id}/favorite", response_model=SuccessResponse[dict])
+async def toggle_partner_favorite(
+    partner_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """거래처 즐겨찾기 토글 (추가/제거)"""
+    # 거래처 존재 확인
+    result = await db.execute(select(Partner).where(Partner.id == partner_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "PARTNER_NOT_FOUND", "message": "거래처를 찾을 수 없습니다"}
+        )
+
+    fav_result = await db.execute(
+        select(UserPartnerFavorite).where(
+            UserPartnerFavorite.user_id == current_user.id,
+            UserPartnerFavorite.partner_id == partner_id
+        )
+    )
+    existing = fav_result.scalar_one_or_none()
+
+    if existing:
+        await db.delete(existing)
+        await db.commit()
+        return SuccessResponse(data={"is_favorite": False})
+    else:
+        db.add(UserPartnerFavorite(user_id=current_user.id, partner_id=partner_id))
+        await db.commit()
+        return SuccessResponse(data={"is_favorite": True})
 
 
 @router.post("", response_model=SuccessResponse[PartnerResponse], status_code=status.HTTP_201_CREATED)

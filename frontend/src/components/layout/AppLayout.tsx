@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useState, useEffect, Fragment } from 'react';
+import { useState, useEffect, Fragment, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
   Box,
@@ -29,10 +29,15 @@ import {
   Collapse,
   Chip,
   alpha,
+  Button,
+  Tooltip,
 } from '@mui/material';
+import { useSnackbar } from 'notistack';
+import { settlementApi } from '@/lib/api';
 import {
   Menu as MenuIcon,
   ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
   PriceCheck as PriceCheckIcon,
   Compare as CompareIcon,
   Star as StarIcon,
@@ -65,12 +70,29 @@ import {
   AccountBalance as AccountBalanceIcon,
   CloudUpload as CloudUploadIcon,
   Lock as LockIcon,
+  ManageSearch as ActivityIcon,
 } from '@mui/icons-material';
 import { useAuthStore, useUIStore, useDomainStore, useAuthHydrated, useThemeStore, type ThemeMode } from '@/lib/store';
 import { getDomainType, getDefaultPath } from '@/lib/domain';
 import { Logo } from '@/components/ui/Logo';
 
 const DRAWER_WIDTH = 280;
+const DRAWER_MINI_WIDTH = 64;
+
+function formatKSTShort(isoStr: string): string {
+  let dateStr = isoStr;
+  if (dateStr.includes('T') && !dateStr.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(dateStr)) dateStr += 'Z';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return isoStr;
+    return d.toLocaleString('ko-KR', {
+      timeZone: 'Asia/Seoul',
+      month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+      hour12: false,
+    });
+  } catch { return isoStr; }
+}
 
 // 메뉴 아이템 타입
 interface MenuItemType {
@@ -138,14 +160,16 @@ const adminMenus: MenuItemType[] = [
   { id: 'appearance-settings', label: '외관 설정', icon: <PaletteIcon />, path: '/admin/settings/appearance' },
 ];
 
-// 정산 도메인 메뉴 (settlement.dwt.price) - 단순화된 6개 메뉴
+// 정산 도메인 메뉴 (settlement.dwt.price)
 const settlementMenus: MenuItemType[] = [
   { id: 'stl-dashboard', label: '대시보드', icon: <DashboardIcon />, path: '/settlement/dashboard' },
-  { id: 'stl-upload', label: 'UPM 전표 업로드', icon: <CloudUploadIcon />, path: '/settlement/upload' },
+  { id: 'stl-upload', label: 'UPM 업로드', icon: <CloudUploadIcon />, path: '/settlement/upload' },
+  { id: 'stl-upload-history', label: '업로드 내역', icon: <HistoryIcon />, path: '/settlement/upload/jobs' },
   { id: 'stl-vouchers', label: '전표 목록', icon: <ReceiptIcon />, path: '/settlement/vouchers' },
   { id: 'stl-status', label: '거래처 현황', icon: <AccountBalanceIcon />, path: '/settlement/status' },
   { id: 'stl-counterparties', label: '거래처 관리', icon: <BusinessIcon />, path: '/settlement/counterparties' },
   { id: 'stl-lock', label: '마감 관리', icon: <LockIcon />, path: '/settlement/lock' },
+  { id: 'stl-activity', label: '작업 내역', icon: <ActivityIcon />, path: '/settlement/activity' },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -159,6 +183,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set(['ssot-models']));
+  const [miniMode, setMiniMode] = useState(false);
+  const [latestSalesDate, setLatestSalesDate] = useState<string | null>(null);
+  const [latestPurchaseDate, setLatestPurchaseDate] = useState<string | null>(null);
+  const { enqueueSnackbar, closeSnackbar } = useSnackbar();
 
   // 테마 전환 핸들러
   const handleThemeToggle = () => {
@@ -232,6 +260,68 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       router.push('/login?error=settlement_required');
     }
   }, [isHydrated, isSettlementDomain, user, logout, router]);
+
+  // 최신 업로드 버전 확인 (정산 도메인)
+  const checkLatestUploads = useCallback(async () => {
+    try {
+      const res = await settlementApi.listUploadJobs({ page_size: 20 });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const jobs = (res.data as any).jobs || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const confirmed = jobs.filter((j: any) => j.is_confirmed);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const latestSales = confirmed.filter((j: any) => j.job_type.toLowerCase().includes('sales'))
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .sort((a: any, b: any) => new Date(b.confirmed_at).getTime() - new Date(a.confirmed_at).getTime())[0] || null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const latestPurchase = confirmed.filter((j: any) => j.job_type.toLowerCase().includes('purchase'))
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .sort((a: any, b: any) => new Date(b.confirmed_at).getTime() - new Date(a.confirmed_at).getTime())[0] || null;
+
+      if (latestSales?.confirmed_at) {
+        const lastSeen = localStorage.getItem('dwt_lastSeen_sales_confirmed_at');
+        if (lastSeen && lastSeen !== latestSales.confirmed_at) {
+          const dateStr = formatKSTShort(latestSales.confirmed_at);
+          enqueueSnackbar(`판매 데이터가 새로 업데이트되었습니다 (${dateStr})`, {
+            variant: 'info',
+            action: (key) => (
+              <Button size="small" color="inherit" onClick={() => { router.push('/settlement/upload/jobs'); closeSnackbar(key); }}>
+                보기
+              </Button>
+            ),
+          });
+        }
+        localStorage.setItem('dwt_lastSeen_sales_confirmed_at', latestSales.confirmed_at);
+        setLatestSalesDate(formatKSTShort(latestSales.confirmed_at));
+      }
+
+      if (latestPurchase?.confirmed_at) {
+        const lastSeen = localStorage.getItem('dwt_lastSeen_purchase_confirmed_at');
+        if (lastSeen && lastSeen !== latestPurchase.confirmed_at) {
+          const dateStr = formatKSTShort(latestPurchase.confirmed_at);
+          enqueueSnackbar(`매입 데이터가 새로 업데이트되었습니다 (${dateStr})`, {
+            variant: 'info',
+            action: (key) => (
+              <Button size="small" color="inherit" onClick={() => { router.push('/settlement/upload/jobs'); closeSnackbar(key); }}>
+                보기
+              </Button>
+            ),
+          });
+        }
+        localStorage.setItem('dwt_lastSeen_purchase_confirmed_at', latestPurchase.confirmed_at);
+        setLatestPurchaseDate(formatKSTShort(latestPurchase.confirmed_at));
+      }
+    } catch {
+      // 조용히 실패 (헤더 기능이므로 오류 표시 불필요)
+    }
+  }, [enqueueSnackbar, closeSnackbar, router]);
+
+  useEffect(() => {
+    if (!isSettlementDomain) return;
+    checkLatestUploads();
+    const timer = setInterval(checkLatestUploads, 3 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [isSettlementDomain, checkLatestUploads]);
   
   // Hydration 완료 전에는 로딩 표시 (깜빡임 방지)
   if (!isHydrated) {
@@ -296,54 +386,79 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const hasChildren = menu.children && menu.children.length > 0;
     const isExpanded = expandedMenus.has(menu.id);
     const isActive = menu.path ? pathname === menu.path : isMenuActive(menu);
-    
+
+    // 미니 모드: 서브메뉴 아이템 숨김
+    if (miniMode && level > 0) return null;
+
+    const selectedSx = {
+      '&.Mui-selected': {
+        bgcolor: isSettlementDomain ? 'info.light' : isAdminDomain ? 'error.light' : 'primary.light',
+        color: 'white',
+        '&:hover': {
+          bgcolor: isSettlementDomain ? 'info.main' : isAdminDomain ? 'error.main' : 'primary.main',
+        },
+        '& .MuiListItemIcon-root': { color: 'white' },
+      },
+    };
+
     return (
       <Fragment key={menu.id}>
         <ListItem disablePadding>
-          <ListItemButton
-            selected={!hasChildren && isActive}
-            onClick={() => {
-              if (hasChildren) {
-                handleToggleExpand(menu.id);
-              } else if (menu.path) {
-                handleNavigate(menu.path);
-              }
-            }}
-            sx={{
-              mx: 1,
-              borderRadius: 2,
-              pl: 2 + level * 2,
-              '&.Mui-selected': {
-                bgcolor: isSettlementDomain ? 'info.light' : isAdminDomain ? 'error.light' : 'primary.light',
-                color: 'white',
-                '&:hover': {
-                  bgcolor: isSettlementDomain ? 'info.main' : isAdminDomain ? 'error.main' : 'primary.main',
-                },
-                '& .MuiListItemIcon-root': {
-                  color: 'white',
-                },
-              },
-              ...(hasChildren && isActive && {
-                bgcolor: (theme) => theme.palette.mode === 'light' ? 'grey.100' : 'grey.800',
-                '& .MuiListItemText-primary': {
-                  fontWeight: 600,
-                },
-              }),
-            }}
+          <Tooltip
+            title={miniMode ? menu.label : ''}
+            placement="right"
+            arrow
+            disableHoverListener={!miniMode}
+            disableFocusListener={!miniMode}
+            disableTouchListener={!miniMode}
           >
-            <ListItemIcon sx={{ minWidth: 36 }}>{menu.icon}</ListItemIcon>
-            <ListItemText
-              primary={menu.label}
-              primaryTypographyProps={{
-                variant: level > 0 ? 'body2' : 'body1',
-                fontWeight: isActive ? 600 : 400,
+            <ListItemButton
+              selected={!hasChildren && isActive}
+              onClick={() => {
+                if (hasChildren) {
+                  if (miniMode) {
+                    // 미니 모드에서 자식 있는 항목: 첫 번째 경로로 이동
+                    const firstPath = menu.children?.find(c => c.path)?.path;
+                    if (firstPath) handleNavigate(firstPath);
+                  } else {
+                    handleToggleExpand(menu.id);
+                  }
+                } else if (menu.path) {
+                  handleNavigate(menu.path);
+                }
               }}
-            />
-            {hasChildren && (isExpanded ? <ExpandLess /> : <ExpandMore />)}
-          </ListItemButton>
+              sx={{
+                mx: 1,
+                borderRadius: 2,
+                ...(miniMode
+                  ? { justifyContent: 'center', px: 1, minHeight: 48 }
+                  : { pl: 2 + level * 2 }
+                ),
+                ...selectedSx,
+                ...(!miniMode && hasChildren && isActive && {
+                  bgcolor: (theme) => theme.palette.mode === 'light' ? 'grey.100' : 'grey.800',
+                  '& .MuiListItemText-primary': { fontWeight: 600 },
+                }),
+              }}
+            >
+              <ListItemIcon sx={{ minWidth: miniMode ? 0 : 36 }}>{menu.icon}</ListItemIcon>
+              {!miniMode && (
+                <>
+                  <ListItemText
+                    primary={menu.label}
+                    primaryTypographyProps={{
+                      variant: level > 0 ? 'body2' : 'body1',
+                      fontWeight: isActive ? 600 : 400,
+                    }}
+                  />
+                  {hasChildren && (isExpanded ? <ExpandLess /> : <ExpandMore />)}
+                </>
+              )}
+            </ListItemButton>
+          </Tooltip>
         </ListItem>
-        
-        {hasChildren && (
+
+        {!miniMode && hasChildren && (
           <Collapse in={isExpanded} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
               {menu.children!.map((child) => renderMenuItem(child, level + 1))}
@@ -369,21 +484,33 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <Toolbar>
           <IconButton
             edge="start"
-            onClick={toggleSidebar}
+            onClick={() => {
+              if (sidebarOpen) setMiniMode(false);
+              toggleSidebar();
+            }}
             sx={{ mr: 2 }}
           >
             {sidebarOpen ? <ChevronLeftIcon /> : <MenuIcon />}
           </IconButton>
-          
+
           <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Logo size="small" variant="auto" />
+            <Logo
+              size="small"
+              variant="auto"
+              onClick={() => router.push(
+                isSettlementDomain ? '/settlement/dashboard'
+                  : isAdminDomain ? '/admin/price-dashboard'
+                  : '/prices'
+              )}
+            />
             {isAdminDomain && (
               <Chip
                 icon={<AdminIcon sx={{ fontSize: 16 }} />}
                 label="관리자"
                 size="small"
                 color="error"
-                sx={{ fontWeight: 600 }}
+                onClick={() => router.push('/admin/price-dashboard')}
+                sx={{ fontWeight: 600, cursor: 'pointer' }}
               />
             )}
             {isSettlementDomain && (
@@ -392,10 +519,36 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 label="경영지원"
                 size="small"
                 color="info"
-                sx={{ fontWeight: 600 }}
+                onClick={() => router.push('/settlement/dashboard')}
+                sx={{ fontWeight: 600, cursor: 'pointer' }}
               />
             )}
           </Box>
+
+          {isSettlementDomain && latestSalesDate && (
+            <Tooltip title="판매 데이터 최신 확정일 — 클릭하여 내역 보기">
+              <Chip
+                label={`판매 ${latestSalesDate}`}
+                size="small"
+                color="primary"
+                variant="outlined"
+                onClick={() => router.push('/settlement/upload/jobs')}
+                sx={{ fontWeight: 600, fontSize: '0.7rem', cursor: 'pointer', mr: 0.5 }}
+              />
+            </Tooltip>
+          )}
+          {isSettlementDomain && latestPurchaseDate && (
+            <Tooltip title="매입 데이터 최신 확정일 — 클릭하여 내역 보기">
+              <Chip
+                label={`매입 ${latestPurchaseDate}`}
+                size="small"
+                color="secondary"
+                variant="outlined"
+                onClick={() => router.push('/settlement/upload/jobs')}
+                sx={{ fontWeight: 600, fontSize: '0.7rem', cursor: 'pointer', mr: 1 }}
+              />
+            </Tooltip>
+          )}
 
           <IconButton
             onClick={handleThemeToggle}
@@ -444,48 +597,53 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         variant="persistent"
         open={sidebarOpen}
         sx={{
-          width: sidebarOpen ? DRAWER_WIDTH : 0,
+          width: sidebarOpen ? (miniMode ? DRAWER_MINI_WIDTH : DRAWER_WIDTH) : 0,
           flexShrink: 0,
+          transition: 'width 0.3s',
           '& .MuiDrawer-paper': {
-            width: DRAWER_WIDTH,
+            width: miniMode ? DRAWER_MINI_WIDTH : DRAWER_WIDTH,
             boxSizing: 'border-box',
             borderRight: (theme) => `1px solid ${theme.palette.divider}`,
             bgcolor: 'background.paper',
+            overflowX: 'hidden',
+            transition: 'width 0.3s',
+            display: 'flex',
+            flexDirection: 'column',
           },
         }}
       >
         <Toolbar />
-        <Box sx={{ overflow: 'auto', py: 2 }}>
+
+        {/* 스크롤 가능한 메뉴 영역 */}
+        <Box sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', py: 2 }}>
           {/* 도메인별 메뉴 렌더링 */}
           <List>
             {currentMenus.map((menu) => renderMenuItem(menu))}
           </List>
-          
+
           {/* 정산 도메인에서 관리자/사용자 이동 */}
-          {isSettlementDomain && (
+          {isSettlementDomain && !miniMode && isAdmin && (
             <>
               <Divider sx={{ my: 2 }} />
               <List>
-                {isAdmin && (
-                  <ListItem disablePadding>
-                    <ListItemButton
-                      onClick={() => {
-                        const adminUrl = process.env.NEXT_PUBLIC_ADMIN_URL || 'https://admin.dwt.price';
-                        window.location.href = adminUrl;
-                      }}
-                      sx={{ mx: 1, borderRadius: 2 }}
-                    >
-                      <ListItemIcon sx={{ minWidth: 40 }}><AdminIcon color="error" /></ListItemIcon>
-                      <ListItemText primary="관리자 페이지" primaryTypographyProps={{ color: 'error.main', fontWeight: 600 }} />
-                    </ListItemButton>
-                  </ListItem>
-                )}
+                <ListItem disablePadding>
+                  <ListItemButton
+                    onClick={() => {
+                      const adminUrl = process.env.NEXT_PUBLIC_ADMIN_URL || 'https://admin.dwt.price';
+                      window.location.href = adminUrl;
+                    }}
+                    sx={{ mx: 1, borderRadius: 2 }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 40 }}><AdminIcon color="error" /></ListItemIcon>
+                    <ListItemText primary="관리자 페이지" primaryTypographyProps={{ color: 'error.main', fontWeight: 600 }} />
+                  </ListItemButton>
+                </ListItem>
               </List>
             </>
           )}
 
           {/* 도메인 전환 링크 (관리자만, 사용자 도메인에서만) */}
-          {!isAdminDomain && !isSettlementDomain && isAdmin && (
+          {!isAdminDomain && !isSettlementDomain && isAdmin && !miniMode && (
             <>
               <Divider sx={{ my: 2 }} />
               <Box sx={{ px: 2 }}>
@@ -509,10 +667,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       },
                     }}
                   >
-                    <ListItemIcon sx={{ minWidth: 40 }}>
-                      <AdminIcon color="error" />
-                    </ListItemIcon>
-                    <ListItemText 
+                    <ListItemIcon sx={{ minWidth: 40 }}><AdminIcon color="error" /></ListItemIcon>
+                    <ListItemText
                       primary="관리자 페이지 이동"
                       primaryTypographyProps={{ color: 'error.main', fontWeight: 600 }}
                     />
@@ -521,9 +677,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </List>
             </>
           )}
-          
+
           {/* 도메인 전환 링크 (관리자 도메인에서) */}
-          {isAdminDomain && (
+          {isAdminDomain && !miniMode && (
             <>
               <Divider sx={{ my: 2 }} />
               <List>
@@ -542,10 +698,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       },
                     }}
                   >
-                    <ListItemIcon sx={{ minWidth: 40 }}>
-                      <PriceCheckIcon color="primary" />
-                    </ListItemIcon>
-                    <ListItemText 
+                    <ListItemIcon sx={{ minWidth: 40 }}><PriceCheckIcon color="primary" /></ListItemIcon>
+                    <ListItemText
                       primary="사용자 페이지 이동"
                       primaryTypographyProps={{ color: 'primary.main', fontWeight: 600 }}
                     />
@@ -567,10 +721,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       },
                     }}
                   >
-                    <ListItemIcon sx={{ minWidth: 40 }}>
-                      <AccountBalanceIcon color="info" />
-                    </ListItemIcon>
-                    <ListItemText 
+                    <ListItemIcon sx={{ minWidth: 40 }}><AccountBalanceIcon color="info" /></ListItemIcon>
+                    <ListItemText
                       primary="정산 관리 이동"
                       primaryTypographyProps={{ color: 'info.main', fontWeight: 600 }}
                     />
@@ -579,6 +731,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </List>
             </>
           )}
+        </Box>
+
+        {/* 사이드바 최소화 토글 버튼 */}
+        <Box
+          sx={{
+            borderTop: '1px solid',
+            borderColor: 'divider',
+            p: 0.5,
+            display: 'flex',
+            justifyContent: miniMode ? 'center' : 'flex-end',
+          }}
+        >
+          <Tooltip title={miniMode ? '메뉴 펼치기' : '메뉴 접기'} placement="right">
+            <IconButton size="small" onClick={() => setMiniMode((v) => !v)}>
+              {miniMode ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
         </Box>
       </Drawer>
       
@@ -589,7 +758,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           flexGrow: 1,
           display: 'flex',
           flexDirection: 'column',
-          width: `calc(100% - ${sidebarOpen ? DRAWER_WIDTH : 0}px)`,
+          width: `calc(100% - ${sidebarOpen ? (miniMode ? DRAWER_MINI_WIDTH : DRAWER_WIDTH) : 0}px)`,
           transition: 'width 0.3s',
           bgcolor: 'background.default',
           height: '100vh',

@@ -15,6 +15,7 @@ from app.api.v1.settlement import (
     verification,
     dashboard,
     lock,
+    activity,
 )
 
 settlement_router = APIRouter()
@@ -62,4 +63,9 @@ settlement_router.include_router(
 # 마감
 settlement_router.include_router(
     lock.router, prefix="/lock", tags=["정산-마감"]
+)
+
+# 작업 내역
+settlement_router.include_router(
+    activity.router, prefix="/activity", tags=["정산-작업내역"]
 )

@@ -6,7 +6,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Boolean, DateTime, Text
+from sqlalchemy import String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -74,6 +74,33 @@ class Partner(Base):
     # 관계
     prices = relationship("PartnerPrice", back_populates="partner", cascade="all, delete-orphan")
     mappings = relationship("PartnerMapping", back_populates="partner", cascade="all, delete-orphan")
+    favorited_by = relationship("UserPartnerFavorite", back_populates="partner", cascade="all, delete-orphan")
     
     def __repr__(self) -> str:
         return f"<Partner(id={self.id}, name={self.name})>"
+
+
+class UserPartnerFavorite(Base):
+    """사용자 거래처 즐겨찾기"""
+    __tablename__ = "user_partner_favorites"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    partner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("partners.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="partner_favorites")
+    partner = relationship("Partner", back_populates="favorited_by")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "partner_id", name="uq_user_partner_favorite"),
+        Index("ix_user_partner_favorites_user_id", "user_id"),
+    )
