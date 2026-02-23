@@ -177,6 +177,8 @@ export const useAuthHydrated = () => {
   const [hydrated, setHydrated] = useState(() => useAuthStore.persist?.hasHydrated() ?? false);
 
   useEffect(() => {
+    if (hydrated) return;
+
     // 구독 먼저 등록 후, 이미 완료된 경우 즉시 처리 (순서 바뀜 방지)
     const unsubscribe = useAuthStore.persist.onFinishHydration(() => {
       setHydrated(true);
@@ -184,8 +186,19 @@ export const useAuthHydrated = () => {
     if (useAuthStore.persist.hasHydrated()) {
       setHydrated(true);
     }
-    return unsubscribe;
-  }, []);
+
+    // 안전장치: hydration이 2초 내 완료되지 않으면 강제 완료 처리
+    // (localStorage 손상, Docker 볼륨 캐시 문제 등으로 콜백이 호출되지 않는 경우 대비)
+    const safetyTimer = setTimeout(() => {
+      console.warn('[useAuthHydrated] Hydration 2초 초과 → 강제 완료 처리');
+      setHydrated(true);
+    }, 2_000);
+
+    return () => {
+      unsubscribe();
+      clearTimeout(safetyTimer);
+    };
+  }, [hydrated]);
 
   return hydrated;
 };

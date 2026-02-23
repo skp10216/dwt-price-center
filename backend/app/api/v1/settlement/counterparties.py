@@ -15,6 +15,7 @@ from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.counterparty import Counterparty, CounterpartyAlias, UserCounterpartyFavorite
+from app.models.branch import Branch
 from app.models.voucher import Voucher
 from app.models.receipt import Receipt
 from app.models.payment import Payment
@@ -37,6 +38,13 @@ class BatchCreateCounterpartiesRequest(BaseModel):
     """일괄 거래처 등록 요청"""
     items: List[BatchCreateCounterpartyItem]
 
+
+class BatchAssignBranchRequest(BaseModel):
+    """거래처 일괄 지사 배정 요청"""
+    branch_id: UUID
+    add_ids: List[UUID] = []
+    remove_ids: List[UUID] = []
+
 router = APIRouter()
 
 
@@ -46,6 +54,7 @@ async def list_counterparties(
     counterparty_type: Optional[str] = Query(None),
     is_active: Optional[bool] = Query(None),
     favorites_only: Optional[bool] = Query(None),
+    branch_id: Optional[str] = Query(None, description="지사 필터 (UUID 또는 'unassigned')"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -70,6 +79,17 @@ async def list_counterparties(
         query = query.where(Counterparty.counterparty_type == counterparty_type)
     if is_active is not None:
         query = query.where(Counterparty.is_active == is_active)
+
+    # 지사 필터
+    if branch_id:
+        if branch_id == "unassigned":
+            query = query.where(Counterparty.branch_id.is_(None))
+        else:
+            try:
+                bid = UUID(branch_id)
+                query = query.where(Counterparty.branch_id == bid)
+            except ValueError:
+                pass
 
     # 즐겨찾기 필터
     if favorites_only:
@@ -101,9 +121,19 @@ async def list_counterparties(
         )
         favorite_ids = {row[0] for row in fav_result.all()}
 
+    # N+1 방지: branch_id → branch_name 맵 일괄 로드
+    branch_ids = {c.branch_id for c in items if c.branch_id}
+    branch_name_map: dict = {}
+    if branch_ids:
+        br_result = await db.execute(
+            select(Branch.id, Branch.name).where(Branch.id.in_(branch_ids))
+        )
+        branch_name_map = {row[0]: row[1] for row in br_result.all()}
+
     def to_response(c: Counterparty) -> CounterpartyResponse:
         resp = CounterpartyResponse.model_validate(c)
         resp.is_favorite = c.id in favorite_ids
+        resp.branch_name = branch_name_map.get(c.branch_id) if c.branch_id else None
         return resp
 
     return {
@@ -163,6 +193,7 @@ async def create_counterparty(
         counterparty_type=data.counterparty_type,
         contact_info=data.contact_info,
         memo=data.memo,
+        branch_id=data.branch_id,
     )
     db.add(cp)
 
@@ -291,6 +322,61 @@ async def delete_counterparty(
     await db.delete(cp)
     await db.flush()
     return {"deleted": True, "name": cp.name}
+
+
+@router.post("/batch-assign-branch", response_model=dict)
+async def batch_assign_branch(
+    data: BatchAssignBranchRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """거래처 일괄 지사 배정/해제"""
+    # 지사 존재 확인
+    branch = await db.get(Branch, data.branch_id)
+    if not branch:
+        raise HTTPException(status_code=404, detail="지사를 찾을 수 없습니다")
+
+    added_count = 0
+    removed_count = 0
+
+    # 배정: branch_id 설정
+    if data.add_ids:
+        result = await db.execute(
+            select(Counterparty).where(Counterparty.id.in_(data.add_ids))
+        )
+        for cp in result.scalars().all():
+            if cp.branch_id != data.branch_id:
+                cp.branch_id = data.branch_id
+                added_count += 1
+
+    # 해제: branch_id를 null로 설정 (현재 지사 소속인 경우만)
+    if data.remove_ids:
+        result = await db.execute(
+            select(Counterparty).where(
+                Counterparty.id.in_(data.remove_ids),
+                Counterparty.branch_id == data.branch_id,
+            )
+        )
+        for cp in result.scalars().all():
+            cp.branch_id = None
+            removed_count += 1
+
+    if added_count > 0 or removed_count > 0:
+        db.add(AuditLog(
+            user_id=current_user.id,
+            action=AuditAction.COUNTERPARTY_UPDATE,
+            target_type="counterparty",
+            after_data={
+                "action": "batch_assign_branch",
+                "branch_id": str(data.branch_id),
+                "branch_name": branch.name,
+                "added_count": added_count,
+                "removed_count": removed_count,
+            },
+        ))
+        await db.flush()
+
+    return {"added_count": added_count, "removed_count": removed_count}
 
 
 @router.post("/batch-delete", response_model=dict)

@@ -37,6 +37,7 @@ import {
   History as HistoryIcon,
   ChevronRight as ChevronRightIcon,
   Layers as LayersIcon,
+  RestoreFromTrash,
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
 import { AppPageContainer, AppPageHeader } from '@/components/ui';
@@ -114,6 +115,10 @@ const ACTION_META: Record<string, { label: string; icon: React.ReactNode; catego
   COUNTERPARTY_BATCH_DELETE:  { label: '거래처 일괄 삭제',   icon: <DeleteIcon />,  category: 'counterparty' },
   COUNTERPARTY_ALIAS_CREATE:  { label: '거래처 별칭 추가',   icon: <AddIcon />,     category: 'counterparty' },
   COUNTERPARTY_ALIAS_DELETE:  { label: '거래처 별칭 삭제',   icon: <DeleteIcon />,  category: 'counterparty' },
+  BRANCH_CREATE:              { label: '지사 생성',          icon: <AddIcon />,     category: 'counterparty' },
+  BRANCH_UPDATE:              { label: '지사 수정',          icon: <EditIcon />,    category: 'counterparty' },
+  BRANCH_DELETE:              { label: '지사 삭제',          icon: <DeleteIcon />,  category: 'counterparty' },
+  BRANCH_RESTORE:             { label: '지사 복구',          icon: <RestoreFromTrash />, category: 'counterparty' },
   VOUCHER_CHANGE_DETECTED:    { label: '변경사항 감지',      icon: <ErrorIcon />,   category: 'change' },
   VOUCHER_CHANGE_APPROVED:    { label: '변경사항 승인',      icon: <CheckIcon />,   category: 'change' },
   VOUCHER_CHANGE_REJECTED:    { label: '변경사항 거부',      icon: <CancelIcon />,  category: 'change' },
@@ -381,7 +386,7 @@ export default function ActivityPage() {
                 label={`${log.item_count.toLocaleString()}건`}
                 size="small"
                 sx={{
-                  height: 18, fontSize: '0.65rem', fontWeight: 700,
+                  fontWeight: 700,
                   bgcolor: alpha(catMeta.color, 0.1),
                   color: catMeta.color,
                   border: `1px solid ${alpha(catMeta.color, 0.25)}`,
@@ -593,10 +598,10 @@ export default function ActivityPage() {
                       { label: 'IP 주소', value: detailLog.ip_address ?? '—' },
                     ].map(({ label, value }) => (
                       <TableRow key={label} sx={{ '&:last-child td': { border: 0 } }}>
-                        <TableCell sx={{ width: 90, color: 'text.secondary', fontWeight: 600, fontSize: '0.78rem', py: 0.8, whiteSpace: 'nowrap' }}>
+                        <TableCell sx={{ width: 90, color: 'text.secondary', fontWeight: 600, whiteSpace: 'nowrap' }}>
                           {label}
                         </TableCell>
-                        <TableCell sx={{ fontSize: '0.82rem', py: 0.8, fontFamily: label === '대상 ID' ? 'monospace' : 'inherit' }}>
+                        <TableCell sx={{ fontFamily: label === '대상 ID' ? 'monospace' : 'inherit' }}>
                           {value}
                         </TableCell>
                       </TableRow>
@@ -657,7 +662,7 @@ export default function ActivityPage() {
                         label={`${traceLog.item_count.toLocaleString()}건`}
                         size="small"
                         sx={{
-                          height: 20, fontSize: '0.68rem', fontWeight: 700,
+                          fontWeight: 700,
                           bgcolor: alpha(catMeta.color, 0.1), color: catMeta.color,
                         }}
                       />
@@ -694,21 +699,21 @@ export default function ActivityPage() {
                         const tlCatMeta = tlMeta ? CATEGORY_META[tlMeta.category] : CATEGORY_META.all;
                         return (
                           <TableRow key={tl.id} sx={{ '&:hover': { bgcolor: 'action.hover' } }}>
-                            <TableCell sx={{ color: 'text.disabled', fontSize: '0.72rem' }}>{idx + 1}</TableCell>
+                            <TableCell sx={{ color: 'text.disabled' }}>{idx + 1}</TableCell>
                             <TableCell>
                               <Typography variant="caption" sx={{ fontWeight: 700, color: tlCatMeta.color }}>
                                 {tlMeta?.label ?? tl.action ?? '—'}
                               </Typography>
                             </TableCell>
-                            <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.72rem', color: 'text.secondary' }}>
+                            <TableCell sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
                               {tl.target_id ? tl.target_id.slice(0, 12) + '…' : '—'}
                             </TableCell>
-                            <TableCell sx={{ fontSize: '0.78rem', maxWidth: 320 }}>
+                            <TableCell sx={{ maxWidth: 320 }}>
                               <Typography variant="caption" noWrap sx={{ display: 'block', maxWidth: 300 }}>
                                 {tl.description ?? '—'}
                               </Typography>
                             </TableCell>
-                            <TableCell sx={{ fontSize: '0.72rem', color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                            <TableCell sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>
                               {formatTime(tl.created_at)}
                             </TableCell>
                           </TableRow>

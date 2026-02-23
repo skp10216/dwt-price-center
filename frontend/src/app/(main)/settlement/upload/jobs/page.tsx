@@ -571,37 +571,37 @@ export default function UploadJobsPage() {
         {s.total_rows != null && (
           <Chip label={`전체 ${s.total_rows}`} size="small" variant="outlined"
             onClick={(e) => handleChipClick(job.id, 'all', e)}
-            sx={{ fontSize: '0.7rem', height: 20, cursor: 'pointer' }} />
+            sx={{ cursor: 'pointer' }} />
         )}
         {(s.new_count ?? 0) > 0 && (
           <Chip label={`신규 ${s.new_count}`} size="small" color="success" variant="outlined"
             onClick={(e) => handleChipClick(job.id, 'new', e)}
-            sx={{ fontSize: '0.7rem', height: 20, cursor: 'pointer' }} />
+            sx={{ cursor: 'pointer' }} />
         )}
         {(s.update_count ?? 0) > 0 && (
           <Chip label={`변경 ${s.update_count}`} size="small" color="info" variant="outlined"
             onClick={(e) => handleChipClick(job.id, 'update', e)}
-            sx={{ fontSize: '0.7rem', height: 20, cursor: 'pointer' }} />
+            sx={{ cursor: 'pointer' }} />
         )}
         {(s.error_count ?? 0) > 0 && (
           <Chip label={`오류 ${s.error_count}`} size="small" color="error" variant="outlined"
             onClick={(e) => handleChipClick(job.id, 'error', e)}
-            sx={{ fontSize: '0.7rem', height: 20, cursor: 'pointer' }} />
+            sx={{ cursor: 'pointer' }} />
         )}
         {(s.unmatched_count ?? 0) > 0 && (
           <Chip label={`미매칭 ${s.unmatched_count}`} size="small" color="warning" variant="outlined"
             onClick={(e) => handleChipClick(job.id, 'unmatched', e)}
-            sx={{ fontSize: '0.7rem', height: 20, cursor: 'pointer' }} />
+            sx={{ cursor: 'pointer' }} />
         )}
         {(s.conflict_count ?? 0) > 0 && (
           <Chip label={`충돌 ${s.conflict_count}`} size="small" color="warning"
             onClick={(e) => handleChipClick(job.id, 'conflict', e)}
-            sx={{ fontSize: '0.7rem', height: 20, cursor: 'pointer' }} />
+            sx={{ cursor: 'pointer' }} />
         )}
         {(s.excluded_count ?? 0) > 0 && (
           <Chip label={`제외 ${s.excluded_count}`} size="small" variant="outlined"
             onClick={(e) => handleChipClick(job.id, 'excluded', e)}
-            sx={{ fontSize: '0.7rem', height: 20, cursor: 'pointer' }} />
+            sx={{ cursor: 'pointer' }} />
         )}
       </Stack>
     );
@@ -748,7 +748,7 @@ export default function UploadJobsPage() {
                       <Checkbox size="small" checked={isChecked} disabled={!canSelect}
                         onChange={(e) => handleSelectOne(job.id, e.target.checked)} />
                     </TableCell>
-                    <TableCell sx={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>
                       <Stack direction="row" spacing={0.5} alignItems="center">
                         <AccessTimeIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
                         <span>{formatKST(job.created_at)}</span>
@@ -757,10 +757,10 @@ export default function UploadJobsPage() {
                     <TableCell align="center">
                       <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
                         <Chip label={typeInfo.label} size="small" color={typeInfo.color} variant="outlined"
-                          sx={{ fontWeight: 600, fontSize: '0.7rem' }} />
+                          sx={{ fontWeight: 600 }} />
                         {(job.id === latestSalesId || job.id === latestPurchaseId) && (
                           <Chip label="최신" size="small" color="success"
-                            sx={{ fontWeight: 700, fontSize: '0.65rem', height: 20 }} />
+                            sx={{ fontWeight: 700 }} />
                         )}
                       </Stack>
                     </TableCell>
@@ -772,7 +772,7 @@ export default function UploadJobsPage() {
                         {job.is_confirmed && (
                           <Chip icon={<VerifiedIcon sx={{ fontSize: '12px !important' }} />} label="확정"
                             size="small" color="success" variant="filled"
-                            sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700, '& .MuiChip-icon': { ml: 0.5 } }} />
+                            sx={{ fontWeight: 700, '& .MuiChip-icon': { ml: 0.5 } }} />
                         )}
                       </Stack>
                     </TableCell>
@@ -816,7 +816,7 @@ export default function UploadJobsPage() {
                       )}
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>{renderSummary(job)}</TableCell>
-                    <TableCell sx={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{formatKST(job.completed_at)}</TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatKST(job.completed_at)}</TableCell>
                   </TableRow>
                 );
               })
@@ -1047,19 +1047,19 @@ export default function UploadJobsPage() {
                             transition: 'background-color 0.15s',
                             '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.04) },
                           }}>
-                            <TableCell sx={{ fontSize: '0.75rem', color: 'text.secondary', fontWeight: 500 }}>{row.row_index + 1}</TableCell>
+                            <TableCell sx={{ color: 'text.secondary', fontWeight: 500 }}>{row.row_index + 1}</TableCell>
                             <TableCell>
                               <Chip icon={cfg.icon as React.ReactElement} label={cfg.label} size="small"
-                                color={cfg.color} variant="filled" sx={{ fontSize: '0.68rem', height: 22, fontWeight: 600 }} />
+                                color={cfg.color} variant="filled" sx={{ fontWeight: 600 }} />
                             </TableCell>
-                            <TableCell sx={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{row.trade_date || '—'}</TableCell>
-                            <TableCell sx={{ fontSize: '0.8rem' }}>
+                            <TableCell sx={{ whiteSpace: 'nowrap' }}>{row.trade_date || '—'}</TableCell>
+                            <TableCell>
                               <Typography variant="body2" noWrap sx={{ maxWidth: 150, fontWeight: row.status === 'unmatched' ? 600 : 400 }}>
                                 {row.counterparty_name || '—'}
                               </Typography>
                             </TableCell>
-                            <TableCell sx={{ fontSize: '0.8rem' }}>{row.voucher_number || '—'}</TableCell>
-                            <TableCell sx={{ fontSize: '0.75rem' }}>
+                            <TableCell>{row.voucher_number || '—'}</TableCell>
+                            <TableCell>
                               {row.error && (
                                 <Typography variant="caption" color="error.main" sx={{ display: 'block', fontWeight: 500 }}>
                                   {row.error}

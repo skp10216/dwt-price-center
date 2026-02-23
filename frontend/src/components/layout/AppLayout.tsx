@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useRef, Fragment, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import Link from 'next/link';
 import {
   Box,
   Drawer,
@@ -153,7 +154,6 @@ const adminMenus: MenuItemType[] = [
     ],
   },
   { id: 'hq-upload', label: '본사 단가표 업로드', icon: <UploadIcon />, path: '/admin/hq-upload' },
-  { id: 'branches', label: '지사 관리', icon: <AccountBalanceIcon />, path: '/admin/branches' },
   { id: 'partners', label: '거래처 관리', icon: <BusinessIcon />, path: '/admin/partners' },
   { id: 'partner-upload', label: '거래처 단가표 업로드', icon: <UploadIcon />, path: '/admin/partner-upload' },
   { id: 'grades', label: '등급 관리', icon: <GradeIcon />, path: '/admin/grades' },
@@ -196,6 +196,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   });
   // Strict Mode 이중 실행 방지용 ref
   const sessionCheckRef = useRef(false);
+  // NProgress-style 경로 전환 로딩 상태
+  const [navigating, setNavigating] = useState(false);
+  const prevPathRef = useRef(pathname);
   const { enqueueSnackbar, closeSnackbar } = useSnackbar();
 
   // 테마 전환 핸들러
@@ -379,6 +382,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSettlementDomain]);
 
+  // 경로 전환 시 navigating 해제
+  useEffect(() => {
+    if (prevPathRef.current !== pathname) {
+      setNavigating(false);
+      prevPathRef.current = pathname;
+    }
+  }, [pathname]);
+
+  // ── sessionCheckRef 방어적 리셋 ──────────────────────────────
+  // isAuthenticated가 false가 되었는데 sessionCheckRef가 true이면 리셋
+  // → 다음 렌더 사이클에서 세션 복원 재시도 가능
+  useEffect(() => {
+    if (isHydrated && !isAuthenticated && sessionCheckRef.current) {
+      sessionCheckRef.current = false;
+    }
+  }, [isHydrated, isAuthenticated]);
+
   // ── 로딩 판정 ──────────────────────────────────────────────────
   // isAuthenticated가 true가 되면 sessionRestoring 상태와 무관하게 로딩 해제
   // → Zustand(setAuth)와 useState(setSessionRestoring) 배칭 타이밍 차이 해결
@@ -466,7 +486,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const handleNavigate = (path: string) => {
     router.push(path);
   };
-  
+
   const handleToggleExpand = (menuId: string) => {
     setExpandedMenus((prev) => {
       const newSet = new Set(prev);
@@ -493,6 +513,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const hasChildren = menu.children && menu.children.length > 0;
     const isExpanded = expandedMenus.has(menu.id);
     const isActive = menu.path ? pathname === menu.path : isMenuActive(menu);
+    const isLeaf = !hasChildren && !!menu.path;
 
     // 미니 모드: 서브메뉴 아이템 숨김
     if (miniMode && level > 0) return null;
@@ -508,6 +529,40 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       },
     };
 
+    const buttonSx = {
+      mx: 1,
+      borderRadius: 2,
+      ...(miniMode
+        ? { justifyContent: 'center', px: 1, minHeight: 48 }
+        : { pl: 2 + level * 2 }
+      ),
+      ...selectedSx,
+      ...(!miniMode && hasChildren && isActive && {
+        bgcolor: (theme: import('@mui/material').Theme) => theme.palette.mode === 'light' ? 'grey.100' : 'grey.800',
+        '& .MuiListItemText-primary': { fontWeight: 600 },
+      }),
+      // Link 사용 시 기본 a 태그 스타일 제거
+      ...(isLeaf && { textDecoration: 'none', color: 'inherit' }),
+    };
+
+    const buttonContent = (
+      <>
+        <ListItemIcon sx={{ minWidth: miniMode ? 0 : 36 }}>{menu.icon}</ListItemIcon>
+        {!miniMode && (
+          <>
+            <ListItemText
+              primary={menu.label}
+              primaryTypographyProps={{
+                variant: level > 0 ? 'body2' : 'body1',
+                fontWeight: isActive ? 600 : 400,
+              }}
+            />
+            {hasChildren && (isExpanded ? <ExpandLess /> : <ExpandMore />)}
+          </>
+        )}
+      </>
+    );
+
     return (
       <Fragment key={menu.id}>
         <ListItem disablePadding>
@@ -519,49 +574,38 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             disableFocusListener={!miniMode}
             disableTouchListener={!miniMode}
           >
-            <ListItemButton
-              selected={!hasChildren && isActive}
-              onClick={() => {
-                if (hasChildren) {
-                  if (miniMode) {
-                    // 미니 모드에서 자식 있는 항목: 첫 번째 경로로 이동
-                    const firstPath = menu.children?.find(c => c.path)?.path;
-                    if (firstPath) handleNavigate(firstPath);
-                  } else {
-                    handleToggleExpand(menu.id);
+            {isLeaf ? (
+              /* Link로 감싸서 hover 시 prefetch → 클릭 시 즉시 전환 */
+              <ListItemButton
+                component={Link}
+                href={menu.path!}
+                prefetch={true}
+                selected={isActive}
+                onClick={() => {
+                  if (pathname !== menu.path) setNavigating(true);
+                }}
+                sx={buttonSx}
+              >
+                {buttonContent}
+              </ListItemButton>
+            ) : (
+              <ListItemButton
+                selected={false}
+                onClick={() => {
+                  if (hasChildren) {
+                    if (miniMode) {
+                      const firstPath = menu.children?.find(c => c.path)?.path;
+                      if (firstPath) handleNavigate(firstPath);
+                    } else {
+                      handleToggleExpand(menu.id);
+                    }
                   }
-                } else if (menu.path) {
-                  handleNavigate(menu.path);
-                }
-              }}
-              sx={{
-                mx: 1,
-                borderRadius: 2,
-                ...(miniMode
-                  ? { justifyContent: 'center', px: 1, minHeight: 48 }
-                  : { pl: 2 + level * 2 }
-                ),
-                ...selectedSx,
-                ...(!miniMode && hasChildren && isActive && {
-                  bgcolor: (theme) => theme.palette.mode === 'light' ? 'grey.100' : 'grey.800',
-                  '& .MuiListItemText-primary': { fontWeight: 600 },
-                }),
-              }}
-            >
-              <ListItemIcon sx={{ minWidth: miniMode ? 0 : 36 }}>{menu.icon}</ListItemIcon>
-              {!miniMode && (
-                <>
-                  <ListItemText
-                    primary={menu.label}
-                    primaryTypographyProps={{
-                      variant: level > 0 ? 'body2' : 'body1',
-                      fontWeight: isActive ? 600 : 400,
-                    }}
-                  />
-                  {hasChildren && (isExpanded ? <ExpandLess /> : <ExpandMore />)}
-                </>
-              )}
-            </ListItemButton>
+                }}
+                sx={buttonSx}
+              >
+                {buttonContent}
+              </ListItemButton>
+            )}
           </Tooltip>
         </ListItem>
 
@@ -885,6 +929,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       >
         {/* AppBar 높이(48px)만큼 공간 확보 */}
         <Box sx={{ minHeight: 48, flexShrink: 0 }} />
+        {/* 경로 전환 로딩 바 */}
+        {navigating && (
+          <Box sx={{
+            position: 'absolute',
+            top: 48,
+            left: 0,
+            right: 0,
+            zIndex: (theme) => theme.zIndex.drawer + 2,
+            height: 2,
+            bgcolor: 'primary.main',
+            animation: 'navProgress 1.5s ease-in-out infinite',
+            '@keyframes navProgress': {
+              '0%': { width: '0%', ml: 0 },
+              '50%': { width: '70%', ml: '15%' },
+              '100%': { width: '100%', ml: 0 },
+            },
+          }} />
+        )}
         <Box
           sx={{
             flex: 1,

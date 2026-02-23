@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  Box, Typography, Stack, Tab, Tabs, Table, TableBody, TableCell,
+  Box, Typography, Stack, Tab, Tabs, Table, TableBody, TableCell, TableFooter,
   TableHead, TableRow, TableSortLabel,
   TextField, InputAdornment, Chip, IconButton, Tooltip, LinearProgress,
   alpha, useTheme, Avatar, Skeleton, Fade, ToggleButtonGroup, ToggleButton,
@@ -240,6 +240,13 @@ export default function CounterpartyStatusPage() {
     () => filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
     [filteredData, page, rowsPerPage]
   );
+
+  const pageSums = useMemo(() => ({
+    total_vouchers: paginatedData.reduce((s, d) => s + d.total_vouchers, 0),
+    total_amount: paginatedData.reduce((s, d) => s + d.total_amount, 0),
+    paid_amount: paginatedData.reduce((s, d) => s + d.paid_amount, 0),
+    balance: paginatedData.reduce((s, d) => s + d.balance, 0),
+  }), [paginatedData]);
 
   const handleSort = (field: SortField) => {
     setOrder(orderBy === field && order === 'asc' ? 'desc' : 'asc');
@@ -484,7 +491,7 @@ export default function CounterpartyStatusPage() {
                       onClick={() => router.push(`/settlement/counterparties/${row.id}`)}
                     >
                       <TableCell sx={{
-                        color: 'text.secondary', fontSize: '0.75rem',
+                        color: 'text.secondary',
                         ...(row.is_favorite && {
                           borderLeft: `3px solid ${theme.palette.warning.main}`,
                         }),
@@ -493,7 +500,7 @@ export default function CounterpartyStatusPage() {
                       </TableCell>
 
                       {/* 즐겨찾기 버튼 */}
-                      <TableCell sx={{ py: 0.5 }}>
+                      <TableCell>
                         <Tooltip title={row.is_favorite ? '즐겨찾기 해제' : '즐겨찾기 추가'} placement="right">
                           <IconButton
                             size="small"
@@ -534,8 +541,7 @@ export default function CounterpartyStatusPage() {
                       </TableCell>
 
                       <TableCell align="right">
-                        <Chip label={formatNumber(row.total_vouchers)} size="small" variant="outlined"
-                          sx={{ fontSize: '0.7rem', height: 22 }} />
+                        <Chip label={formatNumber(row.total_vouchers)} size="small" variant="outlined" />
                       </TableCell>
                       <TableCell align="right" sx={{ fontWeight: 500 }}>
                         {formatCurrency(row.total_amount)}
@@ -560,7 +566,7 @@ export default function CounterpartyStatusPage() {
                           />
                         )}
                       </TableCell>
-                      <TableCell sx={{ fontSize: '0.8rem', color: 'text.secondary' }}>
+                      <TableCell sx={{ color: 'text.secondary' }}>
                         {formatDate(row.last_transaction_date)}
                       </TableCell>
                       <TableCell align="center">
@@ -579,6 +585,27 @@ export default function CounterpartyStatusPage() {
                 ))
               )}
             </TableBody>
+            {!loading && paginatedData.length > 0 && (
+              <TableFooter>
+                <TableRow sx={{
+                  '& td': {
+                    borderBottom: 'none',
+                    fontWeight: 700,
+                    fontSize: '0.8125rem',
+                    bgcolor: theme.palette.mode === 'light' ? 'grey.50' : 'grey.900',
+                    borderTop: '2px solid',
+                    borderColor: 'divider',
+                  },
+                }}>
+                  <TableCell colSpan={3} sx={{ fontWeight: 700 }}>합계</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>{formatNumber(pageSums.total_vouchers)}</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>{formatCurrency(pageSums.total_amount)}</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700, color: 'success.main' }}>{formatCurrency(pageSums.paid_amount)}</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700, color: isReceivables ? 'success.main' : 'error.main' }}>{formatCurrency(pageSums.balance)}</TableCell>
+                  <TableCell colSpan={2} />
+                </TableRow>
+              </TableFooter>
+            )}
         </Table>
       </AppTableShell>
     </AppPageContainer>

@@ -54,6 +54,11 @@ SETTLEMENT_ACTIONS = [
     AuditAction.COUNTERPARTY_BATCH_DELETE,
     AuditAction.COUNTERPARTY_ALIAS_CREATE,
     AuditAction.COUNTERPARTY_ALIAS_DELETE,
+    # 지사
+    AuditAction.BRANCH_CREATE,
+    AuditAction.BRANCH_UPDATE,
+    AuditAction.BRANCH_DELETE,
+    AuditAction.BRANCH_RESTORE,
     # 변경 감지 / 승인
     AuditAction.VOUCHER_CHANGE_DETECTED,
     AuditAction.VOUCHER_CHANGE_APPROVED,
@@ -85,6 +90,8 @@ CATEGORY_ACTIONS = {
         AuditAction.COUNTERPARTY_DELETE, AuditAction.COUNTERPARTY_BATCH_CREATE,
         AuditAction.COUNTERPARTY_BATCH_DELETE, AuditAction.COUNTERPARTY_ALIAS_CREATE,
         AuditAction.COUNTERPARTY_ALIAS_DELETE,
+        AuditAction.BRANCH_CREATE, AuditAction.BRANCH_UPDATE,
+        AuditAction.BRANCH_DELETE, AuditAction.BRANCH_RESTORE,
     ],
     "change": [
         AuditAction.VOUCHER_CHANGE_DETECTED,

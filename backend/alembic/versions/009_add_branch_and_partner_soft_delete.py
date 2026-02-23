@@ -61,13 +61,13 @@ def upgrade() -> None:
 
     # 4. audit_action enum에 새 값 추가
     conn = op.get_bind()
-    conn.execute(text("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'partner_delete'"))
-    conn.execute(text("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'partner_restore'"))
-    conn.execute(text("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'partner_move'"))
-    conn.execute(text("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'branch_create'"))
-    conn.execute(text("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'branch_update'"))
-    conn.execute(text("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'branch_delete'"))
-    conn.execute(text("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'branch_restore'"))
+    conn.execute(text("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'PARTNER_DELETE'"))
+    conn.execute(text("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'PARTNER_RESTORE'"))
+    conn.execute(text("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'PARTNER_MOVE'"))
+    conn.execute(text("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'BRANCH_CREATE'"))
+    conn.execute(text("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'BRANCH_UPDATE'"))
+    conn.execute(text("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'BRANCH_DELETE'"))
+    conn.execute(text("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'BRANCH_RESTORE'"))
 
     # 5. 인덱스
     op.create_index('ix_partners_branch_id', 'partners', ['branch_id'])

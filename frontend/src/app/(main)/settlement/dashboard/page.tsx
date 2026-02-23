@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Grid, Typography, Skeleton, Alert,
   Paper, Chip, alpha, useTheme, Stack, LinearProgress,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Table, TableBody, TableCell, TableContainer, TableFooter, TableHead, TableRow,
   IconButton, Tooltip, Button, Avatar, Divider, Badge,
 } from '@mui/material';
 import {
@@ -212,6 +212,9 @@ export default function SettlementDashboardPage() {
     totalReceivable: favorites.reduce((s, f) => s + f.receivable, 0),
     totalPayable: favorites.reduce((s, f) => s + f.payable, 0),
   }), [favorites]);
+
+  const receivableSum = useMemo(() => topReceivables.reduce((s, i) => s + i.amount, 0), [topReceivables]);
+  const payableSum = useMemo(() => topPayables.reduce((s, i) => s + i.amount, 0), [topPayables]);
 
   // ─── PageHeader용 KPI 칩 (데이터 로드 후 렌더링) ─────────────────────────
 
@@ -693,6 +696,24 @@ export default function SettlementDashboardPage() {
                     </TableRow>
                   ))}
                 </TableBody>
+                {!loading && topReceivables.length > 0 && (
+                  <TableFooter>
+                    <TableRow sx={{
+                      '& td': {
+                        borderBottom: 'none',
+                        fontWeight: 700,
+                        fontSize: '0.8125rem',
+                        bgcolor: theme.palette.mode === 'light' ? 'grey.50' : 'grey.900',
+                        borderTop: '2px solid',
+                        borderColor: 'divider',
+                      },
+                    }}>
+                      <TableCell colSpan={2} sx={{ fontWeight: 700 }}>합계</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, color: 'error.main' }}>{formatAmount(receivableSum)}</TableCell>
+                      <TableCell colSpan={2} />
+                    </TableRow>
+                  </TableFooter>
+                )}
               </Table>
             </TableContainer>
           </AppSectionCard>
@@ -782,6 +803,24 @@ export default function SettlementDashboardPage() {
                     </TableRow>
                   ))}
                 </TableBody>
+                {!loading && topPayables.length > 0 && (
+                  <TableFooter>
+                    <TableRow sx={{
+                      '& td': {
+                        borderBottom: 'none',
+                        fontWeight: 700,
+                        fontSize: '0.8125rem',
+                        bgcolor: theme.palette.mode === 'light' ? 'grey.50' : 'grey.900',
+                        borderTop: '2px solid',
+                        borderColor: 'divider',
+                      },
+                    }}>
+                      <TableCell colSpan={2} sx={{ fontWeight: 700 }}>합계</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, color: 'warning.dark' }}>{formatAmount(payableSum)}</TableCell>
+                      <TableCell colSpan={2} />
+                    </TableRow>
+                  </TableFooter>
+                )}
               </Table>
             </TableContainer>
           </AppSectionCard>

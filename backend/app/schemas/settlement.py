@@ -21,6 +21,7 @@ class CounterpartyCreate(BaseModel):
     counterparty_type: str = Field("both", description="seller/buyer/both")
     contact_info: Optional[str] = None
     memo: Optional[str] = None
+    branch_id: Optional[UUID] = Field(None, description="소속 지사 ID")
 
 
 class CounterpartyUpdate(BaseModel):
@@ -30,6 +31,7 @@ class CounterpartyUpdate(BaseModel):
     contact_info: Optional[str] = None
     memo: Optional[str] = None
     is_active: Optional[bool] = None
+    branch_id: Optional[UUID] = Field(None, description="소속 지사 ID")
 
 
 class CounterpartyAliasCreate(BaseModel):
@@ -55,6 +57,8 @@ class CounterpartyResponse(BaseModel):
     memo: Optional[str] = None
     is_active: bool
     is_favorite: bool = False  # API 레이어에서 주입
+    branch_id: Optional[UUID] = None
+    branch_name: Optional[str] = None  # API 레이어에서 주입
     created_at: datetime
     updated_at: datetime
     aliases: List[CounterpartyAliasResponse] = []

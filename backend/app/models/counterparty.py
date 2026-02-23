@@ -46,6 +46,14 @@ class Counterparty(Base):
         comment="거래처 타입: seller(판매처)/buyer(매입처)/both(양쪽)",
     )
 
+    # 소속 지사
+    branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("branches.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="소속 지사 ID",
+    )
+
     # 연락처 / 메모
     contact_info: Mapped[str | None] = mapped_column(
         String(500),
@@ -75,6 +83,7 @@ class Counterparty(Base):
     )
 
     # 관계
+    branch = relationship("Branch", back_populates="counterparties")
     aliases = relationship(
         "CounterpartyAlias", back_populates="counterparty", cascade="all, delete-orphan"
     )

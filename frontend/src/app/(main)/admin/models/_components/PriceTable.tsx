@@ -109,7 +109,6 @@ function PriceTableComponent({
                         label={`${configuredCount}/${sortedGrades.length}`}
                         size="small"
                         color={configuredCount === 0 ? 'error' : 'warning'}
-                        sx={{ height: 20, fontSize: '0.7rem' }}
                       />
                     )}
                   </Box>
@@ -124,7 +123,7 @@ function PriceTableComponent({
                   const isChanged = !!change;
                   
                   return (
-                    <TableCell key={grade.id} align="center" sx={{ p: 1 }}>
+                    <TableCell key={grade.id} align="center">
                       <EditableCell
                         value={currentValue}
                         originalValue={originalPrice}

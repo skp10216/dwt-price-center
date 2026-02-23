@@ -18,16 +18,7 @@ const nextConfig = {
     ],
   },
   
-  // 리다이렉트
-  async redirects() {
-    return [
-      {
-        source: '/',
-        destination: '/prices',
-        permanent: false,
-      },
-    ];
-  },
+  // 리다이렉트: 루트 경로는 middleware에서 도메인별로 처리 (next.config 리다이렉트가 middleware보다 먼저 실행되므로 여기서 지정하면 안 됨)
 };
 
 module.exports = nextConfig;

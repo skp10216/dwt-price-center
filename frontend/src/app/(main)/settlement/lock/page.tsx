@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Box, Typography, Paper, Button, Stack, Table, TableBody, TableCell,
+  Box, Typography, Paper, Button, Stack, Table, TableBody, TableCell, TableFooter,
   TableHead, TableRow, Chip, Dialog, DialogTitle,
   DialogContent, DialogActions, TextField, Alert, alpha, useTheme,
   FormControl, InputLabel,
@@ -104,7 +104,7 @@ export default function LockManagementPage() {
       const data = res.data as unknown as { locks: LockEntry[] };
       setLocks(data.locks || []);
     } catch {
-      // handle
+      enqueueSnackbar('마감 목록을 불러오지 못했습니다', { variant: 'error' });
     } finally {
       setLocksLoading(false);
     }
@@ -345,7 +345,7 @@ export default function LockManagementPage() {
                               </TableCell>
                               <TableCell align="right">{(lock?.locked_vouchers ?? 0).toLocaleString()}</TableCell>
                               <TableCell align="right">{(lock?.total_vouchers ?? 0).toLocaleString()}</TableCell>
-                              <TableCell sx={{ fontSize: '0.8rem' }}>
+                              <TableCell>
                                 {lock?.locked_at ? new Date(lock.locked_at).toLocaleDateString('ko-KR') : '—'}
                               </TableCell>
                               <TableCell>
@@ -358,7 +358,7 @@ export default function LockManagementPage() {
                                   </Stack>
                                 ) : '—'}
                               </TableCell>
-                              <TableCell sx={{ fontSize: '0.8rem', maxWidth: 200 }}>
+                              <TableCell sx={{ maxWidth: 200 }}>
                                 <Typography variant="body2" noWrap>{lock?.description || '—'}</Typography>
                               </TableCell>
                               <TableCell align="center">
@@ -378,6 +378,25 @@ export default function LockManagementPage() {
                       })
                     )}
                   </TableBody>
+                  {!locksLoading && locks.length > 0 && (
+                    <TableFooter>
+                      <TableRow sx={{
+                        '& td': {
+                          borderBottom: 'none',
+                          fontWeight: 700,
+                          fontSize: '0.8125rem',
+                          bgcolor: theme.palette.mode === 'light' ? 'grey.50' : 'grey.900',
+                          borderTop: '2px solid',
+                          borderColor: 'divider',
+                        },
+                      }}>
+                        <TableCell colSpan={2} sx={{ fontWeight: 700 }}>합계</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700 }}>{stats.lockedVouchers.toLocaleString()}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700 }}>{stats.totalVouchers.toLocaleString()}</TableCell>
+                        <TableCell colSpan={4} />
+                      </TableRow>
+                    </TableFooter>
+                  )}
                 </Table>
               </Box>
             </AppSectionCard>
@@ -451,7 +470,7 @@ export default function LockManagementPage() {
                         .map((log, index) => (
                           <Fade in key={log.id} timeout={300} style={{ transitionDelay: `${index * 20}ms` }}>
                             <TableRow hover>
-                              <TableCell sx={{ fontSize: '0.8rem' }}>{formatKST(log.created_at)}</TableCell>
+                              <TableCell>{formatKST(log.created_at)}</TableCell>
                               <TableCell>
                                 <Chip label={log.year_month} size="small" variant="outlined" />
                               </TableCell>
@@ -471,7 +490,7 @@ export default function LockManagementPage() {
                                   <Typography variant="body2">{log.user_name}</Typography>
                                 </Stack>
                               </TableCell>
-                              <TableCell sx={{ fontSize: '0.8rem', maxWidth: 300 }}>
+                              <TableCell sx={{ maxWidth: 300 }}>
                                 <Typography variant="body2" noWrap>{log.description || '—'}</Typography>
                               </TableCell>
                             </TableRow>

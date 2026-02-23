@@ -760,6 +760,12 @@ export const settlementApi = {
       { items },
     ),
 
+  batchAssignBranch: (data: { branch_id: string; add_ids: string[]; remove_ids: string[] }) =>
+    api.post<ApiResponse<{ added_count: number; removed_count: number }>>(
+      '/settlement/counterparties/batch-assign-branch',
+      data,
+    ),
+
   // 마감
   lockVoucher: (voucherId: string, memo?: string) =>
     api.post<ApiResponse<unknown>>(`/settlement/lock/voucher/${voucherId}`, null, { params: { memo } }),

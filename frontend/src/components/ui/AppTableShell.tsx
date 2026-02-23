@@ -175,6 +175,11 @@ export default function AppTableShell({
                 zIndex: 2,
               },
             }),
+            '& tfoot td': {
+              position: 'sticky',
+              bottom: 0,
+              zIndex: 2,
+            },
             ...tableContainerSx,
           }}
         >

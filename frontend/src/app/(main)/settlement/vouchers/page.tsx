@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, TextField, MenuItem, Select, InputLabel, FormControl,
-  Table, TableBody, TableCell, TableHead, TableRow,
+  Table, TableBody, TableCell, TableFooter, TableHead, TableRow,
   Chip, Tooltip, Button, alpha, InputAdornment, useTheme,
   Checkbox, Dialog, DialogTitle, DialogContent, DialogActions, Alert, AlertTitle,
   TableSortLabel, Typography,
@@ -120,6 +120,12 @@ export default function VouchersPage() {
     });
     return sorted;
   }, [vouchers, sortField, sortOrder]);
+
+  const voucherSums = useMemo(() => ({
+    quantity: sortedVouchers.reduce((s, v) => s + (v.quantity ?? 0), 0),
+    total_amount: sortedVouchers.reduce((s, v) => s + (v.total_amount ?? 0), 0),
+    balance: sortedVouchers.reduce((s, v) => s + (v.balance ?? 0), 0),
+  }), [sortedVouchers]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -356,7 +362,6 @@ export default function VouchersPage() {
                         size="small"
                         color={v.voucher_type === 'sales' ? 'primary' : 'secondary'}
                         variant="outlined"
-                        sx={{ height: 20, fontSize: '0.7rem' }}
                       />
                     </TableCell>
                     <TableCell align="right">{v.quantity}</TableCell>
@@ -404,6 +409,38 @@ export default function VouchersPage() {
               })
             )}
           </TableBody>
+          {!loading && sortedVouchers.length > 0 && (
+            <TableFooter>
+              <TableRow sx={{
+                '& td': {
+                  borderBottom: 'none',
+                  fontWeight: 700,
+                  fontSize: '0.8125rem',
+                  bgcolor: theme.palette.mode === 'light' ? 'grey.50' : 'grey.900',
+                  borderTop: '2px solid',
+                  borderColor: 'divider',
+                },
+              }}>
+                <TableCell colSpan={5} sx={{ fontWeight: 700 }}>합계</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 700 }}>{formatAmount(voucherSums.quantity)}</TableCell>
+                <TableCell align="right" sx={{
+                  fontWeight: 700,
+                  fontFeatureSettings: '"tnum"', fontVariantNumeric: 'tabular-nums',
+                }}>
+                  {formatAmount(voucherSums.total_amount)}
+                </TableCell>
+                <TableCell colSpan={2} />
+                <TableCell align="right" sx={{
+                  fontWeight: 700,
+                  fontFeatureSettings: '"tnum"', fontVariantNumeric: 'tabular-nums',
+                  color: voucherSums.balance > 0 ? 'error.main' : 'success.main',
+                }}>
+                  {formatAmount(voucherSums.balance)}
+                </TableCell>
+                <TableCell />
+              </TableRow>
+            </TableFooter>
+          )}
         </Table>
       </AppTableShell>
 

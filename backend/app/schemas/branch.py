@@ -38,6 +38,7 @@ class BranchResponse(BaseModel):
     deleted_at: Optional[datetime] = None
     delete_reason: Optional[str] = None
     partner_count: int = 0
+    counterparty_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -61,6 +62,8 @@ class BranchImpactResponse(BaseModel):
     """지사 삭제 영향 요약"""
     partner_count: int
     affected_partners: list[dict]
+    counterparty_count: int = 0
+    affected_counterparties: list[dict] = []
 
 
 class PartnerBranchMoveRequest(BaseModel):

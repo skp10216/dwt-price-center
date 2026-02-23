@@ -32,8 +32,17 @@ import type { AppearanceSettings } from './settings';
 const createComponentOverrides = (
   mode: PaletteMode,
   accentColor: string,
-  density: ReturnType<typeof getDensityConfig>
-): Theme['components'] => ({
+  density: ReturnType<typeof getDensityConfig>,
+  typo: typeof fontScales['medium'],
+): Theme['components'] => {
+  // fontScale 연동: 타이포그래피 토큰에서 fontSize 추출
+  const fs = {
+    body2: String((typo.body2 as Record<string, unknown>)?.fontSize ?? '0.875rem'),
+    caption: String((typo.caption as Record<string, unknown>)?.fontSize ?? '0.75rem'),
+    overline: String((typo.overline as Record<string, unknown>)?.fontSize ?? '0.6875rem'),
+  };
+
+  return ({
   // 버튼
   MuiButton: {
     styleOverrides: {
@@ -62,7 +71,7 @@ const createComponentOverrides = (
       sizeSmall: {
         padding: `${Math.max(density.buttonPadding.y - 2, 2)}px ${density.buttonPadding.x - 4}px`,
         minHeight: density.inputHeight - 4,
-        fontSize: '0.8125rem',
+        fontSize: fs.body2,
       },
       sizeLarge: {
         padding: `${density.buttonPadding.y + 4}px ${density.buttonPadding.x + 8}px`,
@@ -156,11 +165,11 @@ const createComponentOverrides = (
         fontWeight: 500,
         borderRadius: density.borderRadius,
         transition: transitions.fast,
-        fontSize: '0.75rem',
+        fontSize: fs.caption,
       },
       sizeSmall: {
         height: density.chipHeight - 2,
-        fontSize: '0.6875rem',
+        fontSize: fs.overline,
       },
       filled: {
         '&.MuiChip-colorDefault': {
@@ -207,7 +216,7 @@ const createComponentOverrides = (
       tooltip: {
         backgroundColor: mode === 'light' ? '#1e293b' : '#f1f5f9',
         color: mode === 'light' ? '#f1f5f9' : '#1e293b',
-        fontSize: '0.75rem',
+        fontSize: fs.caption,
         fontWeight: 500,
         padding: '6px 12px',
         borderRadius: density.borderRadius - 2,
@@ -272,13 +281,13 @@ const createComponentOverrides = (
       root: {
         padding: `${density.tableCellPadding.y}px ${density.tableCellPadding.x}px`,
         borderBottom: `1px solid ${getDividerColor(mode)}`,
-        fontSize: '0.8125rem',
+        fontSize: fs.body2,
         lineHeight: 1.4,
       },
       head: {
         fontWeight: 600,
         backgroundColor: mode === 'light' ? '#f8fafc' : '#27272a',
-        fontSize: '0.75rem',
+        fontSize: fs.caption,
         letterSpacing: '0.02em',
         color: mode === 'light' ? '#475569' : '#a1a1aa',
         whiteSpace: 'nowrap',
@@ -322,10 +331,10 @@ const createComponentOverrides = (
         paddingRight: '8px',
       },
       selectLabel: {
-        fontSize: '0.75rem',
+        fontSize: fs.caption,
       },
       displayedRows: {
-        fontSize: '0.75rem',
+        fontSize: fs.caption,
       },
     },
   },
@@ -348,7 +357,7 @@ const createComponentOverrides = (
         minHeight: density.toolbarHeight,
         padding: `${density.buttonPadding.y}px ${density.buttonPadding.x}px`,
         fontWeight: 500,
-        fontSize: '0.8125rem',
+        fontSize: fs.body2,
         textTransform: 'none',
         '&.Mui-selected': {
           fontWeight: 600,
@@ -417,13 +426,13 @@ const createComponentOverrides = (
       root: {
         textTransform: 'none',
         fontWeight: 500,
-        fontSize: '0.8125rem',
+        fontSize: fs.body2,
         borderRadius: density.borderRadius,
         padding: `${density.buttonPadding.y}px ${density.buttonPadding.x}px`,
       },
       sizeSmall: {
         padding: `${Math.max(density.buttonPadding.y - 2, 2)}px ${density.buttonPadding.x - 4}px`,
-        fontSize: '0.75rem',
+        fontSize: fs.caption,
       },
     },
   },
@@ -481,7 +490,7 @@ const createComponentOverrides = (
       },
     },
   },
-});
+});};
 
 // 메인 테마 생성 함수
 export function createAppTheme(
@@ -526,7 +535,7 @@ export function createAppTheme(
     shape: {
       borderRadius: density.borderRadius,
     },
-    components: createComponentOverrides(mode, accent.main, density),
+    components: createComponentOverrides(mode, accent.main, density, typography),
   });
 }
 

@@ -91,6 +91,7 @@ class Branch(Base):
 
     # 관계
     partners = relationship("Partner", back_populates="branch")
+    counterparties = relationship("Counterparty", back_populates="branch")
 
     def __repr__(self) -> str:
         return f"<Branch(id={self.id}, name={self.name})>"
