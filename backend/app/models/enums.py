@@ -133,6 +133,15 @@ class AuditAction(str, enum.Enum):
     PARTNER_UPDATE = "partner_update"
     PARTNER_DEACTIVATE = "partner_deactivate"
     PARTNER_MAPPING_UPDATE = "partner_mapping_update"
+    PARTNER_DELETE = "partner_delete"
+    PARTNER_RESTORE = "partner_restore"
+    PARTNER_MOVE = "partner_move"
+
+    # 지사 관련
+    BRANCH_CREATE = "branch_create"
+    BRANCH_UPDATE = "branch_update"
+    BRANCH_DELETE = "branch_delete"
+    BRANCH_RESTORE = "branch_restore"
     
     # 사용자 관련
     USER_CREATE = "user_create"

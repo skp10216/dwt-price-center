@@ -164,13 +164,13 @@ export default function PartnerUploadPage() {
       <PageHeader
         title="거래처 단가표 업로드"
         description="이미지 또는 엑셀 파일을 업로드하여 거래처 단가를 등록합니다"
-        secondaryAction={
+        actions={
           job
-            ? {
+            ? [{
                 label: '새 업로드',
                 onClick: handleReset,
-                variant: 'outlined',
-              }
+                variant: 'outlined' as const,
+              }]
             : undefined
         }
       />

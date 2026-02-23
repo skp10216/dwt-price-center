@@ -57,22 +57,31 @@ api.interceptors.request.use(
 );
 
 /**
- * 쿠키 삭제 유틸리티 (도메인 포함)
- * 서브도메인 간 공유 쿠키를 올바르게 삭제하기 위해 domain 속성 포함
+ * 쿠키 삭제 유틸리티 (모든 도메인 조합으로 삭제 시도)
+ * 이전에 domain=localhost 로 설정된 쿠키와
+ * domain 없이 설정된 호스트 전용 쿠키 모두 삭제
  */
 function clearAuthCookies() {
   if (typeof document === 'undefined') return;
   const expired = 'expires=Thu, 01 Jan 1970 00:00:00 GMT';
   const hostname = window.location.hostname;
-  const isLocal = hostname === 'localhost' || hostname.endsWith('.localhost');
-  const domainPart = isLocal ? '; domain=localhost' : '; domain=.dwt.price';
   
-  // 도메인 포함 쿠키 삭제 (서브도메인 간 공유 쿠키)
-  document.cookie = `token=; ${expired}; path=/${domainPart}`;
-  document.cookie = `user_role=; ${expired}; path=/${domainPart}`;
-  // 도메인 없이도 삭제 (혹시 도메인 없이 설정된 쿠키 대비)
+  // 1. 도메인 없이 삭제 (현재 호스트 전용 쿠키 - 주요 방식)
   document.cookie = `token=; ${expired}; path=/`;
   document.cookie = `user_role=; ${expired}; path=/`;
+  // 2. 이전 방식(domain=localhost)으로 설정된 잔여 쿠키 삭제
+  document.cookie = `token=; ${expired}; path=/; domain=localhost`;
+  document.cookie = `user_role=; ${expired}; path=/; domain=localhost`;
+  document.cookie = `token=; ${expired}; path=/; domain=.localhost`;
+  document.cookie = `user_role=; ${expired}; path=/; domain=.localhost`;
+  // 3. 현재 호스트 도메인으로도 삭제 시도
+  if (hostname && hostname !== 'localhost') {
+    document.cookie = `token=; ${expired}; path=/; domain=${hostname}`;
+    document.cookie = `user_role=; ${expired}; path=/; domain=${hostname}`;
+  }
+  // 4. 프로덕션 도메인 삭제
+  document.cookie = `token=; ${expired}; path=/; domain=.dwt.price`;
+  document.cookie = `user_role=; ${expired}; path=/; domain=.dwt.price`;
 }
 
 // 응답 인터셉터: 에러 처리
@@ -410,6 +419,41 @@ export const partnersApi = {
 
   toggleFavorite: (partnerId: string) =>
     api.post<ApiResponse<{ is_favorite: boolean }>>(`/partners/${partnerId}/favorite`),
+
+  delete: (id: string, data: { reason?: string; version?: string }) =>
+    api.delete<ApiResponse<unknown>>(`/partners/${id}`, { data }),
+
+  restore: (id: string) =>
+    api.post<ApiResponse<unknown>>(`/partners/${id}/restore`),
+
+  moveBranch: (id: string, data: { branch_id?: string | null; reason?: string; version?: string }) =>
+    api.patch<ApiResponse<unknown>>(`/partners/${id}/branch`, data),
+
+  assignBranch: (data: { partner_ids: string[]; branch_id?: string | null }) =>
+    api.post<ApiResponse<{ updated_count: number }>>('/partners/assign-branch', data),
+};
+
+export const branchesApi = {
+  list: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<{ branches: unknown[]; total: number }>>('/branches', { params }),
+
+  get: (id: string) =>
+    api.get<ApiResponse<unknown>>(`/branches/${id}`),
+
+  create: (data: unknown) =>
+    api.post<ApiResponse<unknown>>('/branches', data),
+
+  update: (id: string, data: unknown) =>
+    api.patch<ApiResponse<unknown>>(`/branches/${id}`, data),
+
+  delete: (id: string, data: { reason?: string; version?: string }) =>
+    api.delete<ApiResponse<unknown>>(`/branches/${id}`, { data }),
+
+  restore: (id: string) =>
+    api.post<ApiResponse<unknown>>(`/branches/${id}/restore`),
+
+  impact: (id: string) =>
+    api.get<ApiResponse<{ partner_count: number; affected_partners: { id: string; name: string }[] }>>(`/branches/${id}/impact`),
 };
 
 export const uploadsApi = {

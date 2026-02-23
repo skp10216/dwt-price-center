@@ -128,10 +128,10 @@ export default function GradesPage() {
       <PageHeader
         title="등급 관리"
         description="중고 기기 상태 등급을 관리합니다. 사용 중인 등급은 삭제할 수 없으며, 비활성화로 운영합니다."
-        action={{
+        actions={[{
           label: '등급 추가',
           onClick: () => openDialog(),
-        }}
+        }]}
       />
       
       <Card>

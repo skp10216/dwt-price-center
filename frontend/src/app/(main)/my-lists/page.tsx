@@ -191,10 +191,10 @@ export default function MyListsPage() {
       <PageHeader
         title="내 리스트"
         description="자주 보는 모델을 리스트로 관리하세요"
-        action={{
+        actions={[{
           label: '리스트 만들기',
           onClick: openCreateDialog,
-        }}
+        }]}
       />
       
       <Grid container spacing={3}>

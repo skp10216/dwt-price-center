@@ -376,7 +376,7 @@ export default function UploadWizardPage() {
       setJobStatus('QUEUED');
 
       const res = await settlementApi.uploadVoucherExcel(file, voucherType, undefined);
-      const data = res.data as { id: string };
+      const data = res.data as unknown as { id: string };
       setJobId(data.id);
 
       // 폴링 시작
@@ -392,7 +392,7 @@ export default function UploadWizardPage() {
     const poll = async () => {
       try {
         const res = await settlementApi.getUploadJob(id);
-        const job = res.data as JobDetail;
+        const job = res.data as unknown as JobDetail;
         setJobProgress(job.progress);
         setJobStatus(job.status);
 
@@ -425,8 +425,8 @@ export default function UploadWizardPage() {
   // ─── Step 2: 거래처 매핑 ───
   const loadCounterparties = async () => {
     try {
-      const res = await settlementApi.getCounterparties({ page: 1, page_size: 1000 });
-      setExistingCounterparties((res.data as { counterparties: Counterparty[] }).counterparties || []);
+      const res = await settlementApi.listCounterparties({ page: 1, page_size: 1000 });
+      setExistingCounterparties((res.data as unknown as { counterparties: Counterparty[] }).counterparties || []);
     } catch { /* ignore */ }
   };
 
@@ -450,7 +450,7 @@ export default function UploadWizardPage() {
       
       // 상세 다시 로드
       const res = await settlementApi.getUploadJob(jobId);
-      setJobDetail(res.data as JobDetail);
+      setJobDetail(res.data as unknown as JobDetail);
       
       enqueueSnackbar(`${toCreate.length}건 거래처 등록 완료`, { variant: 'success' });
       proceedToNextStep();
@@ -467,7 +467,7 @@ export default function UploadWizardPage() {
       if (jobId) {
         await settlementApi.rematchUploadJob(jobId);
         const res = await settlementApi.getUploadJob(jobId);
-        setJobDetail(res.data as JobDetail);
+        setJobDetail(res.data as unknown as JobDetail);
       }
       enqueueSnackbar(`"${aliasName}" 매핑 완료`, { variant: 'success' });
       setMappingActions(prev => ({ ...prev, [aliasName]: { action: 'skip' } }));
@@ -499,7 +499,7 @@ export default function UploadWizardPage() {
       
       // 상세 다시 로드
       const res = await settlementApi.getUploadJob(jobId);
-      setJobDetail(res.data as JobDetail);
+      setJobDetail(res.data as unknown as JobDetail);
     } catch {
       enqueueSnackbar('확정에 실패했습니다', { variant: 'error' });
     } finally {
@@ -544,8 +544,8 @@ export default function UploadWizardPage() {
   const loadHistory = async () => {
     try {
       setHistoryLoading(true);
-      const res = await settlementApi.getUploadJobs({ page: historyPage + 1, page_size: 10 });
-      const data = res.data as { jobs: UploadJob[]; total: number };
+      const res = await settlementApi.listUploadJobs({ page: historyPage + 1, page_size: 10 });
+      const data = res.data as unknown as { jobs: UploadJob[]; total: number };
       setHistoryJobs(data.jobs);
       setHistoryTotal(data.total);
     } catch { /* ignore */ }

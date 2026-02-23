@@ -171,10 +171,10 @@ export default function DeductionsPage() {
       <PageHeader
         title="차감 관리"
         description="상태 이슈별 고정 금액 차감 항목을 관리합니다. 최종가 = 등급별 기본가 - Σ(선택된 차감 금액)"
-        action={{
+        actions={[{
           label: '항목 추가',
           onClick: () => openItemDialog(),
-        }}
+        }]}
       />
       
       {items.length === 0 && !loading ? (

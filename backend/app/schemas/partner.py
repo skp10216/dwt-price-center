@@ -34,6 +34,10 @@ class PartnerResponse(BaseModel):
     contact_info: Optional[str] = None
     memo: Optional[str] = None
     is_active: bool
+    branch_id: Optional[UUID] = None
+    branch_name: Optional[str] = None  # API 레이어에서 주입
+    deleted_at: Optional[datetime] = None
+    delete_reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     price_count: Optional[int] = None  # 등록된 가격 수

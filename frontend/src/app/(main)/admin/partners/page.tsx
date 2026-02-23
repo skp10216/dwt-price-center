@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -23,6 +23,12 @@ import {
   Grid,
   ToggleButton,
   ToggleButtonGroup,
+  FormControlLabel,
+  Switch,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -30,11 +36,16 @@ import {
   Edit as EditIcon,
   Star as StarIcon,
   StarBorder as StarBorderIcon,
+  Delete as DeleteIcon,
+  RestoreFromTrash as RestoreIcon,
+  Lock as LockIcon,
+  SwapHoriz as SwapHorizIcon,
 } from '@mui/icons-material';
 import { DataGrid, GridColDef, GridActionsCellItem } from '@mui/x-data-grid';
 import { useSnackbar } from 'notistack';
 import PageHeader from '@/components/ui/PageHeader';
-import { partnersApi } from '@/lib/api';
+import ConfirmDeleteDialog from '@/components/ui/ConfirmDeleteDialog';
+import { partnersApi, branchesApi } from '@/lib/api';
 
 interface Partner {
   id: string;
@@ -44,6 +55,16 @@ interface Partner {
   memo: string | null;
   is_active: boolean;
   is_favorite: boolean;
+  branch_id: string | null;
+  branch_name: string | null;
+  deleted_at: string | null;
+  delete_reason: string | null;
+  updated_at: string;
+}
+
+interface Branch {
+  id: string;
+  name: string;
 }
 
 const sortByFavorite = (list: Partner[]) =>
@@ -55,9 +76,11 @@ export default function PartnersPage() {
   const { enqueueSnackbar } = useSnackbar();
 
   const [partners, setPartners] = useState<Partner[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [includeDeleted, setIncludeDeleted] = useState(false);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
@@ -66,28 +89,53 @@ export default function PartnersPage() {
     region: '',
     contact_info: '',
     memo: '',
+    branch_id: '' as string,
   });
 
-  // 거래처 목록 조회
-  const fetchPartners = async () => {
+  // 삭제 Dialog
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingPartner, setDeletingPartner] = useState<Partner | null>(null);
+
+  // 지사 이동 Dialog
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [movingPartner, setMovingPartner] = useState<Partner | null>(null);
+  const [moveBranchId, setMoveBranchId] = useState<string>('');
+  const [moveReason, setMoveReason] = useState('');
+
+  // 지사 목록 로드
+  const fetchBranches = useCallback(async () => {
+    try {
+      const res = await branchesApi.list();
+      setBranches(res.data.data.branches as Branch[]);
+    } catch {
+      // silent
+    }
+  }, []);
+
+  const fetchPartners = useCallback(async () => {
     setLoading(true);
     try {
       const response = await partnersApi.list({
         search: search || undefined,
         favorites_only: favoritesOnly || undefined,
+        include_deleted: includeDeleted || undefined,
       });
       const fetched = response.data.data.partners as Partner[];
       setPartners(sortByFavorite(fetched));
-    } catch (error) {
+    } catch {
       enqueueSnackbar('거래처 목록을 불러오는데 실패했습니다', { variant: 'error' });
     } finally {
       setLoading(false);
     }
-  };
+  }, [search, favoritesOnly, includeDeleted, enqueueSnackbar]);
+
+  useEffect(() => {
+    fetchBranches();
+  }, [fetchBranches]);
 
   useEffect(() => {
     fetchPartners();
-  }, [search, favoritesOnly]);
+  }, [fetchPartners]);
 
   // 즐겨찾기 토글 (옵티미스틱 업데이트)
   const handleToggleFavorite = async (partner: Partner) => {
@@ -102,7 +150,6 @@ export default function PartnersPage() {
         variant: 'success',
       });
     } catch {
-      // 실패 시 롤백
       setPartners((prev) =>
         sortByFavorite(
           prev.map((p) => (p.id === partner.id ? { ...p, is_favorite: partner.is_favorite } : p))
@@ -112,7 +159,6 @@ export default function PartnersPage() {
     }
   };
 
-  // 다이얼로그 열기
   const openDialog = (partner?: Partner) => {
     if (partner) {
       setEditingPartner(partner);
@@ -121,19 +167,19 @@ export default function PartnersPage() {
         region: partner.region || '',
         contact_info: partner.contact_info || '',
         memo: partner.memo || '',
+        branch_id: partner.branch_id || '',
       });
     } else {
       setEditingPartner(null);
-      setFormData({ name: '', region: '', contact_info: '', memo: '' });
+      setFormData({ name: '', region: '', contact_info: '', memo: '', branch_id: '' });
     }
     setDialogOpen(true);
   };
 
-  // 저장
   const handleSave = async () => {
     try {
-      const data = {
-        ...formData,
+      const data: Record<string, unknown> = {
+        name: formData.name,
         region: formData.region || null,
         contact_info: formData.contact_info || null,
         memo: formData.memo || null,
@@ -141,6 +187,13 @@ export default function PartnersPage() {
 
       if (editingPartner) {
         await partnersApi.update(editingPartner.id, data);
+        // 지사 변경이 있으면 별도 API
+        if ((formData.branch_id || null) !== (editingPartner.branch_id || null)) {
+          await partnersApi.moveBranch(editingPartner.id, {
+            branch_id: formData.branch_id || null,
+            version: editingPartner.updated_at,
+          });
+        }
         enqueueSnackbar('거래처가 수정되었습니다', { variant: 'success' });
       } else {
         await partnersApi.create(data);
@@ -149,12 +202,17 @@ export default function PartnersPage() {
       setDialogOpen(false);
       fetchPartners();
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '저장에 실패했습니다';
-      enqueueSnackbar(message, { variant: 'error' });
+      if (error.response?.status === 409) {
+        enqueueSnackbar('다른 사용자가 수정했습니다. 새로고침합니다.', { variant: 'warning' });
+        fetchPartners();
+        setDialogOpen(false);
+      } else {
+        const message = error.response?.data?.error?.message || '저장에 실패했습니다';
+        enqueueSnackbar(message, { variant: 'error' });
+      }
     }
   };
 
-  // 활성/비활성 토글
   const handleToggleActive = async (partner: Partner) => {
     try {
       await partnersApi.update(partner.id, { is_active: !partner.is_active });
@@ -163,8 +221,76 @@ export default function PartnersPage() {
         { variant: 'success' }
       );
       fetchPartners();
-    } catch (error) {
+    } catch {
       enqueueSnackbar('상태 변경에 실패했습니다', { variant: 'error' });
+    }
+  };
+
+  // 삭제
+  const handleDeleteClick = (partner: Partner) => {
+    setDeletingPartner(partner);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async (reason: string) => {
+    if (!deletingPartner) return;
+    try {
+      await partnersApi.delete(deletingPartner.id, {
+        reason: reason || undefined,
+        version: deletingPartner.updated_at,
+      });
+      enqueueSnackbar('거래처가 삭제되었습니다', { variant: 'success' });
+      setDeleteDialogOpen(false);
+      setDeletingPartner(null);
+      fetchPartners();
+    } catch (error: any) {
+      if (error.response?.status === 409) {
+        enqueueSnackbar('다른 사용자가 수정했습니다. 새로고침합니다.', { variant: 'warning' });
+        fetchPartners();
+        setDeleteDialogOpen(false);
+      } else {
+        enqueueSnackbar('삭제에 실패했습니다', { variant: 'error' });
+      }
+    }
+  };
+
+  const handleRestore = async (partner: Partner) => {
+    try {
+      await partnersApi.restore(partner.id);
+      enqueueSnackbar('거래처가 복구되었습니다', { variant: 'success' });
+      fetchPartners();
+    } catch {
+      enqueueSnackbar('복구에 실패했습니다', { variant: 'error' });
+    }
+  };
+
+  // 지사 이동
+  const handleMoveClick = (partner: Partner) => {
+    setMovingPartner(partner);
+    setMoveBranchId(partner.branch_id || '');
+    setMoveReason('');
+    setMoveDialogOpen(true);
+  };
+
+  const handleMoveConfirm = async () => {
+    if (!movingPartner) return;
+    try {
+      await partnersApi.moveBranch(movingPartner.id, {
+        branch_id: moveBranchId || null,
+        reason: moveReason || undefined,
+        version: movingPartner.updated_at,
+      });
+      enqueueSnackbar('지사가 변경되었습니다', { variant: 'success' });
+      setMoveDialogOpen(false);
+      fetchPartners();
+    } catch (error: any) {
+      if (error.response?.status === 409) {
+        enqueueSnackbar('다른 사용자가 수정했습니다. 새로고침합니다.', { variant: 'warning' });
+        fetchPartners();
+        setMoveDialogOpen(false);
+      } else {
+        enqueueSnackbar('지사 변경에 실패했습니다', { variant: 'error' });
+      }
     }
   };
 
@@ -174,51 +300,90 @@ export default function PartnersPage() {
       headerName: '',
       width: 50,
       sortable: false,
-      renderCell: (params) => (
-        <IconButton
-          size="small"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleToggleFavorite(params.row as Partner);
-          }}
-          color={params.row.is_favorite ? 'warning' : 'default'}
-        >
-          {params.row.is_favorite ? (
-            <StarIcon fontSize="small" />
-          ) : (
-            <StarBorderIcon fontSize="small" />
-          )}
-        </IconButton>
-      ),
+      renderCell: (params) => {
+        if (params.row.deleted_at) return null;
+        return (
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleFavorite(params.row as Partner);
+            }}
+            color={params.row.is_favorite ? 'warning' : 'default'}
+          >
+            {params.row.is_favorite ? (
+              <StarIcon fontSize="small" />
+            ) : (
+              <StarBorderIcon fontSize="small" />
+            )}
+          </IconButton>
+        );
+      },
     },
     {
       field: 'is_active',
       headerName: '상태',
-      width: 80,
-      renderCell: (params) => (
-        <Chip
-          label={params.row.is_active ? '활성' : '비활성'}
-          color={params.row.is_active ? 'success' : 'default'}
-          size="small"
-        />
-      ),
+      width: 90,
+      renderCell: (params) => {
+        if (params.row.deleted_at) {
+          return <Chip icon={<LockIcon sx={{ fontSize: 14 }} />} label="삭제됨" size="small" color="default" />;
+        }
+        return (
+          <Chip
+            label={params.row.is_active ? '활성' : '비활성'}
+            color={params.row.is_active ? 'success' : 'default'}
+            size="small"
+          />
+        );
+      },
     },
     { field: 'name', headerName: '거래처명', width: 150, flex: 1 },
+    {
+      field: 'branch_name',
+      headerName: '소속 지사',
+      width: 120,
+      renderCell: (params) => params.row.branch_name || '-',
+    },
     { field: 'region', headerName: '지역', width: 120 },
     { field: 'contact_info', headerName: '연락처', width: 150 },
     {
       field: 'actions',
       type: 'actions',
       headerName: '',
-      width: 100,
-      getActions: (params) => [
-        <GridActionsCellItem
-          key="edit"
-          icon={<EditIcon />}
-          label="수정"
-          onClick={() => openDialog(params.row as Partner)}
-        />,
-      ],
+      width: 150,
+      getActions: (params) => {
+        const row = params.row as Partner;
+        if (row.deleted_at) {
+          return [
+            <GridActionsCellItem
+              key="restore"
+              icon={<RestoreIcon />}
+              label="복구"
+              onClick={() => handleRestore(row)}
+            />,
+          ];
+        }
+        return [
+          <GridActionsCellItem
+            key="edit"
+            icon={<EditIcon />}
+            label="수정"
+            onClick={() => openDialog(row)}
+          />,
+          <GridActionsCellItem
+            key="move"
+            icon={<SwapHorizIcon />}
+            label="지사 이동"
+            onClick={() => handleMoveClick(row)}
+          />,
+          <GridActionsCellItem
+            key="delete"
+            icon={<DeleteIcon />}
+            label="삭제"
+            onClick={() => handleDeleteClick(row)}
+          />,
+        ];
+      },
     },
   ];
 
@@ -227,13 +392,13 @@ export default function PartnersPage() {
       <PageHeader
         title="거래처 관리"
         description="거래처를 등록하고 관리합니다"
-        action={{
+        actions={[{
           label: '거래처 등록',
           onClick: () => openDialog(),
-        }}
+        }]}
       />
 
-      {/* 검색 + 필터 탭 */}
+      {/* 검색 + 필터 */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction="row" spacing={2} alignItems="center">
@@ -265,6 +430,16 @@ export default function PartnersPage() {
                 즐겨찾기
               </ToggleButton>
             </ToggleButtonGroup>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={includeDeleted}
+                  onChange={(e) => setIncludeDeleted(e.target.checked)}
+                  size="small"
+                />
+              }
+              label="삭제된 거래처 포함"
+            />
           </Stack>
         </CardContent>
       </Card>
@@ -278,6 +453,13 @@ export default function PartnersPage() {
           pageSizeOptions={[25, 50]}
           disableRowSelectionOnClick
           autoHeight
+          getRowClassName={(params) => (params.row.deleted_at ? 'row-deleted' : '')}
+          sx={{
+            '& .row-deleted': {
+              bgcolor: 'action.hover',
+              opacity: 0.6,
+            },
+          }}
         />
       </Card>
 
@@ -311,6 +493,23 @@ export default function PartnersPage() {
                 onChange={(e) => setFormData({ ...formData, contact_info: e.target.value })}
               />
             </Grid>
+            {editingPartner && (
+              <Grid item xs={12}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>소속 지사</InputLabel>
+                  <Select
+                    value={formData.branch_id}
+                    onChange={(e) => setFormData({ ...formData, branch_id: e.target.value })}
+                    label="소속 지사"
+                  >
+                    <MenuItem value="">미배정</MenuItem>
+                    {branches.map((b) => (
+                      <MenuItem key={b.id} value={b.id}>{b.name}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            )}
             <Grid item xs={12}>
               <TextField
                 fullWidth
@@ -328,6 +527,49 @@ export default function PartnersPage() {
           <Button onClick={handleSave} variant="contained" disabled={!formData.name.trim()}>
             저장
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 삭제 확인 Dialog */}
+      <ConfirmDeleteDialog
+        open={deleteDialogOpen}
+        onClose={() => { setDeleteDialogOpen(false); setDeletingPartner(null); }}
+        onConfirm={handleDeleteConfirm}
+        title="거래처 삭제"
+        targetName={deletingPartner?.name || ''}
+      />
+
+      {/* 지사 이동 Dialog */}
+      <Dialog open={moveDialogOpen} onClose={() => setMoveDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>지사 이동</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            <strong>{movingPartner?.name}</strong>의 소속 지사를 변경합니다.
+          </Typography>
+          <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+            <InputLabel>이동할 지사</InputLabel>
+            <Select
+              value={moveBranchId}
+              onChange={(e) => setMoveBranchId(e.target.value)}
+              label="이동할 지사"
+            >
+              <MenuItem value="">미배정</MenuItem>
+              {branches.map((b) => (
+                <MenuItem key={b.id} value={b.id}>{b.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <TextField
+            fullWidth
+            label="이동 사유 (선택)"
+            value={moveReason}
+            onChange={(e) => setMoveReason(e.target.value)}
+            size="small"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMoveDialogOpen(false)}>취소</Button>
+          <Button onClick={handleMoveConfirm} variant="contained">이동</Button>
         </DialogActions>
       </Dialog>
     </Box>

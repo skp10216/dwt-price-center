@@ -8,6 +8,7 @@ from app.models.ssot_model import SSOTModel
 from app.models.grade import Grade
 from app.models.grade_price import GradePrice
 from app.models.deduction import DeductionItem, DeductionLevel
+from app.models.branch import Branch
 from app.models.partner import Partner, UserPartnerFavorite
 from app.models.partner_price import PartnerPrice, PartnerMapping
 from app.models.user_list import UserList, UserListItem, UserFavorite
@@ -31,6 +32,7 @@ __all__ = [
     "GradePrice",
     "DeductionItem",
     "DeductionLevel",
+    "Branch",
     "Partner",
     "UserPartnerFavorite",
     "PartnerPrice",

@@ -155,13 +155,13 @@ export default function HQUploadPage() {
       <PageHeader
         title="본사 단가표 업로드"
         description="엑셀 파일을 업로드하여 본사 단가표를 갱신합니다"
-        secondaryAction={
+        actions={
           job
-            ? {
+            ? [{
                 label: '새 업로드',
                 onClick: handleReset,
-                variant: 'outlined',
-              }
+                variant: 'outlined' as const,
+              }]
             : undefined
         }
       />

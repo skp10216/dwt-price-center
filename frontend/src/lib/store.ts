@@ -19,16 +19,16 @@ function isLocalhost(): boolean {
 /**
  * 쿠키 도메인 결정
  * - 프로덕션: .dwt.price (서브도메인 간 공유)
- * - 개발 환경: .localhost (settlement.localhost ↔ admin.localhost ↔ localhost 간 공유)
+ * - 개발 환경 (*.localhost): domain 속성 생략 → 현재 호스트 전용 쿠키
+ *   ⚠️ Chrome에서 domain=localhost 설정 시 settlement.localhost 등
+ *      서브도메인에서 쿠키가 전달되지 않는 알려진 이슈 존재
+ *      → domain 생략하면 현재 호스트(settlement.localhost 등)에서 정상 동작
  */
 function getCookieDomain(): string {
   if (typeof window === 'undefined') return '';
   if (!isLocalhost()) return '; domain=.dwt.price';
-  // *.localhost 서브도메인 간 쿠키 공유 (Chrome/Edge/Firefox 지원)
-  const hostname = window.location.hostname;
-  if (hostname.endsWith('.localhost') || hostname === 'localhost') {
-    return '; domain=localhost';
-  }
+  // 개발 환경: domain 속성 생략 (호스트 전용 쿠키)
+  // settlement.localhost / admin.localhost / localhost 각각 독립 쿠키
   return '';
 }
 
@@ -39,10 +39,25 @@ function setCookie(name: string, value: string, days: number = 7) {
   document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/${domain}; SameSite=Lax`;
 }
 
+/**
+ * 쿠키 완전 삭제 (모든 가능한 domain/path 조합으로 시도)
+ * Chrome에서 domain=localhost 쿠키가 정상 삭제되지 않는 경우를 대비
+ */
 function deleteCookie(name: string) {
   if (typeof document === 'undefined') return;
-  const domain = getCookieDomain();
-  document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/${domain}`;
+  const expired = 'expires=Thu, 01 Jan 1970 00:00:00 GMT';
+  // 모든 가능한 도메인 조합으로 삭제 시도
+  document.cookie = `${name}=; ${expired}; path=/`;
+  document.cookie = `${name}=; ${expired}; path=/; domain=localhost`;
+  document.cookie = `${name}=; ${expired}; path=/; domain=.localhost`;
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname && hostname !== 'localhost') {
+      document.cookie = `${name}=; ${expired}; path=/; domain=${hostname}`;
+      document.cookie = `${name}=; ${expired}; path=/; domain=.${hostname}`;
+    }
+  }
+  document.cookie = `${name}=; ${expired}; path=/; domain=.dwt.price`;
 }
 
 // 아이디 저장 관련 유틸리티

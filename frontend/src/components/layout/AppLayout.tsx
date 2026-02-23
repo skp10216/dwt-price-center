@@ -153,6 +153,7 @@ const adminMenus: MenuItemType[] = [
     ],
   },
   { id: 'hq-upload', label: '본사 단가표 업로드', icon: <UploadIcon />, path: '/admin/hq-upload' },
+  { id: 'branches', label: '지사 관리', icon: <AccountBalanceIcon />, path: '/admin/branches' },
   { id: 'partners', label: '거래처 관리', icon: <BusinessIcon />, path: '/admin/partners' },
   { id: 'partner-upload', label: '거래처 단가표 업로드', icon: <UploadIcon />, path: '/admin/partner-upload' },
   { id: 'grades', label: '등급 관리', icon: <GradeIcon />, path: '/admin/grades' },
@@ -188,33 +189,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [miniMode, setMiniMode] = useState(false);
   const [latestSalesDate, setLatestSalesDate] = useState<string | null>(null);
   const [latestPurchaseDate, setLatestPurchaseDate] = useState<string | null>(null);
-  const [sessionRestoring, setSessionRestoring] = useState(false);
+  // 세션 복원 상태: 쿠키 토큰이 존재하면 true로 시작 → 빈 화면 깜빡임 방지
+  const [sessionRestoring, setSessionRestoring] = useState(() => {
+    if (typeof document === 'undefined') return true; // SSR: 안전하게 로딩 표시
+    return !!document.cookie.match(/(?:^|;\s*)token=([^;]*)/);
+  });
+  // Strict Mode 이중 실행 방지용 ref
+  const sessionCheckRef = useRef(false);
   const { enqueueSnackbar, closeSnackbar } = useSnackbar();
-
-  // ────────────────────────────────────────────────────────────
-  // 안정적 참조(Ref): effect 의존성 배열에서 함수/객체 참조 불안정 제거
-  // router, setAuth, logout 등은 렌더마다 새 참조가 될 수 있어
-  // effect가 무한 재실행되는 원인이 됨 → ref로 항상 최신값 참조
-  // ────────────────────────────────────────────────────────────
-  const routerRef = useRef(router);
-  routerRef.current = router;
-  const setAuthRef = useRef(setAuth);
-  setAuthRef.current = setAuth;
-  const logoutRef = useRef(logout);
-  logoutRef.current = logout;
-
-  // Hydration 안전장치: 5초 이상 hydration 안 되면 강제 진행
-  const [hydrationFallback, setHydrationFallback] = useState(false);
-  useEffect(() => {
-    if (isHydrated) return;
-    const timer = setTimeout(() => {
-      console.warn('[AppLayout] Hydration 타임아웃 (5초) → 강제 진행');
-      setHydrationFallback(true);
-    }, 5_000);
-    return () => clearTimeout(timer);
-  }, [isHydrated]);
-
-  const effectiveHydrated = isHydrated || hydrationFallback;
 
   // 테마 전환 핸들러
   const handleThemeToggle = () => {
@@ -269,90 +251,71 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // 인증 체크 + 세션 복원 (hydration 완료 후에만)
   // 서브도메인 간 전환 시 Zustand(localStorage)에는 인증 정보가 없지만
   // 쿠키에 토큰이 남아있는 경우 /auth/me API로 세션을 복원
-  //
-  // ⚠️ 의존성에 router/setAuth/logout을 넣으면 렌더마다 effect가 재실행되어
-  //    무한 루프 발생 → ref 패턴으로 안정적 의존성만 사용
-  const sessionRestoredRef = useRef(false);
-
   useEffect(() => {
-    if (!effectiveHydrated || isAuthenticated) return;
-    if (sessionRestoredRef.current) return; // 이미 복원 시도 중 → 중복 방지
+    // hydration 대기
+    if (!isHydrated) return;
+
+    // 이미 인증됨 → 세션 복원 불필요, 로딩 해제
+    if (isAuthenticated) {
+      setSessionRestoring(false);
+      return;
+    }
+
+    // Strict Mode 이중 실행 방지
+    if (sessionCheckRef.current) return;
+    sessionCheckRef.current = true;
 
     // 쿠키에서 토큰 확인
     const cookieMatch = document.cookie.match(/(?:^|;\s*)token=([^;]*)/);
     if (!cookieMatch) {
       // 쿠키에도 토큰 없음 → 로그인 필요
-      routerRef.current.push('/login');
+      setSessionRestoring(false);
+      router.push('/login');
       return;
     }
 
-    sessionRestoredRef.current = true;
+    // 쿠키 토큰으로 세션 복원 시도
     const cookieToken = decodeURIComponent(cookieMatch[1]);
     setSessionRestoring(true);
-
-    // 안전장치: 10초 타임아웃 (API 무응답 시 로딩 화면 탈출)
-    let cancelled = false;
-    const timeout = setTimeout(() => {
-      if (cancelled) return;
-      console.warn('[AppLayout] 세션 복원 타임아웃 (10초) → 로그인 페이지로 이동');
-      cancelled = true;
-      setSessionRestoring(false);
-      logoutRef.current();
-      routerRef.current.push('/login');
-    }, 10_000);
-
     authApi.getMe()
       .then((response) => {
-        if (cancelled) return;
-        clearTimeout(timeout);
         const userData = response.data.data as User;
+        // setAuth(Zustand)와 setSessionRestoring(useState)을 함께 호출
+        // React 18 배칭으로 단일 렌더링에 반영됨
+        setAuth(userData, cookieToken);
         setSessionRestoring(false);
-        setAuthRef.current(userData, cookieToken);
       })
       .catch(() => {
-        if (cancelled) return;
-        clearTimeout(timeout);
         // 토큰 만료 또는 유효하지 않음 → 쿠키 정리 후 로그인 페이지
         setSessionRestoring(false);
-        logoutRef.current();
-        routerRef.current.push('/login');
+        sessionCheckRef.current = false; // 다음 시도 허용
+        logout();
+        router.push('/login');
       });
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timeout);
-    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveHydrated, isAuthenticated]);
+  }, [isHydrated, isAuthenticated]);
   
-  // 관리자 도메인에서 admin 권한 강제
-  // ⚠️ isAuthenticated 체크 필수: 세션 복원 중에는 user가 null이므로
-  //    인증 완료 후에만 역할 검증해야 무한 로그아웃 루프 방지
+  // 관리자 도메인에서 admin 권한 강제 (인증 완료 후에만)
   useEffect(() => {
-    if (effectiveHydrated && isAuthenticated && isAdminDomain && user?.role !== 'admin') {
-      logoutRef.current();
-      routerRef.current.push('/login?error=admin_required');
+    if (isHydrated && isAuthenticated && isAdminDomain && user?.role !== 'admin') {
+      console.warn('[AppLayout] 관리자 도메인 권한 불일치 → 로그아웃', { role: user?.role });
+      logout();
+      router.push('/login?error=admin_required');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveHydrated, isAuthenticated, isAdminDomain, user?.role]);
+  }, [isHydrated, isAuthenticated, isAdminDomain, user?.role]);
 
-  // 정산 도메인에서 settlement 또는 admin 권한 강제
+  // 정산 도메인에서 settlement 또는 admin 권한 강제 (인증 완료 후에만)
   useEffect(() => {
-    if (effectiveHydrated && isAuthenticated && isSettlementDomain && user?.role !== 'settlement' && user?.role !== 'admin') {
-      logoutRef.current();
-      routerRef.current.push('/login?error=settlement_required');
+    if (isHydrated && isAuthenticated && isSettlementDomain && user?.role !== 'settlement' && user?.role !== 'admin') {
+      console.warn('[AppLayout] 정산 도메인 권한 불일치 → 로그아웃', { role: user?.role, isSettlementDomain });
+      logout();
+      router.push('/login?error=settlement_required');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveHydrated, isAuthenticated, isSettlementDomain, user?.role]);
+  }, [isHydrated, isAuthenticated, isSettlementDomain, user?.role]);
 
   // 최신 업로드 버전 확인 (정산 도메인)
-  // ⚠️ router/enqueueSnackbar/closeSnackbar를 deps에 넣으면 매 렌더마다 재생성되어
-  //    interval effect가 매번 재실행 → ref로 안정화
-  const enqueueSnackbarRef = useRef(enqueueSnackbar);
-  enqueueSnackbarRef.current = enqueueSnackbar;
-  const closeSnackbarRef = useRef(closeSnackbar);
-  closeSnackbarRef.current = closeSnackbar;
-
   const checkLatestUploads = useCallback(async () => {
     try {
       const res = await settlementApi.listUploadJobs({ page_size: 20 });
@@ -373,10 +336,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         const lastSeen = localStorage.getItem('dwt_lastSeen_sales_confirmed_at');
         if (lastSeen && lastSeen !== latestSales.confirmed_at) {
           const dateStr = formatKSTShort(latestSales.confirmed_at);
-          enqueueSnackbarRef.current(`판매 데이터가 새로 업데이트되었습니다 (${dateStr})`, {
+          enqueueSnackbar(`판매 데이터가 새로 업데이트되었습니다 (${dateStr})`, {
             variant: 'info',
             action: (key) => (
-              <Button size="small" color="inherit" onClick={() => { routerRef.current.push('/settlement/upload/jobs'); closeSnackbarRef.current(key); }}>
+              <Button size="small" color="inherit" onClick={() => { router.push('/settlement/upload/jobs'); closeSnackbar(key); }}>
                 보기
               </Button>
             ),
@@ -390,10 +353,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         const lastSeen = localStorage.getItem('dwt_lastSeen_purchase_confirmed_at');
         if (lastSeen && lastSeen !== latestPurchase.confirmed_at) {
           const dateStr = formatKSTShort(latestPurchase.confirmed_at);
-          enqueueSnackbarRef.current(`매입 데이터가 새로 업데이트되었습니다 (${dateStr})`, {
+          enqueueSnackbar(`매입 데이터가 새로 업데이트되었습니다 (${dateStr})`, {
             variant: 'info',
             action: (key) => (
-              <Button size="small" color="inherit" onClick={() => { routerRef.current.push('/settlement/upload/jobs'); closeSnackbarRef.current(key); }}>
+              <Button size="small" color="inherit" onClick={() => { router.push('/settlement/upload/jobs'); closeSnackbar(key); }}>
                 보기
               </Button>
             ),
@@ -416,8 +379,47 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSettlementDomain]);
 
+  // ── 로딩 판정 ──────────────────────────────────────────────────
+  // isAuthenticated가 true가 되면 sessionRestoring 상태와 무관하게 로딩 해제
+  // → Zustand(setAuth)와 useState(setSessionRestoring) 배칭 타이밍 차이 해결
+  const isLoading = !isHydrated || (sessionRestoring && !isAuthenticated);
+
+  // ── 로딩 안전장치 ──────────────────────────────────────────────
+  // 세션 복원이 비정상적으로 오래 걸리면(10초) 강제 정리 후 로그인 이동
+  const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!isLoading) {
+      if (loadingTimerRef.current) {
+        clearTimeout(loadingTimerRef.current);
+        loadingTimerRef.current = null;
+      }
+      return;
+    }
+    loadingTimerRef.current = setTimeout(() => {
+      console.warn('[AppLayout] 로딩 10초 초과 → 강제 정리 후 로그인 이동');
+      try {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('auth-storage');
+      } catch { /* ignore */ }
+      const expired = 'expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      const domains = ['', '; domain=localhost', '; domain=.localhost', '; domain=.dwt.price'];
+      for (const d of domains) {
+        document.cookie = `token=; ${expired}; path=/${d}`;
+        document.cookie = `user_role=; ${expired}; path=/${d}`;
+      }
+      window.location.href = '/login';
+    }, 10_000);
+    return () => {
+      if (loadingTimerRef.current) {
+        clearTimeout(loadingTimerRef.current);
+        loadingTimerRef.current = null;
+      }
+    };
+  }, [isLoading]);
+
   // Hydration 완료 전 또는 세션 복원 중에는 로딩 표시 (깜빡임 방지)
-  if (!effectiveHydrated || sessionRestoring) {
+  if (isLoading) {
     return (
       <Box sx={{
         display: 'flex',

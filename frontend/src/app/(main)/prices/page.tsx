@@ -220,7 +220,7 @@ export default function PricesPage() {
       <PageHeader
         title="본사 판매 단가"
         description={appliedAt ? `최종 업데이트: ${format(new Date(appliedAt), 'yyyy-MM-dd HH:mm')}` : undefined}
-        status={appliedAt ? { label: '적용됨', color: 'success' } : undefined}
+        chips={appliedAt ? [<Chip key="status" label="적용됨" color="success" size="small" />] : undefined}
       />
       
       {/* 필터 영역 */}

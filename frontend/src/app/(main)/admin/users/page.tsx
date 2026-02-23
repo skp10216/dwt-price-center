@@ -205,10 +205,10 @@ export default function UsersPage() {
       <PageHeader
         title="사용자 관리"
         description="사용자 계정을 생성하고 권한을 관리합니다"
-        action={{
+        actions={[{
           label: '사용자 추가',
           onClick: () => openDialog(),
-        }}
+        }]}
       />
 
       {/* 검색 */}

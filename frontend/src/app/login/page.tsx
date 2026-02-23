@@ -14,8 +14,8 @@
 
 'use client';
 
-import { useState, useEffect, useLayoutEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useEffect, useLayoutEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   Box,
   TextField,
@@ -80,7 +80,14 @@ const adminTheme = {
 };
 
 export default function LoginPage() {
-  const router = useRouter();
+  return (
+    <Suspense>
+      <LoginPageInner />
+    </Suspense>
+  );
+}
+
+function LoginPageInner() {
   const searchParams = useSearchParams();
   const { enqueueSnackbar } = useSnackbar();
   const setAuth = useAuthStore((state) => state.setAuth);
@@ -145,8 +152,11 @@ export default function LoginPage() {
       enqueueSnackbar('로그인 성공', { variant: 'success' });
       
       // 도메인별 리다이렉트 경로
+      // ⚠️ router.push는 클라이언트 사이드 내비게이션(소프트)이라
+      //    쿠키가 미들웨어에 즉시 반영되지 않아 미인증 리다이렉트 발생 가능
+      //    → window.location.href로 풀 페이지 리로드하여 쿠키 확실히 전달
       const redirectPath = searchParams.get('redirect') || getAfterLoginPath(domainType);
-      router.push(redirectPath);
+      window.location.href = redirectPath;
     } catch (err: unknown) {
       const axiosError = err as { response?: { data?: { error?: { message?: string } } } };
       const message = axiosError.response?.data?.error?.message || '로그인에 실패했습니다';

@@ -48,6 +48,14 @@ class Partner(Base):
         comment="운영 메모"
     )
     
+    # 소속 지사
+    branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("branches.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="소속 지사 ID"
+    )
+
     # 상태
     is_active: Mapped[bool] = mapped_column(
         Boolean,
@@ -56,6 +64,24 @@ class Partner(Base):
         comment="활성 상태"
     )
     
+    # 소프트 삭제
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment="삭제 일시 (소프트 삭제)"
+    )
+    deleted_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="삭제한 사용자 ID"
+    )
+    delete_reason: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="삭제 사유"
+    )
+
     # 타임스탬프
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
@@ -72,6 +98,7 @@ class Partner(Base):
     )
     
     # 관계
+    branch = relationship("Branch", back_populates="partners")
     prices = relationship("PartnerPrice", back_populates="partner", cascade="all, delete-orphan")
     mappings = relationship("PartnerMapping", back_populates="partner", cascade="all, delete-orphan")
     favorited_by = relationship("UserPartnerFavorite", back_populates="partner", cascade="all, delete-orphan")

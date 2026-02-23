@@ -12,6 +12,7 @@ from app.api.v1 import (
     grades,
     deductions,
     partners,
+    branches,
     uploads,
     hq_prices,
     compare,
@@ -55,6 +56,13 @@ api_router.include_router(
     deductions.router,
     prefix="/deductions",
     tags=["차감"]
+)
+
+# 지사 관리
+api_router.include_router(
+    branches.router,
+    prefix="/branches",
+    tags=["지사"]
 )
 
 # 거래처 관리
