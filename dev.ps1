@@ -88,20 +88,27 @@ function Test-Health {
 }
 
 function Get-ChangedServices {
-    Write-Step "Detecting changes (git status)"
+    param([string[]]$changedFiles = @())
+    
+    Write-Step "Detecting changes"
     $changed = @()
-    $gitStatus = git status --porcelain 2>$null
-    if ($gitStatus) {
-        $lines = $gitStatus -split "`n"
-        foreach ($line in $lines) {
-            if ($line.Length -gt 3) {
-                $file = $line.Substring(3).Trim()
-                if ($file -match "^backend/" -and $changed -notcontains "backend") { $changed += "backend" }
-                if ($file -match "^frontend/" -and $changed -notcontains "frontend") { $changed += "frontend" }
-                if ($file -match "^worker/" -and $changed -notcontains "worker") { $changed += "worker" }
+    
+    # changedFiles가 전달되면 그것 사용, 아니면 git status 사용
+    if ($changedFiles.Count -eq 0) {
+        $gitStatus = git status --porcelain 2>$null
+        if ($gitStatus) {
+            $changedFiles = ($gitStatus -split "`n") | ForEach-Object { 
+                if ($_.Length -gt 3) { $_.Substring(3).Trim() }
             }
         }
     }
+    
+    foreach ($file in $changedFiles) {
+        if ($file -match "^backend/" -and $changed -notcontains "backend") { $changed += "backend" }
+        if ($file -match "^frontend/" -and $changed -notcontains "frontend") { $changed += "frontend" }
+        if ($file -match "^worker/" -and $changed -notcontains "worker") { $changed += "worker" }
+    }
+    
     if ($changed.Count -gt 0) {
         Write-Info "Changed: $($changed -join ', ')"
     } else {
@@ -110,17 +117,93 @@ function Get-ChangedServices {
     return $changed
 }
 
+# Git Pull 실행 및 변경된 파일 목록 반환
+function Invoke-GitPull {
+    Write-Step "Git Pull (fetching latest)"
+    
+    # 현재 브랜치 확인
+    $branch = git rev-parse --abbrev-ref HEAD 2>$null
+    if (-not $branch) {
+        Write-Warn "Not a git repository"
+        return @()
+    }
+    Write-Info "Branch: $branch"
+    
+    # 현재 커밋 해시
+    $beforeHash = git rev-parse HEAD 2>$null
+    
+    # git pull 실행
+    $pullResult = git pull 2>&1
+    $pullExitCode = $LASTEXITCODE
+    
+    if ($pullExitCode -ne 0) {
+        Write-Err "Git pull failed: $pullResult"
+        return @()
+    }
+    
+    # 새 커밋 해시
+    $afterHash = git rev-parse HEAD 2>$null
+    
+    if ($beforeHash -eq $afterHash) {
+        Write-Ok "Already up to date"
+        return @()
+    }
+    
+    # 변경된 파일 목록 가져오기
+    $changedFiles = git diff --name-only $beforeHash $afterHash 2>$null
+    if ($changedFiles) {
+        $fileList = $changedFiles -split "`n"
+        $commitCount = git rev-list --count "$beforeHash..$afterHash" 2>$null
+        Write-Ok "Pulled $commitCount commit(s), $($fileList.Count) file(s) changed"
+        return $fileList
+    }
+    
+    return @()
+}
+
 function Get-MigrationStatus {
     Write-Step "Migration Status"
-    $current = docker exec dwt-backend alembic current 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Info "Current: $current"
-        $heads = docker exec dwt-backend alembic heads 2>&1
-        Write-Info "Head: $heads"
-        return $true
+    $current = docker exec -w /app dwt-backend bash -c "PYTHONPATH=/app alembic current 2>/dev/null" 2>$null
+    $heads = docker exec -w /app dwt-backend bash -c "PYTHONPATH=/app alembic heads 2>/dev/null" 2>$null
+    
+    if ($current -and $heads) {
+        # 버전 ID만 추출 (예: "008_add_user_counterparty_favorites (head)" -> "008_add_user_counterparty_favorites")
+        $currentVersion = ($current -split '\s')[0]
+        $headVersion = ($heads -split '\s')[0]
+        
+        Write-Info "Current: $currentVersion"
+        Write-Info "Head: $headVersion"
+        
+        # 현재 버전과 head가 다르면 pending migration 있음
+        if ($currentVersion -ne $headVersion) {
+            return "pending"
+        }
+        return "ok"
     } else {
         Write-Warn "Could not check migration status"
-        return $false
+        return "error"
+    }
+}
+
+# 마이그레이션 자동 적용
+function Invoke-AutoMigration {
+    $status = Get-MigrationStatus
+    
+    if ($status -eq "pending") {
+        Write-Step "Applying pending migrations"
+        $result = docker exec -w /app dwt-backend bash -c "PYTHONPATH=/app alembic upgrade head" 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok "Migration applied successfully"
+            # 백엔드 재시작 (새 스키마 반영)
+            Write-Info "Restarting backend to apply schema changes..."
+            docker restart dwt-backend 2>$null
+            Start-Sleep -Seconds 3
+        } else {
+            Write-Err "Migration failed!"
+            Write-Info $result
+        }
+    } elseif ($status -eq "ok") {
+        Write-Ok "Database is up to date"
     }
 }
 
@@ -231,6 +314,10 @@ function Start-Smart {
     Write-Host "  DWT Price Center - Dev Environment" -ForegroundColor Cyan
     Write-Host "=======================================" -ForegroundColor Cyan
 
+    # 1. Git Pull - 최신 소스 가져오기
+    $pulledFiles = Invoke-GitPull
+
+    # 2. 서비스 상태 확인
     Show-Status
 
     $running = docker ps --filter "name=dwt-" --format "{{.Names}}" 2>$null
@@ -241,18 +328,29 @@ function Start-Smart {
         Show-Status
     }
 
-    $changed = Get-ChangedServices
+    # 3. 변경된 서비스 재빌드 (git pull로 받은 파일 또는 로컬 변경사항)
+    $changed = @()
+    if ($pulledFiles.Count -gt 0) {
+        # git pull로 받은 파일 기준
+        $changed = Get-ChangedServices -changedFiles $pulledFiles
+    } else {
+        # 로컬 변경사항 기준
+        $changed = Get-ChangedServices
+    }
+    
     if ($changed.Count -gt 0) {
-        Write-Step "Restarting changed services"
+        Write-Step "Rebuilding changed services"
         foreach ($svc in $changed) {
-            Write-Info "Restarting $svc..."
-            docker compose up -d --build $svc
+            Write-Info "Rebuilding $svc..."
+            docker compose up -d --build --force-recreate $svc
         }
         Start-Sleep -Seconds 3
     }
 
-    $null = Get-MigrationStatus
+    # 4. DB 마이그레이션 자동 적용
+    Invoke-AutoMigration
 
+    # 5. 헬스 체크
     Test-Health
 
     Write-Host ""
@@ -282,7 +380,7 @@ switch ($Command) {
         Write-Host "Usage: .\dev.ps1 [command] [target] [extra]" -ForegroundColor Yellow
         Write-Host ""
         Write-Host "Commands:" -ForegroundColor Cyan
-        Write-Host "  (none)        Smart start (detect changes, restart, migrate, health check)"
+        Write-Host "  (none)        Smart start (git pull, rebuild, auto-migrate, health check)"
         Write-Host "  up            Start all services"
         Write-Host "  down          Stop all services"
         Write-Host "  restart [svc] Restart service (be/fe/wk or all)"

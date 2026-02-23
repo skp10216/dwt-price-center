@@ -3,56 +3,103 @@
  * SSOT: 모든 spacing/padding/margin은 이 파일에서 정의된 값만 사용
  * 
  * 사용 규칙:
- * - 관리자 = compact (정보 밀도 높음)
- * - 사용자 = regular (가독성 우선)
- * - 접근성 = spacious (큰 터치 영역)
+ * - compact = 정보 밀도 높음 (관리자/백오피스 기본)
+ * - regular = 가독성 우선 (표준 모드)
+ * - spacious = 큰 터치 영역 (접근성/편안한 모드)
+ * 
+ * 밀도 모드 변경 시 바뀌는 토큰:
+ * - pagePadding: 페이지 외곽 여백
+ * - sectionGap: 섹션 간 간격
+ * - cardPadding: 카드 내부 여백
+ * - toolbarHeight: 툴바 높이
+ * - headerHeight: 페이지 헤더 높이
+ * - inputHeight: 입력/버튼/셀렉트 높이
+ * - chipHeight: 상태 칩 높이
+ * - tableRowHeight: 테이블 행 높이
+ * - tableCellPadding: 테이블 셀 패딩
  */
 
 // 밀도 타입
 export type Density = 'compact' | 'regular' | 'spacious';
 
-// 밀도별 기본 spacing 단위 (px)
+// 밀도별 전체 토큰 정의 (px)
 export const densityConfig = {
   compact: {
-    base: 6,           // theme.spacing(1) = 6px
+    base: 6,                // theme.spacing(1) = 6px
     borderRadius: 6,
+    // 레이아웃
+    pagePadding: 12,        // 페이지 외곽 패딩
+    sectionGap: 12,         // 섹션 간 간격
+    headerHeight: 48,       // 페이지 헤더 높이
+    toolbarHeight: 40,      // 툴바 높이
+    // 컴포넌트
     buttonPadding: { x: 12, y: 4 },
     inputPadding: { x: 10, y: 6 },
+    inputHeight: 32,        // input/select/button 높이
     cardPadding: 12,
-    tableCellPadding: 8,
-    listItemPadding: 6,
-    chipHeight: 24,
-    iconButtonSize: 32,
+    chipHeight: 22,
+    iconButtonSize: 28,
     dialogBorderRadius: 12,
+    // 테이블
+    tableCellPadding: { x: 12, y: 6 },
+    tableRowHeight: 36,
+    tableHeaderHeight: 36,
+    // 리스트
+    listItemPadding: 6,
   },
   regular: {
-    base: 8,           // theme.spacing(1) = 8px
+    base: 8,                // theme.spacing(1) = 8px
     borderRadius: 8,
-    buttonPadding: { x: 16, y: 8 },
-    inputPadding: { x: 14, y: 10 },
+    // 레이아웃
+    pagePadding: 16,        // 페이지 외곽 패딩
+    sectionGap: 16,         // 섹션 간 간격
+    headerHeight: 56,       // 페이지 헤더 높이
+    toolbarHeight: 48,      // 툴바 높이
+    // 컴포넌트
+    buttonPadding: { x: 16, y: 6 },
+    inputPadding: { x: 14, y: 8 },
+    inputHeight: 36,        // input/select/button 높이
     cardPadding: 16,
-    tableCellPadding: 12,
-    listItemPadding: 8,
-    chipHeight: 28,
-    iconButtonSize: 40,
+    chipHeight: 26,
+    iconButtonSize: 32,
     dialogBorderRadius: 16,
+    // 테이블
+    tableCellPadding: { x: 16, y: 8 },
+    tableRowHeight: 44,
+    tableHeaderHeight: 40,
+    // 리스트
+    listItemPadding: 8,
   },
   spacious: {
-    base: 10,          // theme.spacing(1) = 10px
+    base: 10,               // theme.spacing(1) = 10px
     borderRadius: 12,
-    buttonPadding: { x: 24, y: 12 },
-    inputPadding: { x: 16, y: 14 },
+    // 레이아웃
+    pagePadding: 24,        // 페이지 외곽 패딩
+    sectionGap: 20,         // 섹션 간 간격
+    headerHeight: 64,       // 페이지 헤더 높이
+    toolbarHeight: 56,      // 툴바 높이
+    // 컴포넌트
+    buttonPadding: { x: 24, y: 10 },
+    inputPadding: { x: 16, y: 12 },
+    inputHeight: 44,        // input/select/button 높이
     cardPadding: 24,
-    tableCellPadding: 16,
-    listItemPadding: 12,
-    chipHeight: 36,
-    iconButtonSize: 48,
+    chipHeight: 32,
+    iconButtonSize: 40,
     dialogBorderRadius: 20,
+    // 테이블
+    tableCellPadding: { x: 16, y: 12 },
+    tableRowHeight: 52,
+    tableHeaderHeight: 48,
+    // 리스트
+    listItemPadding: 12,
   },
 } as const;
 
 // 밀도별 설정 가져오기
 export const getDensityConfig = (density: Density) => densityConfig[density];
+
+// 밀도별 설정 타입 (자동 추론)
+export type DensityTokens = ReturnType<typeof getDensityConfig>;
 
 // 그림자 정의 (elevation 대체)
 export const shadows = {
@@ -96,4 +143,16 @@ export const transitions = {
   // 특수 효과용
   bounce: '400ms cubic-bezier(0.68, -0.55, 0.265, 1.55)',
   smooth: '500ms cubic-bezier(0.25, 0.1, 0.25, 1)',
+} as const;
+
+// 일관된 spacing 스케일 (4px 단위 기반)
+export const spacingScale = {
+  xxs: 2,   // 2px
+  xs: 4,    // 4px
+  sm: 8,    // 8px
+  md: 12,   // 12px
+  lg: 16,   // 16px
+  xl: 20,   // 20px
+  xxl: 24,  // 24px
+  xxxl: 32, // 32px
 } as const;

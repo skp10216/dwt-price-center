@@ -7,15 +7,14 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  Box, Typography, Paper, Stack, Tab, Tabs, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, TableSortLabel, TablePagination,
+  Box, Typography, Stack, Tab, Tabs, Table, TableBody, TableCell,
+  TableHead, TableRow, TableSortLabel,
   TextField, InputAdornment, Chip, IconButton, Tooltip, LinearProgress,
   alpha, useTheme, Avatar, Skeleton, Fade, ToggleButtonGroup, ToggleButton,
   Divider,
 } from '@mui/material';
 import {
   Search as SearchIcon,
-  Refresh as RefreshIcon,
   TrendingUp as TrendingUpIcon,
   TrendingDown as TrendingDownIcon,
   AccountBalance as AccountBalanceIcon,
@@ -31,6 +30,13 @@ import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
 import { useRouter } from 'next/navigation';
 import { visuallyHidden } from '@mui/utils';
+import {
+  AppPageContainer,
+  AppPageHeader,
+  AppSectionCard,
+  AppPageToolbar,
+  AppTableShell,
+} from '@/components/ui';
 
 // ─── 타입 ───
 interface CounterpartyStatus {
@@ -244,165 +250,167 @@ export default function CounterpartyStatusPage() {
   const accentColor = isReceivables ? theme.palette.success.main : theme.palette.error.main;
 
   return (
-    <Box sx={{ maxWidth: 1600, mx: 'auto' }}>
+    <AppPageContainer sx={{ maxWidth: 1600, mx: 'auto' }}>
       {/* ─── 헤더 ─── */}
-      <Stack direction="row" alignItems="flex-start" justifyContent="space-between" sx={{ mb: 3 }}>
-        <Box>
-          <Typography variant="h5" fontWeight={800} gutterBottom>거래처 현황</Typography>
-          <Typography variant="body2" color="text.secondary">
-            {isReceivables ? '판매 거래처의 미수금 현황' : '매입 거래처의 미지급금 현황'}
-            {favoritesOnly && (
-              <Chip
-                icon={<StarIcon sx={{ fontSize: '13px !important' }} />}
-                label="즐겨찾기 필터 적용 중"
-                size="small"
-                color="warning"
-                variant="outlined"
-                sx={{ ml: 1, fontWeight: 600, height: 20, fontSize: '0.7rem' }}
-              />
-            )}
-          </Typography>
-        </Box>
-        <Tooltip title="새로고침">
-          <IconButton onClick={handleRefresh} disabled={loading}>
-            <RefreshIcon />
-          </IconButton>
-        </Tooltip>
-      </Stack>
+      <AppPageHeader
+        icon={<BusinessIcon />}
+        title="거래처 현황"
+        description={isReceivables ? '판매 거래처의 미수금 현황' : '매입 거래처의 미지급금 현황'}
+        color={isReceivables ? 'success' : 'error'}
+        loading={loading}
+        onRefresh={handleRefresh}
+        chips={favoritesOnly ? [
+          <Chip
+            key="fav-filter"
+            icon={<StarIcon sx={{ fontSize: '13px !important' }} />}
+            label="즐겨찾기 필터 적용 중"
+            size="small"
+            color="warning"
+            variant="outlined"
+            sx={{ fontWeight: 600, height: 22, fontSize: '0.7rem' }}
+          />
+        ] : []}
+      />
 
       {/* ─── 요약 카드 ─── */}
-      <Stack direction="row" spacing={2} sx={{ mb: 3 }} flexWrap="wrap" useFlexGap>
+      <Stack direction="row" spacing={1.5} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
         {[
           {
-            icon: <BusinessIcon sx={{ color: 'primary.main', fontSize: 28 }} />,
+            icon: <BusinessIcon sx={{ color: 'primary.main', fontSize: 22 }} />,
             bg: theme.palette.primary.main,
             value: formatNumber(summary.totalCounterparties),
             label: favoritesOnly ? '즐겨찾기 거래처' : '전체 거래처',
             sub: summary.withBalance > 0 ? `잔액 ${formatNumber(summary.withBalance)}개` : '',
           },
           {
-            icon: <AccountBalanceIcon sx={{ color: 'info.main', fontSize: 28 }} />,
+            icon: <AccountBalanceIcon sx={{ color: 'info.main', fontSize: 22 }} />,
             bg: theme.palette.info.main,
             value: formatCurrency(summary.totalAmount),
             label: '총 거래액',
           },
           {
-            icon: <AttachMoneyIcon sx={{ color: 'success.main', fontSize: 28 }} />,
+            icon: <AttachMoneyIcon sx={{ color: 'success.main', fontSize: 22 }} />,
             bg: theme.palette.success.main,
             value: formatCurrency(summary.paidAmount),
             label: '정산 완료',
           },
           {
-            icon: <MoneyOffIcon sx={{ color: isReceivables ? 'success.main' : 'error.main', fontSize: 28 }} />,
+            icon: <MoneyOffIcon sx={{ color: isReceivables ? 'success.main' : 'error.main', fontSize: 22 }} />,
             bg: accentColor,
             value: formatCurrency(summary.balance),
             label: isReceivables ? '미수금 잔액' : '미지급금 잔액',
             highlight: true,
           },
         ].map((card, i) => (
-          <Paper key={i} elevation={0} sx={{
-            p: 3, minWidth: 190, flex: 1, borderRadius: 3,
-            border: '1px solid',
+          <AppSectionCard key={i} noPadding sx={{
+            minWidth: 180, flex: 1, p: 2, mb: 0,
             borderColor: card.highlight ? alpha(accentColor, 0.35) : 'divider',
             background: `linear-gradient(135deg, ${alpha(card.bg, card.highlight ? 0.09 : 0.04)} 0%, transparent 100%)`,
           }}>
-            <Stack direction="row" spacing={2} alignItems="center">
+            <Stack direction="row" spacing={1.5} alignItems="center">
               <Box sx={{
-                width: 48, height: 48, borderRadius: 2, flexShrink: 0,
+                width: 36, height: 36, borderRadius: 1.5, flexShrink: 0,
                 bgcolor: alpha(card.bg, 0.12),
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
                 {card.icon}
               </Box>
               <Box sx={{ minWidth: 0 }}>
-                <Typography variant={i === 0 ? 'h4' : 'h6'} fontWeight={800} noWrap>
+                <Typography variant={i === 0 ? 'h5' : 'subtitle1'} fontWeight={800} noWrap sx={{ lineHeight: 1.2 }}>
                   {card.value}
                 </Typography>
-                <Typography variant="body2" color="text.secondary">{card.label}</Typography>
+                <Typography variant="caption" color="text.secondary">{card.label}</Typography>
                 {card.sub && (
-                  <Typography variant="caption" color="warning.main" fontWeight={600}>{card.sub}</Typography>
+                  <Typography variant="caption" color="warning.main" fontWeight={600} sx={{ display: 'block', lineHeight: 1 }}>{card.sub}</Typography>
                 )}
               </Box>
             </Stack>
-          </Paper>
+          </AppSectionCard>
         ))}
       </Stack>
 
       {/* ─── 탭 ─── */}
-      <Paper elevation={0} sx={{ mb: 2, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
+      <AppSectionCard noPadding sx={{ mb: 2 }}>
         <Tabs
           value={tab}
           onChange={(_, v) => { setTab(v); setPage(0); }}
-          sx={{ px: 2, '& .MuiTab-root': { fontWeight: 600, py: 2 } }}
+          sx={{ px: 2, '& .MuiTab-root': { fontWeight: 600, py: 1.5, minHeight: 44 } }}
         >
           <Tab value="receivables" icon={<TrendingUpIcon />} iconPosition="start" label="미수 현황 (판매)" />
           <Tab value="payables" icon={<TrendingDownIcon />} iconPosition="start" label="미지급 현황 (매입)" />
         </Tabs>
-      </Paper>
+      </AppSectionCard>
 
       {/* ─── 검색 + 즐겨찾기 필터 ─── */}
-      <Paper elevation={0} sx={{
-        p: 2, mb: 2,
-        border: '1px solid', borderColor: 'divider', borderRadius: 2,
-        background: favoritesOnly
-          ? `linear-gradient(135deg, ${alpha(theme.palette.warning.main, 0.05)} 0%, transparent 100%)`
-          : undefined,
-      }}>
-        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
-          <TextField
-            size="small"
-            placeholder="거래처명 검색..."
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon sx={{ color: 'text.secondary' }} />
-                </InputAdornment>
-              ),
-            }}
-            sx={{ width: 280 }}
-          />
+      <AppPageToolbar
+        sx={favoritesOnly ? {
+          background: `linear-gradient(135deg, ${alpha(theme.palette.warning.main, 0.05)} 0%, transparent 100%)`,
+        } : undefined}
+        left={
+          <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
+            <TextField
+              size="small"
+              placeholder="거래처명 검색..."
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon sx={{ color: 'text.secondary' }} />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ width: 280 }}
+            />
 
-          <Divider orientation="vertical" flexItem />
+            <Divider orientation="vertical" flexItem />
 
-          <ToggleButtonGroup
-            value={favoritesOnly ? 'favorites' : 'all'}
-            exclusive
-            size="small"
-            onChange={(_, v) => {
-              if (v !== null) { setFavoritesOnly(v === 'favorites'); setPage(0); }
-            }}
-          >
-            <ToggleButton value="all" sx={{ px: 2, fontWeight: 600 }}>
-              <FilterListIcon sx={{ mr: 0.5, fontSize: 16 }} />
-              전체
-            </ToggleButton>
-            <ToggleButton value="favorites" sx={{ px: 2, fontWeight: 600 }}>
-              <StarIcon sx={{ mr: 0.5, fontSize: 16, color: favoritesOnly ? 'warning.main' : 'inherit' }} />
-              즐겨찾기
-              {favoriteIds.size > 0 && (
-                <Chip
-                  label={favoriteIds.size}
-                  size="small"
-                  color="warning"
-                  sx={{ ml: 0.8, height: 18, fontSize: '0.65rem', fontWeight: 700, '& .MuiChip-label': { px: 0.8 } }}
-                />
-              )}
-            </ToggleButton>
-          </ToggleButtonGroup>
-
-          <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+            <ToggleButtonGroup
+              value={favoritesOnly ? 'favorites' : 'all'}
+              exclusive
+              size="small"
+              onChange={(_, v) => {
+                if (v !== null) { setFavoritesOnly(v === 'favorites'); setPage(0); }
+              }}
+            >
+              <ToggleButton value="all" sx={{ px: 2, fontWeight: 600 }}>
+                <FilterListIcon sx={{ mr: 0.5, fontSize: 16 }} />
+                전체
+              </ToggleButton>
+              <ToggleButton value="favorites" sx={{ px: 2, fontWeight: 600 }}>
+                <StarIcon sx={{ mr: 0.5, fontSize: 16, color: favoritesOnly ? 'warning.main' : 'inherit' }} />
+                즐겨찾기
+                {favoriteIds.size > 0 && (
+                  <Chip
+                    label={favoriteIds.size}
+                    size="small"
+                    color="warning"
+                    sx={{ ml: 0.8, height: 18, fontSize: '0.65rem', fontWeight: 700, '& .MuiChip-label': { px: 0.8 } }}
+                  />
+                )}
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Stack>
+        }
+        right={
+          <Typography variant="caption" color="text.secondary">
             {filteredData.length}개 거래처
           </Typography>
-        </Stack>
-      </Paper>
+        }
+      />
 
       {/* ─── 테이블 ─── */}
-      <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 3, overflow: 'hidden' }}>
-        {loading && <LinearProgress />}
-        <TableContainer sx={{ maxHeight: 580 }}>
-          <Table stickyHeader size="small">
+      <AppTableShell
+        loading={loading}
+        count={filteredData.length}
+        page={page}
+        rowsPerPage={rowsPerPage}
+        onPageChange={(_, p) => setPage(p)}
+        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+        rowsPerPageOptions={[25, 50, 100]}
+        maxHeight={580}
+      >
+        <Table stickyHeader size="small">
             <TableHead>
               <TableRow sx={{
                 background: `linear-gradient(90deg, ${alpha(accentColor, 0.07)} 0%, transparent 60%)`,
@@ -451,20 +459,8 @@ export default function CounterpartyStatusPage() {
                 ))
               ) : paginatedData.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center" sx={{ py: 10 }}>
-                    <Box sx={{
-                      width: 72, height: 72, borderRadius: '50%', mx: 'auto', mb: 2,
-                      bgcolor: favoritesOnly
-                        ? alpha(theme.palette.warning.main, 0.08)
-                        : alpha(accentColor, 0.08),
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      {favoritesOnly
-                        ? <StarBorderIcon sx={{ fontSize: 36, color: 'warning.main' }} />
-                        : <BusinessIcon sx={{ fontSize: 36, color: accentColor }} />
-                      }
-                    </Box>
-                    <Typography variant="h6" fontWeight={600} gutterBottom>
+                  <TableCell colSpan={9} align="center" sx={{ py: 8 }}>
+                    <Typography variant="subtitle1" fontWeight={600} gutterBottom>
                       {favoritesOnly ? '즐겨찾기한 거래처 데이터가 없습니다' : '데이터가 없습니다'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
@@ -583,21 +579,8 @@ export default function CounterpartyStatusPage() {
                 ))
               )}
             </TableBody>
-          </Table>
-        </TableContainer>
-
-        <TablePagination
-          component="div"
-          count={filteredData.length}
-          page={page}
-          onPageChange={(_, p) => setPage(p)}
-          rowsPerPage={rowsPerPage}
-          onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
-          rowsPerPageOptions={[25, 50, 100]}
-          labelRowsPerPage="페이지당 행:"
-          sx={{ borderTop: '1px solid', borderColor: 'divider' }}
-        />
-      </Paper>
-    </Box>
+        </Table>
+      </AppTableShell>
+    </AppPageContainer>
   );
 }

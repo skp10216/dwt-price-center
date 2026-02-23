@@ -70,6 +70,7 @@ import Skeleton from '@mui/material/Skeleton';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
 import { useRouter } from 'next/navigation';
+import { AppPageContainer, AppPageHeader } from '@/components/ui';
 
 // ─── 애니메이션 ───
 const pulseAnimation = keyframes`
@@ -559,30 +560,28 @@ export default function UploadWizardPage() {
   const fmtNum = (n: number) => new Intl.NumberFormat('ko-KR').format(n);
 
   return (
-    <Box sx={{ maxWidth: 1400, mx: 'auto' }}>
-      {/* ─── 헤더 ─── */}
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>
-        <Box>
-          <Typography variant="h5" fontWeight={800} gutterBottom>
-            UPM 전표 업로드
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            판매/매입 전표를 한 번에 업로드하고 미매칭 거래처 처리까지 완료하세요
-          </Typography>
-        </Box>
-        <Button
-          variant="text"
-          startIcon={showHistory ? <ExpandLessIcon /> : <HistoryIcon />}
-          onClick={() => setShowHistory(!showHistory)}
-        >
-          {showHistory ? '히스토리 닫기' : '이전 작업 내역'}
-        </Button>
-      </Stack>
+    <AppPageContainer>
+      {/* ─── 공통 PageHeader ─── */}
+      <AppPageHeader
+        icon={<CloudUploadIcon />}
+        title="UPM 전표 업로드"
+        description="판매/매입 전표를 한 번에 업로드하고 미매칭 거래처 처리까지 완료하세요"
+        color="primary"
+        highlight
+        actions={[
+          {
+            label: showHistory ? '히스토리 닫기' : '이전 작업 내역',
+            onClick: () => setShowHistory(!showHistory),
+            variant: 'outlined',
+            icon: showHistory ? <ExpandLessIcon /> : <HistoryIcon />,
+          },
+        ]}
+      />
 
       {/* ─── 스테퍼 ─── */}
       <Paper elevation={0} sx={{
-        px: 4, py: 3, mb: 3,
-        border: '1px solid', borderColor: 'divider', borderRadius: 3,
+        px: 3, py: 2, mb: 2,
+        border: '1px solid', borderColor: 'divider', borderRadius: 2,
         background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.02)} 0%, ${alpha(theme.palette.success.main, 0.02)} 100%)`,
       }}>
         <Stepper activeStep={activeStep} alternativeLabel connector={<PremiumConnector />}>
@@ -615,7 +614,7 @@ export default function UploadWizardPage() {
         <Fade in timeout={300}>
           <Box>
             {/* 타입 선택 */}
-            <Paper elevation={0} sx={{ p: 3, mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
+            <Paper elevation={0} sx={{ p: 2, mb: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
               <Typography variant="subtitle1" fontWeight={700} gutterBottom>
                 전표 유형 선택
               </Typography>
@@ -648,10 +647,10 @@ export default function UploadWizardPage() {
               onDragOver={handleDragOver}
               onDrop={handleDrop}
               sx={{
-                p: 8,
+                p: 5,
                 border: '2px dashed',
                 borderColor: isDragging ? 'primary.main' : file ? 'success.main' : 'divider',
-                borderRadius: 4,
+                borderRadius: 2,
                 textAlign: 'center',
                 cursor: 'pointer',
                 position: 'relative',
@@ -734,7 +733,7 @@ export default function UploadWizardPage() {
             </Paper>
 
             {file && !uploading && (
-              <Stack direction="row" spacing={2} sx={{ mt: 4 }} justifyContent="center">
+              <Stack direction="row" spacing={2} sx={{ mt: 2 }} justifyContent="center">
                 <Button
                   variant="contained"
                   size="large"
@@ -760,15 +759,15 @@ export default function UploadWizardPage() {
       {activeStep === 1 && (
         <Fade in timeout={300}>
           <Box>
-            <Paper elevation={0} sx={{ p: 3, mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
+            <Paper elevation={0} sx={{ p: 2, mb: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
               <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
                 <Stack direction="row" spacing={2} alignItems="center">
                   <Box sx={{
-                    width: 48, height: 48, borderRadius: 2,
+                    width: 36, height: 36, borderRadius: 1.5,
                     bgcolor: alpha(theme.palette.warning.main, 0.1),
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <PersonAddIcon sx={{ color: 'warning.main', fontSize: 28 }} />
+                    <PersonAddIcon sx={{ color: 'warning.main', fontSize: 20 }} />
                   </Box>
                   <Box>
                     <Typography variant="h6" fontWeight={700}>미매칭 거래처 처리</Typography>
@@ -948,15 +947,15 @@ export default function UploadWizardPage() {
       {activeStep === 2 && (
         <Fade in timeout={300}>
           <Box>
-            <Paper elevation={0} sx={{ p: 3, mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
+            <Paper elevation={0} sx={{ p: 2, mb: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
               <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
                 <Stack direction="row" spacing={2} alignItems="center">
                   <Box sx={{
-                    width: 48, height: 48, borderRadius: 2,
+                    width: 36, height: 36, borderRadius: 1.5,
                     bgcolor: alpha(theme.palette.info.main, 0.1),
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <EditIcon sx={{ color: 'info.main', fontSize: 28 }} />
+                    <EditIcon sx={{ color: 'info.main', fontSize: 20 }} />
                   </Box>
                   <Box>
                     <Typography variant="h6" fontWeight={700}>변경 감지/승인</Typography>
@@ -1122,8 +1121,8 @@ export default function UploadWizardPage() {
             {jobDetail?.is_confirmed ? (
               // 확정 완료 화면
               <Paper elevation={0} sx={{
-                p: 8, textAlign: 'center',
-                border: '1px solid', borderColor: 'divider', borderRadius: 4,
+                p: 5, textAlign: 'center',
+                border: '1px solid', borderColor: 'divider', borderRadius: 2,
                 background: `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.03)} 0%, ${alpha(theme.palette.primary.main, 0.02)} 100%)`,
               }}>
                 <Box sx={{
@@ -1141,17 +1140,17 @@ export default function UploadWizardPage() {
                   {formatKST(jobDetail.confirmed_at)}에 확정되었습니다.
                 </Typography>
 
-                <Stack direction="row" spacing={3} justifyContent="center" sx={{ mb: 5 }}>
-                  <Paper elevation={0} sx={{ p: 3, minWidth: 100, borderRadius: 3, border: '1px solid', borderColor: alpha(theme.palette.success.main, 0.3), bgcolor: alpha(theme.palette.success.main, 0.04) }}>
-                    <Typography variant="h3" fontWeight={800} color="success.main">{fmtNum(stats?.new ?? 0)}</Typography>
+                <Stack direction="row" spacing={2} justifyContent="center" sx={{ mb: 4 }}>
+                  <Paper elevation={0} sx={{ p: 2.5, minWidth: 90, borderRadius: 2, border: '1px solid', borderColor: alpha(theme.palette.success.main, 0.3), bgcolor: alpha(theme.palette.success.main, 0.04) }}>
+                    <Typography variant="h4" fontWeight={800} color="success.main">{fmtNum(stats?.new ?? 0)}</Typography>
                     <Typography variant="body2" color="text.secondary">신규</Typography>
                   </Paper>
-                  <Paper elevation={0} sx={{ p: 3, minWidth: 100, borderRadius: 3, border: '1px solid', borderColor: alpha(theme.palette.info.main, 0.3), bgcolor: alpha(theme.palette.info.main, 0.04) }}>
-                    <Typography variant="h3" fontWeight={800} color="info.main">{fmtNum(stats?.update ?? 0)}</Typography>
+                  <Paper elevation={0} sx={{ p: 2.5, minWidth: 90, borderRadius: 2, border: '1px solid', borderColor: alpha(theme.palette.info.main, 0.3), bgcolor: alpha(theme.palette.info.main, 0.04) }}>
+                    <Typography variant="h4" fontWeight={800} color="info.main">{fmtNum(stats?.update ?? 0)}</Typography>
                     <Typography variant="body2" color="text.secondary">변경</Typography>
                   </Paper>
-                  <Paper elevation={0} sx={{ p: 3, minWidth: 100, borderRadius: 3, border: '1px solid', borderColor: 'divider' }}>
-                    <Typography variant="h3" fontWeight={800} color="text.secondary">{fmtNum(stats?.excluded ?? 0)}</Typography>
+                  <Paper elevation={0} sx={{ p: 2.5, minWidth: 90, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+                    <Typography variant="h4" fontWeight={800} color="text.secondary">{fmtNum(stats?.excluded ?? 0)}</Typography>
                     <Typography variant="body2" color="text.secondary">제외</Typography>
                   </Paper>
                 </Stack>
@@ -1168,14 +1167,14 @@ export default function UploadWizardPage() {
             ) : (
               // 확정 전 화면
               <Box>
-                <Paper elevation={0} sx={{ p: 3, mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
-                  <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+                <Paper elevation={0} sx={{ p: 2, mb: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+                  <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
                     <Box sx={{
-                      width: 48, height: 48, borderRadius: 2,
+                      width: 36, height: 36, borderRadius: 1.5,
                       bgcolor: alpha(theme.palette.success.main, 0.1),
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
-                      <TaskAltIcon sx={{ color: 'success.main', fontSize: 28 }} />
+                      <TaskAltIcon sx={{ color: 'success.main', fontSize: 20 }} />
                     </Box>
                     <Box>
                       <Typography variant="h6" fontWeight={700}>최종 결과 확인</Typography>
@@ -1432,7 +1431,7 @@ export default function UploadWizardPage() {
         onClose={() => !confirming && setConfirmModalOpen(false)}
         maxWidth="sm"
         fullWidth
-        PaperProps={{ sx: { borderRadius: 4, overflow: 'hidden' } }}
+        PaperProps={{ sx: { borderRadius: 2, overflow: 'hidden' } }}
       >
         {/* 헤더 */}
         <Box sx={{
@@ -1557,7 +1556,7 @@ export default function UploadWizardPage() {
           하단: 이전 작업 내역
          ════════════════════════════════════════ */}
       <Collapse in={showHistory}>
-        <Paper elevation={0} sx={{ mt: 4, p: 3, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
+        <Paper elevation={0} sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
           <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
             <Typography variant="h6" fontWeight={700}>
               <HistoryIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
@@ -1654,6 +1653,6 @@ export default function UploadWizardPage() {
           )}
         </Paper>
       </Collapse>
-    </Box>
+    </AppPageContainer>
   );
 }

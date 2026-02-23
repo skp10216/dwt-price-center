@@ -76,8 +76,8 @@ import { useAuthStore, useUIStore, useDomainStore, useAuthHydrated, useThemeStor
 import { getDomainType, getDefaultPath } from '@/lib/domain';
 import { Logo } from '@/components/ui/Logo';
 
-const DRAWER_WIDTH = 280;
-const DRAWER_MINI_WIDTH = 64;
+const DRAWER_WIDTH = 240;       // 280 → 240px (데이터 영역 확보)
+const DRAWER_MINI_WIDTH = 56;  // 64 → 56px
 
 function formatKSTShort(isoStr: string): string {
   let dateStr = isoStr;
@@ -481,7 +481,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           boxShadow: 1,
         }}
       >
-        <Toolbar>
+        <Toolbar variant="dense" sx={{ minHeight: 48 }}>
           <IconButton
             edge="start"
             onClick={() => {
@@ -765,12 +765,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           overflow: 'hidden',
         }}
       >
-        <Toolbar /> {/* AppBar 높이만큼 공간 확보 */}
+        {/* AppBar 높이(48px)만큼 공간 확보 */}
+        <Box sx={{ minHeight: 48, flexShrink: 0 }} />
         <Box
           sx={{
             flex: 1,
             overflow: 'auto',
-            p: 3,
+            p: 2, // 24px → 16px (데이터 영역 확보)
           }}
         >
           {children}

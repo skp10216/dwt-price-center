@@ -11,24 +11,28 @@ import {
   TrendingUp as TrendingUpIcon,
   TrendingDown as TrendingDownIcon,
   AccountBalance as AccountBalanceIcon,
-  Lock as LockIcon,
   SwapHoriz as SwapHorizIcon,
   Warning as WarningIcon,
   Receipt as ReceiptIcon,
   ShoppingCart as ShoppingCartIcon,
   Visibility as ViewIcon,
   OpenInNew as OpenInNewIcon,
-  Refresh as RefreshIcon,
   Person as PersonIcon,
   AccessTime as AccessTimeIcon,
   Star as StarIcon,
   ArrowForward as ArrowForwardIcon,
-  CalendarToday as CalendarIcon,
   BusinessCenter as BusinessCenterIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 import { settlementApi } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
+import {
+  AppPageContainer,
+  AppPageHeader,
+  AppSectionCard,
+  AppIconActionButton,
+} from '@/components/ui';
 
 // ─── 타입 ───────────────────────────────────────────────────────────────────
 
@@ -97,7 +101,7 @@ function getInitials(name: string): string {
 }
 
 const today = new Date();
-const todayStr = today.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+const todayStr = today.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
 
 // ─── 메인 컴포넌트 ────────────────────────────────────────────────────────────
 
@@ -209,102 +213,85 @@ export default function SettlementDashboardPage() {
     totalPayable: favorites.reduce((s, f) => s + f.payable, 0),
   }), [favorites]);
 
+  // ─── PageHeader용 KPI 칩 (데이터 로드 후 렌더링) ─────────────────────────
+
+  const kpiChips: React.ReactNode[] = !loading && data ? [
+    <Chip
+      key="rec"
+      size="small"
+      label={`미수 ${formatCompact(data.total_receivable)}`}
+      sx={{
+        height: 20, fontSize: '0.7rem', fontWeight: 700,
+        bgcolor: alpha(theme.palette.error.main, 0.1),
+        color: 'error.main',
+        border: `1px solid ${alpha(theme.palette.error.main, 0.25)}`,
+      }}
+    />,
+    <Chip
+      key="pay"
+      size="small"
+      label={`미지급 ${formatCompact(data.total_payable)}`}
+      sx={{
+        height: 20, fontSize: '0.7rem', fontWeight: 700,
+        bgcolor: alpha(theme.palette.warning.main, 0.1),
+        color: 'warning.dark',
+        border: `1px solid ${alpha(theme.palette.warning.main, 0.25)}`,
+      }}
+    />,
+    <Chip
+      key="settling"
+      size="small"
+      label={`정산중 ${data.settling_count}건`}
+      sx={{
+        height: 20, fontSize: '0.7rem', fontWeight: 700,
+        bgcolor: alpha(theme.palette.info.main, 0.1),
+        color: 'info.main',
+        border: `1px solid ${alpha(theme.palette.info.main, 0.2)}`,
+      }}
+    />,
+    <Chip
+      key="locked"
+      size="small"
+      label={`마감완료 ${data.locked_count}건`}
+      sx={{
+        height: 20, fontSize: '0.7rem', fontWeight: 700,
+        bgcolor: alpha(theme.palette.success.main, 0.1),
+        color: 'success.dark',
+        border: `1px solid ${alpha(theme.palette.success.main, 0.2)}`,
+      }}
+    />,
+  ] : [];
+
   // ─── 렌더링 ─────────────────────────────────────────────────────────────
 
   return (
-    <Box sx={{ maxWidth: 1600, mx: 'auto' }}>
+    <AppPageContainer>
+      {/* ── 공통 PageHeader ─────────────────────────────────────────────────── */}
+      <AppPageHeader
+        icon={<SwapHorizIcon />}
+        title="정산 대시보드"
+        description={`${todayStr} · ${user?.name ?? '사용자'}님`}
+        color="primary"
+        highlight
+        onRefresh={handleRefreshAll}
+        loading={loading || latestLoading || favLoading}
+        chips={kpiChips}
+      />
 
-      {/* ── Hero 배너 ──────────────────────────────────────────────────────── */}
-      <Paper
-        elevation={0}
-        sx={{
-          mb: 4, p: { xs: 3, md: 4 }, borderRadius: 4, overflow: 'hidden', position: 'relative',
-          background: `linear-gradient(135deg,
-            ${alpha(theme.palette.primary.dark, 0.92)} 0%,
-            ${alpha(theme.palette.primary.main, 0.85)} 50%,
-            ${alpha(theme.palette.info.dark, 0.88)} 100%)`,
-          color: '#fff',
-        }}
-      >
-        {/* 배경 장식 */}
-        <Box sx={{
-          position: 'absolute', right: -60, top: -60, width: 280, height: 280, borderRadius: '50%',
-          background: alpha('#fff', 0.04), pointerEvents: 'none',
-        }} />
-        <Box sx={{
-          position: 'absolute', right: 80, bottom: -80, width: 200, height: 200, borderRadius: '50%',
-          background: alpha('#fff', 0.03), pointerEvents: 'none',
-        }} />
-
-        <Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ md: 'center' }} justifyContent="space-between" spacing={3}>
-          <Box>
-            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1, opacity: 0.75 }}>
-              <CalendarIcon sx={{ fontSize: 15 }} />
-              <Typography variant="caption" fontWeight={500}>{todayStr}</Typography>
-            </Stack>
-            <Typography variant="h4" fontWeight={800} sx={{ mb: 0.5, letterSpacing: '-0.5px' }}>
-              안녕하세요, {user?.name ?? '사용자'}님
-            </Typography>
-            <Typography variant="body1" sx={{ opacity: 0.8 }}>
-              오늘의 정산 현황을 확인하세요.
-            </Typography>
-          </Box>
-
-          <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-            {[
-              { label: '미수 총액', value: data?.total_receivable ?? 0, color: '#ffcdd2' },
-              { label: '미지급 총액', value: data?.total_payable ?? 0, color: '#fff9c4' },
-              { label: '정산중', value: data?.settling_count ?? 0, suffix: '건', color: '#b3e5fc' },
-              { label: '마감 완료', value: data?.locked_count ?? 0, suffix: '건', color: '#c8e6c9' },
-            ].map((stat) => (
-              <Box key={stat.label} sx={{
-                px: 2.5, py: 1.5, borderRadius: 2.5, minWidth: 130,
-                background: alpha('#fff', 0.1),
-                backdropFilter: 'blur(8px)',
-                border: `1px solid ${alpha('#fff', 0.15)}`,
-              }}>
-                <Typography variant="caption" sx={{ opacity: 0.75, display: 'block', mb: 0.3 }}>
-                  {stat.label}
-                </Typography>
-                {loading ? (
-                  <Skeleton variant="text" width={80} sx={{ bgcolor: alpha('#fff', 0.2) }} />
-                ) : (
-                  <Typography variant="h6" fontWeight={800} sx={{ color: stat.color }}>
-                    {stat.suffix
-                      ? `${stat.value}${stat.suffix}`
-                      : formatCompact(stat.value)
-                    }
-                  </Typography>
-                )}
-              </Box>
-            ))}
-
-            <Tooltip title="전체 새로고침">
-              <IconButton
-                onClick={handleRefreshAll}
-                sx={{ color: '#fff', bgcolor: alpha('#fff', 0.1), '&:hover': { bgcolor: alpha('#fff', 0.2) }, alignSelf: 'center' }}
-              >
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
-          </Stack>
-        </Stack>
-      </Paper>
-
-      {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       {/* ── 내 즐겨찾기 현황 ────────────────────────────────────────────────── */}
-      <Box sx={{ mb: 4 }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+      <Box sx={{ mb: 2 }}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
           <Stack direction="row" alignItems="center" spacing={1.5}>
             <Box sx={{
-              width: 32, height: 32, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 28, height: 28, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center',
               bgcolor: alpha(theme.palette.warning.main, 0.12),
             }}>
-              <StarIcon sx={{ fontSize: 18, color: 'warning.main' }} />
+              <StarIcon sx={{ fontSize: 16, color: 'warning.main' }} />
             </Box>
             <Box>
-              <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2 }}>내 즐겨찾기 현황</Typography>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ lineHeight: 1.2 }}>내 즐겨찾기 현황</Typography>
               {!favLoading && (
                 <Typography variant="caption" color="text.secondary">
                   {favorites.length}개 거래처 모니터링 중
@@ -316,26 +303,26 @@ export default function SettlementDashboardPage() {
             size="small"
             endIcon={<ArrowForwardIcon />}
             onClick={() => router.push('/settlement/counterparties')}
-            sx={{ fontWeight: 600, color: 'text.secondary' }}
+            sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '0.75rem' }}
           >
             거래처 관리
           </Button>
         </Stack>
 
         {favLoading ? (
-          <Stack direction="row" spacing={2} sx={{ overflowX: 'auto', pb: 1 }}>
+          <Stack direction="row" spacing={1.5} sx={{ overflowX: 'auto', pb: 1 }}>
             {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} variant="rounded" width={220} height={110} sx={{ flexShrink: 0, borderRadius: 3 }} />
+              <Skeleton key={i} variant="rounded" width={200} height={96} sx={{ flexShrink: 0, borderRadius: 2 }} />
             ))}
           </Stack>
         ) : favorites.length === 0 ? (
           <Paper elevation={0} sx={{
-            p: 4, borderRadius: 3, border: '1px dashed', borderColor: 'divider', textAlign: 'center',
+            p: 3, borderRadius: 2, border: '1px dashed', borderColor: 'divider', textAlign: 'center',
             background: alpha(theme.palette.warning.main, 0.02),
           }}>
-            <StarIcon sx={{ fontSize: 40, color: alpha(theme.palette.warning.main, 0.3), mb: 1 }} />
-            <Typography variant="body1" fontWeight={600} gutterBottom>즐겨찾기 거래처가 없습니다</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            <StarIcon sx={{ fontSize: 32, color: alpha(theme.palette.warning.main, 0.3), mb: 1 }} />
+            <Typography variant="body2" fontWeight={600} gutterBottom>즐겨찾기 거래처가 없습니다</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
               거래처 관리에서 자주 확인하는 거래처를 즐겨찾기에 추가해보세요.
             </Typography>
             <Button variant="outlined" size="small" onClick={() => router.push('/settlement/counterparties')}>
@@ -346,27 +333,27 @@ export default function SettlementDashboardPage() {
           <Box>
             {/* 즐겨찾기 합계 배너 */}
             <Paper elevation={0} sx={{
-              mb: 2, p: 2, borderRadius: 2.5,
+              mb: 1.5, p: 1.5, borderRadius: 2,
               border: `1px solid ${alpha(theme.palette.warning.main, 0.2)}`,
               background: `linear-gradient(135deg, ${alpha(theme.palette.warning.main, 0.05)} 0%, transparent 100%)`,
             }}>
-              <Stack direction="row" spacing={4} alignItems="center" flexWrap="wrap" useFlexGap>
+              <Stack direction="row" spacing={3} alignItems="center" flexWrap="wrap" useFlexGap>
                 <Stack direction="row" spacing={1} alignItems="center">
                   <Badge badgeContent={favorites.length} color="warning">
-                    <StarIcon sx={{ color: 'warning.main', fontSize: 20 }} />
+                    <StarIcon sx={{ color: 'warning.main', fontSize: 18 }} />
                   </Badge>
-                  <Typography variant="body2" fontWeight={600} color="warning.dark">즐겨찾기 합계</Typography>
+                  <Typography variant="caption" fontWeight={700} color="warning.dark">즐겨찾기 합계</Typography>
                 </Stack>
                 <Divider orientation="vertical" flexItem />
                 <Stack direction="row" spacing={0.5} alignItems="baseline">
-                  <Typography variant="caption" color="text.secondary">미수 합계</Typography>
-                  <Typography variant="subtitle1" fontWeight={800} color="error.main">
+                  <Typography variant="caption" color="text.secondary">미수</Typography>
+                  <Typography variant="body2" fontWeight={800} color="error.main">
                     {formatCompact(favSummary.totalReceivable)}
                   </Typography>
                 </Stack>
                 <Stack direction="row" spacing={0.5} alignItems="baseline">
-                  <Typography variant="caption" color="text.secondary">미지급 합계</Typography>
-                  <Typography variant="subtitle1" fontWeight={800} color="warning.dark">
+                  <Typography variant="caption" color="text.secondary">미지급</Typography>
+                  <Typography variant="body2" fontWeight={800} color="warning.dark">
                     {formatCompact(favSummary.totalPayable)}
                   </Typography>
                 </Stack>
@@ -377,7 +364,7 @@ export default function SettlementDashboardPage() {
                     color="warning"
                     endIcon={<ArrowForwardIcon />}
                     onClick={() => router.push('/settlement/status')}
-                    sx={{ fontWeight: 600, fontSize: '0.75rem' }}
+                    sx={{ fontWeight: 600, fontSize: '0.7rem', height: 26 }}
                   >
                     전체 현황 보기
                   </Button>
@@ -388,7 +375,7 @@ export default function SettlementDashboardPage() {
             {/* 즐겨찾기 카드 스크롤 */}
             <Stack
               direction="row"
-              spacing={2}
+              spacing={1.5}
               sx={{ overflowX: 'auto', pb: 1, '&::-webkit-scrollbar': { height: 4 }, '&::-webkit-scrollbar-thumb': { borderRadius: 2, bgcolor: 'divider' } }}
             >
               {favorites.map((fav) => {
@@ -400,31 +387,31 @@ export default function SettlementDashboardPage() {
                     elevation={0}
                     onClick={() => router.push(`/settlement/counterparties/${fav.id}`)}
                     sx={{
-                      flexShrink: 0, width: 220, p: 2.5, borderRadius: 3, cursor: 'pointer',
+                      flexShrink: 0, width: 200, p: 2, borderRadius: 2, cursor: 'pointer',
                       border: '1px solid', borderColor: 'divider',
                       transition: 'all 0.2s',
                       '&:hover': {
                         borderColor: theme.palette.warning.main,
-                        boxShadow: `0 4px 20px ${alpha(theme.palette.warning.main, 0.15)}`,
-                        transform: 'translateY(-2px)',
+                        boxShadow: `0 4px 16px ${alpha(theme.palette.warning.main, 0.12)}`,
+                        transform: 'translateY(-1px)',
                       },
                     }}
                   >
-                    <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2 }}>
+                    <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
                       <Avatar sx={{
-                        width: 36, height: 36, fontSize: '0.75rem', flexShrink: 0,
+                        width: 30, height: 30, fontSize: '0.7rem', flexShrink: 0,
                         bgcolor: getAvatarColor(fav.name),
                         boxShadow: `0 0 0 2px ${theme.palette.warning.main}`,
                       }}>
                         {getInitials(fav.name)}
                       </Avatar>
                       <Box sx={{ minWidth: 0 }}>
-                        <Typography fontWeight={700} variant="body2" noWrap>{fav.name}</Typography>
-                        <StarIcon sx={{ fontSize: 11, color: 'warning.main' }} />
+                        <Typography fontWeight={700} variant="caption" noWrap sx={{ display: 'block' }}>{fav.name}</Typography>
+                        <StarIcon sx={{ fontSize: 10, color: 'warning.main' }} />
                       </Box>
                     </Stack>
 
-                    <Stack spacing={0.8}>
+                    <Stack spacing={0.5}>
                       <Stack direction="row" justifyContent="space-between" alignItems="center">
                         <Typography variant="caption" color="text.secondary">미수</Typography>
                         <Typography variant="caption" fontWeight={700}
@@ -446,7 +433,7 @@ export default function SettlementDashboardPage() {
                         variant="determinate"
                         value={hasReceivable ? Math.min((fav.receivable / (favSummary.totalReceivable || 1)) * 100 * favorites.length, 100) : 50}
                         color={hasReceivable ? 'error' : 'warning'}
-                        sx={{ mt: 1.5, height: 2, borderRadius: 1, bgcolor: alpha(theme.palette.divider, 0.5) }}
+                        sx={{ mt: 1, height: 2, borderRadius: 1, bgcolor: alpha(theme.palette.divider, 0.5) }}
                       />
                     )}
                   </Paper>
@@ -458,24 +445,21 @@ export default function SettlementDashboardPage() {
       </Box>
 
       {/* ── 운영 현황 + 최신 데이터 ─────────────────────────────────────────── */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
+      <Grid container spacing={2} sx={{ mb: 2 }}>
         {/* 운영 현황 */}
         <Grid item xs={12} md={7}>
-          <Paper elevation={0} sx={{
-            p: 3, height: '100%', borderRadius: 3,
-            border: '1px solid', borderColor: 'divider',
-          }}>
-            <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 3 }}>
+          <AppSectionCard sx={{ p: 2, height: '100%', mb: 0 }}>
+            <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2 }}>
               <Box sx={{
-                width: 32, height: 32, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 28, height: 28, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 bgcolor: alpha(theme.palette.primary.main, 0.1),
               }}>
-                <BusinessCenterIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+                <BusinessCenterIcon sx={{ fontSize: 16, color: 'primary.main' }} />
               </Box>
-              <Typography variant="h6" fontWeight={700}>운영 현황</Typography>
+              <Typography variant="subtitle2" fontWeight={700}>운영 현황</Typography>
             </Stack>
 
-            <Grid container spacing={2}>
+            <Grid container spacing={1.5}>
               {[
                 { label: '미정산 판매', value: data?.open_sales_count ?? 0, icon: <ReceiptIcon />, color: theme.palette.error.main, path: '/settlement/status' },
                 { label: '미지급 매입', value: data?.unpaid_purchase_count ?? 0, icon: <ShoppingCartIcon />, color: theme.palette.warning.main, path: '/settlement/status' },
@@ -487,163 +471,157 @@ export default function SettlementDashboardPage() {
                     elevation={0}
                     onClick={() => card.path && router.push(card.path)}
                     sx={{
-                      p: 2.5, borderRadius: 2.5,
+                      p: 2, borderRadius: 2,
                       border: `1px solid ${alpha(card.color, 0.2)}`,
                       background: `linear-gradient(135deg, ${alpha(card.color, 0.05)} 0%, transparent 100%)`,
                       cursor: card.path ? 'pointer' : 'default',
-                      transition: 'all 0.2s',
-                      '&:hover': card.path ? { boxShadow: `0 4px 16px ${alpha(card.color, 0.15)}`, transform: 'translateY(-1px)' } : {},
+                      transition: 'all 0.15s',
+                      '&:hover': card.path ? { boxShadow: `0 4px 12px ${alpha(card.color, 0.12)}`, transform: 'translateY(-1px)' } : {},
                     }}
                   >
-                    <Stack direction="row" alignItems="flex-start" justifyContent="space-between">
-                      <Box sx={{ color: card.color, mb: 1 }}>{card.icon}</Box>
-                      {card.path && <ArrowForwardIcon sx={{ fontSize: 14, color: 'text.disabled' }} />}
+                    <Stack direction="row" alignItems="flex-start" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                      <Box sx={{ color: card.color, '& svg': { fontSize: 18 } }}>{card.icon}</Box>
+                      {card.path && <ArrowForwardIcon sx={{ fontSize: 13, color: 'text.disabled' }} />}
                     </Stack>
                     {loading ? (
-                      <Skeleton width={40} height={32} />
+                      <Skeleton width={36} height={28} />
                     ) : (
-                      <Typography variant="h5" fontWeight={800} sx={{ color: card.color }}>
+                      <Typography variant="h6" fontWeight={800} sx={{ color: card.color, lineHeight: 1.2 }}>
                         {card.value}
                         <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>건</Typography>
                       </Typography>
                     )}
-                    <Typography variant="body2" color="text.secondary" fontWeight={500} sx={{ mt: 0.3 }}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={500}>
                       {card.label}
                     </Typography>
                   </Paper>
                 </Grid>
               ))}
             </Grid>
-          </Paper>
+          </AppSectionCard>
         </Grid>
 
         {/* 최신 데이터 현황 */}
         <Grid item xs={12} md={5}>
-          <Paper elevation={0} sx={{
-            p: 3, height: '100%', borderRadius: 3,
-            border: '1px solid', borderColor: 'divider',
-          }}>
-            <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>
+          <AppSectionCard sx={{ p: 2, height: '100%', mb: 0 }}>
+            <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
               <Stack direction="row" alignItems="center" spacing={1.5}>
                 <Box sx={{
-                  width: 32, height: 32, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 28, height: 28, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center',
                   bgcolor: alpha(theme.palette.info.main, 0.1),
                 }}>
-                  <AccessTimeIcon sx={{ fontSize: 18, color: 'info.main' }} />
+                  <AccessTimeIcon sx={{ fontSize: 16, color: 'info.main' }} />
                 </Box>
-                <Typography variant="h6" fontWeight={700}>최신 데이터</Typography>
+                <Typography variant="subtitle2" fontWeight={700}>최신 데이터</Typography>
               </Stack>
               <Tooltip title="새로고침">
                 <span>
                   <IconButton size="small" onClick={loadLatestVersions} disabled={latestLoading}>
-                    <RefreshIcon fontSize="small" />
+                    <RefreshIcon sx={{ fontSize: 15 }} />
                   </IconButton>
                 </span>
               </Tooltip>
             </Stack>
 
-            <Stack spacing={2}>
+            <Stack spacing={1.5}>
               {/* 판매 */}
               {latestLoading ? (
-                <Skeleton variant="rounded" height={90} sx={{ borderRadius: 2 }} />
+                <Skeleton variant="rounded" height={80} sx={{ borderRadius: 2 }} />
               ) : latestSales ? (
                 <Paper
                   elevation={0}
                   onClick={() => router.push('/settlement/upload/jobs')}
                   sx={{
-                    p: 2, borderRadius: 2, cursor: 'pointer',
+                    p: 1.5, borderRadius: 2, cursor: 'pointer',
                     border: `1px solid ${alpha(theme.palette.primary.main, 0.25)}`,
                     background: alpha(theme.palette.primary.main, 0.03),
-                    transition: 'all 0.2s', '&:hover': { boxShadow: 3, borderColor: 'primary.main' },
+                    transition: 'all 0.2s', '&:hover': { boxShadow: 2, borderColor: 'primary.main' },
                   }}
                 >
-                  <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                    <ReceiptIcon sx={{ fontSize: 15, color: 'primary.main' }} />
+                  <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+                    <ReceiptIcon sx={{ fontSize: 13, color: 'primary.main' }} />
                     <Typography variant="caption" fontWeight={700} color="primary.main">판매 데이터 최신 버전</Typography>
                     <Chip label="확정" size="small" color="success" sx={{ height: 16, fontSize: '0.6rem', ml: 'auto' }} />
                   </Stack>
                   <Typography variant="body2" fontWeight={600} noWrap sx={{ mb: 0.5 }}>{latestSales.original_filename}</Typography>
                   <Stack direction="row" spacing={1.5} alignItems="center">
                     <Stack direction="row" alignItems="center" spacing={0.3}>
-                      <AccessTimeIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
+                      <AccessTimeIcon sx={{ fontSize: 11, color: 'text.disabled' }} />
                       <Typography variant="caption" color="text.secondary">{formatKST(latestSales.confirmed_at)}</Typography>
                     </Stack>
                     <Stack direction="row" alignItems="center" spacing={0.3}>
-                      <PersonIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
+                      <PersonIcon sx={{ fontSize: 11, color: 'text.disabled' }} />
                       <Typography variant="caption" color="text.secondary">{latestSales.created_by_name || '—'}</Typography>
                     </Stack>
                   </Stack>
                 </Paper>
               ) : (
-                <Paper elevation={0} sx={{ p: 2.5, borderRadius: 2, border: '1px dashed', borderColor: 'divider', textAlign: 'center' }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>확정된 판매 업로드가 없습니다</Typography>
+                <Paper elevation={0} sx={{ p: 2, borderRadius: 2, border: '1px dashed', borderColor: 'divider', textAlign: 'center' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>확정된 판매 업로드가 없습니다</Typography>
                   <Button size="small" variant="outlined" onClick={() => router.push('/settlement/upload/sales')}>지금 업로드</Button>
                 </Paper>
               )}
 
               {/* 매입 */}
               {latestLoading ? (
-                <Skeleton variant="rounded" height={90} sx={{ borderRadius: 2 }} />
+                <Skeleton variant="rounded" height={80} sx={{ borderRadius: 2 }} />
               ) : latestPurchase ? (
                 <Paper
                   elevation={0}
                   onClick={() => router.push('/settlement/upload/jobs')}
                   sx={{
-                    p: 2, borderRadius: 2, cursor: 'pointer',
+                    p: 1.5, borderRadius: 2, cursor: 'pointer',
                     border: `1px solid ${alpha(theme.palette.secondary.main, 0.25)}`,
                     background: alpha(theme.palette.secondary.main, 0.03),
-                    transition: 'all 0.2s', '&:hover': { boxShadow: 3, borderColor: 'secondary.main' },
+                    transition: 'all 0.2s', '&:hover': { boxShadow: 2, borderColor: 'secondary.main' },
                   }}
                 >
-                  <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                    <ShoppingCartIcon sx={{ fontSize: 15, color: 'secondary.main' }} />
+                  <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+                    <ShoppingCartIcon sx={{ fontSize: 13, color: 'secondary.main' }} />
                     <Typography variant="caption" fontWeight={700} color="secondary.main">매입 데이터 최신 버전</Typography>
                     <Chip label="확정" size="small" color="success" sx={{ height: 16, fontSize: '0.6rem', ml: 'auto' }} />
                   </Stack>
                   <Typography variant="body2" fontWeight={600} noWrap sx={{ mb: 0.5 }}>{latestPurchase.original_filename}</Typography>
                   <Stack direction="row" spacing={1.5} alignItems="center">
                     <Stack direction="row" alignItems="center" spacing={0.3}>
-                      <AccessTimeIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
+                      <AccessTimeIcon sx={{ fontSize: 11, color: 'text.disabled' }} />
                       <Typography variant="caption" color="text.secondary">{formatKST(latestPurchase.confirmed_at)}</Typography>
                     </Stack>
                     <Stack direction="row" alignItems="center" spacing={0.3}>
-                      <PersonIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
+                      <PersonIcon sx={{ fontSize: 11, color: 'text.disabled' }} />
                       <Typography variant="caption" color="text.secondary">{latestPurchase.created_by_name || '—'}</Typography>
                     </Stack>
                   </Stack>
                 </Paper>
               ) : (
-                <Paper elevation={0} sx={{ p: 2.5, borderRadius: 2, border: '1px dashed', borderColor: 'divider', textAlign: 'center' }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>확정된 매입 업로드가 없습니다</Typography>
+                <Paper elevation={0} sx={{ p: 2, borderRadius: 2, border: '1px dashed', borderColor: 'divider', textAlign: 'center' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>확정된 매입 업로드가 없습니다</Typography>
                   <Button size="small" variant="outlined" onClick={() => router.push('/settlement/upload/purchase')}>지금 업로드</Button>
                 </Paper>
               )}
             </Stack>
-          </Paper>
+          </AppSectionCard>
         </Grid>
       </Grid>
 
       {/* ── 미수 / 미지급 Top 5 ──────────────────────────────────────────────── */}
-      <Grid container spacing={3}>
+      <Grid container spacing={2}>
         {/* 미수 Top 5 */}
         <Grid item xs={12} md={6}>
-          <Paper elevation={0} sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
+          <AppSectionCard sx={{ p: 0, mb: 0, overflow: 'hidden' }}>
             <Box sx={{
-              px: 3, py: 2,
+              px: 2, py: 1.5,
               background: `linear-gradient(90deg, ${alpha(theme.palette.error.main, 0.07)} 0%, transparent 100%)`,
               borderBottom: '1px solid', borderColor: 'divider',
             }}>
               <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Stack direction="row" alignItems="center" spacing={1.5}>
-                  <TrendingUpIcon sx={{ color: 'error.main', fontSize: 20 }} />
-                  <Typography variant="subtitle1" fontWeight={700}>미수 상위 거래처</Typography>
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <TrendingUpIcon sx={{ color: 'error.main', fontSize: 18 }} />
+                  <Typography variant="subtitle2" fontWeight={700}>미수 상위 거래처</Typography>
                   <Chip label="Top 5" size="small" color="error" variant="outlined" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700 }} />
                 </Stack>
-                <Tooltip title="미수 현황 전체 보기">
-                  <IconButton size="small" onClick={() => router.push('/settlement/status')}>
-                    <OpenInNewIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <AppIconActionButton icon={<OpenInNewIcon />} tooltip="미수 현황 전체 보기"
+                  onClick={() => router.push('/settlement/status')} />
               </Stack>
             </Box>
 
@@ -651,25 +629,25 @@ export default function SettlementDashboardPage() {
               <Table size="small">
                 <TableHead>
                   <TableRow sx={{ bgcolor: alpha(theme.palette.error.main, 0.02) }}>
-                    <TableCell sx={{ fontWeight: 700, width: 40 }}>#</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>거래처</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700 }}>미수 잔액</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700, width: 60 }}>전표</TableCell>
-                    <TableCell sx={{ width: 36 }} />
+                    <TableCell sx={{ fontWeight: 700, width: 36, py: 0.75 }}>#</TableCell>
+                    <TableCell sx={{ fontWeight: 700, py: 0.75 }}>거래처</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, py: 0.75 }}>미수 잔액</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, width: 56, py: 0.75 }}>전표</TableCell>
+                    <TableCell sx={{ width: 32, py: 0.75 }} />
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {loading ? (
                     Array.from({ length: 5 }).map((_, i) => (
                       <TableRow key={i}>
-                        {[40, 150, 100, 50, 36].map((w, j) => (
-                          <TableCell key={j}><Skeleton width={w} /></TableCell>
+                        {[36, 140, 90, 48, 32].map((w, j) => (
+                          <TableCell key={j} sx={{ py: 0.75 }}><Skeleton width={w} /></TableCell>
                         ))}
                       </TableRow>
                     ))
                   ) : topReceivables.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} align="center" sx={{ py: 5 }}>
+                      <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                         <Typography variant="body2" color="text.secondary">미수 데이터가 없습니다</Typography>
                       </TableCell>
                     </TableRow>
@@ -680,33 +658,33 @@ export default function SettlementDashboardPage() {
                       sx={{ cursor: 'pointer', '&:hover': { bgcolor: alpha(theme.palette.error.main, 0.03) } }}
                       onClick={() => router.push(`/settlement/counterparties/${item.counterparty_id}`)}
                     >
-                      <TableCell>
+                      <TableCell sx={{ py: 0.75 }}>
                         <Box sx={{
-                          width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          width: 22, height: 22, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
                           bgcolor: idx < 3 ? alpha(theme.palette.error.main, 0.12) : 'action.hover',
-                          fontWeight: 700, fontSize: '0.7rem',
+                          fontWeight: 700, fontSize: '0.65rem',
                           color: idx < 3 ? 'error.main' : 'text.secondary',
                         }}>
                           {idx + 1}
                         </Box>
                       </TableCell>
-                      <TableCell>
+                      <TableCell sx={{ py: 0.75 }}>
                         <Stack direction="row" alignItems="center" spacing={1}>
-                          <Avatar sx={{ width: 26, height: 26, fontSize: '0.65rem', bgcolor: getAvatarColor(item.counterparty_name) }}>
+                          <Avatar sx={{ width: 24, height: 24, fontSize: '0.6rem', bgcolor: getAvatarColor(item.counterparty_name) }}>
                             {getInitials(item.counterparty_name)}
                           </Avatar>
                           <Typography variant="body2" fontWeight={600}>{item.counterparty_name}</Typography>
                         </Stack>
                       </TableCell>
-                      <TableCell align="right">
+                      <TableCell align="right" sx={{ py: 0.75 }}>
                         <Typography variant="body2" fontWeight={700} color="error.main">{formatAmount(item.amount)}</Typography>
                       </TableCell>
-                      <TableCell align="right">
-                        <Chip label={`${item.voucher_count}건`} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
+                      <TableCell align="right" sx={{ py: 0.75 }}>
+                        <Chip label={`${item.voucher_count}건`} size="small" variant="outlined" sx={{ height: 18, fontSize: '0.62rem' }} />
                       </TableCell>
-                      <TableCell>
+                      <TableCell sx={{ py: 0.75 }}>
                         <IconButton size="small" sx={{ color: 'text.disabled' }}>
-                          <ViewIcon sx={{ fontSize: 16 }} />
+                          <ViewIcon sx={{ fontSize: 14 }} />
                         </IconButton>
                       </TableCell>
                     </TableRow>
@@ -714,28 +692,25 @@ export default function SettlementDashboardPage() {
                 </TableBody>
               </Table>
             </TableContainer>
-          </Paper>
+          </AppSectionCard>
         </Grid>
 
         {/* 미지급 Top 5 */}
         <Grid item xs={12} md={6}>
-          <Paper elevation={0} sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
+          <AppSectionCard sx={{ p: 0, mb: 0, overflow: 'hidden' }}>
             <Box sx={{
-              px: 3, py: 2,
+              px: 2, py: 1.5,
               background: `linear-gradient(90deg, ${alpha(theme.palette.warning.main, 0.07)} 0%, transparent 100%)`,
               borderBottom: '1px solid', borderColor: 'divider',
             }}>
               <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Stack direction="row" alignItems="center" spacing={1.5}>
-                  <TrendingDownIcon sx={{ color: 'warning.main', fontSize: 20 }} />
-                  <Typography variant="subtitle1" fontWeight={700}>미지급 상위 거래처</Typography>
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <TrendingDownIcon sx={{ color: 'warning.main', fontSize: 18 }} />
+                  <Typography variant="subtitle2" fontWeight={700}>미지급 상위 거래처</Typography>
                   <Chip label="Top 5" size="small" color="warning" variant="outlined" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700 }} />
                 </Stack>
-                <Tooltip title="미지급 현황 전체 보기">
-                  <IconButton size="small" onClick={() => router.push('/settlement/status')}>
-                    <OpenInNewIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                <AppIconActionButton icon={<OpenInNewIcon />} tooltip="미지급 현황 전체 보기"
+                  onClick={() => router.push('/settlement/status')} />
               </Stack>
             </Box>
 
@@ -743,25 +718,25 @@ export default function SettlementDashboardPage() {
               <Table size="small">
                 <TableHead>
                   <TableRow sx={{ bgcolor: alpha(theme.palette.warning.main, 0.02) }}>
-                    <TableCell sx={{ fontWeight: 700, width: 40 }}>#</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>거래처</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700 }}>미지급 잔액</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700, width: 60 }}>전표</TableCell>
-                    <TableCell sx={{ width: 36 }} />
+                    <TableCell sx={{ fontWeight: 700, width: 36, py: 0.75 }}>#</TableCell>
+                    <TableCell sx={{ fontWeight: 700, py: 0.75 }}>거래처</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, py: 0.75 }}>미지급 잔액</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, width: 56, py: 0.75 }}>전표</TableCell>
+                    <TableCell sx={{ width: 32, py: 0.75 }} />
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {loading ? (
                     Array.from({ length: 5 }).map((_, i) => (
                       <TableRow key={i}>
-                        {[40, 150, 100, 50, 36].map((w, j) => (
-                          <TableCell key={j}><Skeleton width={w} /></TableCell>
+                        {[36, 140, 90, 48, 32].map((w, j) => (
+                          <TableCell key={j} sx={{ py: 0.75 }}><Skeleton width={w} /></TableCell>
                         ))}
                       </TableRow>
                     ))
                   ) : topPayables.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} align="center" sx={{ py: 5 }}>
+                      <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                         <Typography variant="body2" color="text.secondary">미지급 데이터가 없습니다</Typography>
                       </TableCell>
                     </TableRow>
@@ -772,33 +747,33 @@ export default function SettlementDashboardPage() {
                       sx={{ cursor: 'pointer', '&:hover': { bgcolor: alpha(theme.palette.warning.main, 0.03) } }}
                       onClick={() => router.push(`/settlement/counterparties/${item.counterparty_id}`)}
                     >
-                      <TableCell>
+                      <TableCell sx={{ py: 0.75 }}>
                         <Box sx={{
-                          width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          width: 22, height: 22, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
                           bgcolor: idx < 3 ? alpha(theme.palette.warning.main, 0.14) : 'action.hover',
-                          fontWeight: 700, fontSize: '0.7rem',
+                          fontWeight: 700, fontSize: '0.65rem',
                           color: idx < 3 ? 'warning.dark' : 'text.secondary',
                         }}>
                           {idx + 1}
                         </Box>
                       </TableCell>
-                      <TableCell>
+                      <TableCell sx={{ py: 0.75 }}>
                         <Stack direction="row" alignItems="center" spacing={1}>
-                          <Avatar sx={{ width: 26, height: 26, fontSize: '0.65rem', bgcolor: getAvatarColor(item.counterparty_name) }}>
+                          <Avatar sx={{ width: 24, height: 24, fontSize: '0.6rem', bgcolor: getAvatarColor(item.counterparty_name) }}>
                             {getInitials(item.counterparty_name)}
                           </Avatar>
                           <Typography variant="body2" fontWeight={600}>{item.counterparty_name}</Typography>
                         </Stack>
                       </TableCell>
-                      <TableCell align="right">
+                      <TableCell align="right" sx={{ py: 0.75 }}>
                         <Typography variant="body2" fontWeight={700} color="warning.dark">{formatAmount(item.amount)}</Typography>
                       </TableCell>
-                      <TableCell align="right">
-                        <Chip label={`${item.voucher_count}건`} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
+                      <TableCell align="right" sx={{ py: 0.75 }}>
+                        <Chip label={`${item.voucher_count}건`} size="small" variant="outlined" sx={{ height: 18, fontSize: '0.62rem' }} />
                       </TableCell>
-                      <TableCell>
+                      <TableCell sx={{ py: 0.75 }}>
                         <IconButton size="small" sx={{ color: 'text.disabled' }}>
-                          <ViewIcon sx={{ fontSize: 16 }} />
+                          <ViewIcon sx={{ fontSize: 14 }} />
                         </IconButton>
                       </TableCell>
                     </TableRow>
@@ -806,9 +781,9 @@ export default function SettlementDashboardPage() {
                 </TableBody>
               </Table>
             </TableContainer>
-          </Paper>
+          </AppSectionCard>
         </Grid>
       </Grid>
-    </Box>
+    </AppPageContainer>
   );
 }

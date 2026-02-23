@@ -15,21 +15,19 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, TablePagination, Chip, IconButton, Tooltip,
+  TableHead, TableRow, Chip, IconButton, Tooltip,
   Stack, alpha, useTheme, LinearProgress, Button, Checkbox,
-  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
+  Dialog, DialogTitle, DialogContent, DialogActions,
   Drawer, Tabs, Tab, Divider, Alert, AlertTitle, CircularProgress,
-  TableSortLabel, Autocomplete, TextField, FormControl, InputLabel,
+  Autocomplete, TextField, FormControl, InputLabel,
   Select, MenuItem, Collapse,
 } from '@mui/material';
 import {
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
   HourglassEmpty as PendingIcon,
-  Refresh as RefreshIcon,
   Delete as DeleteIcon,
   PlayArrow as RunningIcon,
-  ArrowBack as ArrowBackIcon,
   Close as CloseIcon,
   CloudUpload as UploadIcon,
   CheckCircleOutline as ConfirmIcon,
@@ -45,13 +43,18 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   PlaylistAddCheck as BatchIcon,
-  Person as PersonIcon,
   Schedule as ScheduleIcon,
   Verified as VerifiedIcon,
   AccessTime as AccessTimeIcon,
+  History as HistoryIcon,
 } from '@mui/icons-material';
 import Avatar from '@mui/material/Avatar';
 import Skeleton from '@mui/material/Skeleton';
+import {
+  AppPageContainer,
+  AppPageHeader,
+  AppTableShell,
+} from '@/components/ui';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
 import { useRouter } from 'next/navigation';
@@ -607,69 +610,82 @@ export default function UploadJobsPage() {
   // ─── 선택된 작업 정보 ───
   const selectedJobs = jobs.filter((j) => selected.has(j.id));
 
-  return (
-    <Box>
-      {/* ─── 헤더 ─── */}
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>
-        <Stack direction="row" alignItems="center" spacing={1.5}>
-          <IconButton size="small" onClick={() => router.back()}>
-            <ArrowBackIcon />
-          </IconButton>
-          <Box>
-            <Typography variant="h5" fontWeight={700}>업로드 작업 내역</Typography>
-            <Typography variant="body2" color="text.secondary">
-              행을 클릭하면 상세 결과를 확인할 수 있습니다. 결과 요약 칩을 클릭하면 해당 항목으로 바로 이동합니다.
-              {autoRefresh && (
-                <Chip label="자동 새로고침" size="small" color="info" variant="outlined"
-                  sx={{ ml: 1, fontSize: '0.65rem', height: 18 }} />
-              )}
-            </Typography>
-          </Box>
-        </Stack>
-        <Stack direction="row" spacing={1} alignItems="center">
-          {selected.size > 0 && (
-            <Button variant="contained" color="error" size="small" startIcon={<DeleteIcon />}
-              onClick={handleDeleteConfirm}>
-              {selected.size}건 삭제
-            </Button>
-          )}
-          <Button variant="outlined" size="small" startIcon={<UploadIcon />}
-            onClick={() => router.push('/settlement/upload/sales')}>
-            전표 업로드
-          </Button>
-          <Tooltip title="새로고침">
-            <IconButton onClick={loadJobs}><RefreshIcon /></IconButton>
-          </Tooltip>
-        </Stack>
-      </Stack>
+  // ─── 헤더 액션 ──────────────────────────────────────────────────────────────
+  const headerActions = [
+    ...(selected.size > 0 ? [{
+      label: `${selected.size}건 삭제`,
+      onClick: handleDeleteConfirm,
+      variant: 'outlined' as const,
+      color: 'error' as const,
+      icon: <DeleteIcon />,
+    }] : []),
+    {
+      label: '전표 업로드',
+      onClick: () => router.push('/settlement/upload'),
+      variant: 'outlined' as const,
+      color: 'primary' as const,
+      icon: <UploadIcon />,
+    },
+  ];
 
-      {/* ─── 테이블 ─── */}
-      <TableContainer component={Paper} elevation={0} sx={{
-        border: '1px solid',
-        borderColor: 'divider',
-        borderRadius: 3,
-        overflow: 'hidden',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-      }}>
+  return (
+    <AppPageContainer>
+      {/* 페이지 헤더 */}
+      <AppPageHeader
+        icon={<HistoryIcon />}
+        title="업로드 작업 내역"
+        description="행을 클릭하면 상세 결과를 확인합니다. 결과 요약 칩을 클릭하면 해당 탭으로 바로 이동합니다"
+        color="primary"
+        count={loading ? null : total}
+        onRefresh={loadJobs}
+        loading={loading}
+        highlight
+        chips={autoRefresh ? [
+          <Chip key="auto" label="자동 새로고침" size="small" color="info" variant="outlined"
+            sx={{ height: 20, fontSize: '0.68rem' }} />
+        ] : []}
+        actions={headerActions}
+      />
+
+      {/* 테이블 */}
+      <AppTableShell
+        loading={loading}
+        isEmpty={!loading && jobs.length === 0}
+        emptyMessage="업로드 작업이 없습니다"
+        count={total}
+        page={page}
+        rowsPerPage={pageSize}
+        onPageChange={(_, p) => setPage(p)}
+        onRowsPerPageChange={(e) => { setPageSize(parseInt(e.target.value, 10)); setPage(0); }}
+      >
         <Table size="small">
-          <TableHead>
-            <TableRow sx={{
-              background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.06)} 0%, ${alpha(theme.palette.info.main, 0.04)} 100%)`,
-            }}>
-              <TableCell padding="checkbox" sx={{ width: 42 }}>
-                <Checkbox size="small" indeterminate={isSomeSelected} checked={isAllSelected}
-                  onChange={(e) => handleSelectAll(e.target.checked)} />
-              </TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 155, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }}>등록일시</TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 60, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }} align="center">타입</TableCell>
-              <TableCell sx={{ fontWeight: 700, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }}>파일명</TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 110, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }}>작업자</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 700, width: 90, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }}>상태</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 700, width: 85, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }}>진행률</TableCell>
-              <TableCell sx={{ fontWeight: 700, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }}>결과 요약</TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 155, color: 'text.secondary', fontSize: '0.75rem', letterSpacing: 0.5 }}>완료시간</TableCell>
-            </TableRow>
-          </TableHead>
+            <TableHead>
+              <TableRow>
+                <TableCell padding="checkbox" sx={{ width: 42 }}>
+                  <Checkbox size="small" indeterminate={isSomeSelected} checked={isAllSelected}
+                    onChange={(e) => handleSelectAll(e.target.checked)} />
+                </TableCell>
+                {[
+                  { label: '등록일시', width: 155 },
+                  { label: '타입', width: 70, align: 'center' as const },
+                  { label: '파일명' },
+                  { label: '작업자', width: 110 },
+                  { label: '상태', width: 90, align: 'center' as const },
+                  { label: '진행률', width: 90, align: 'center' as const },
+                  { label: '결과 요약' },
+                  { label: '완료시간', width: 155 },
+                ].map(({ label, width, align }) => (
+                  <TableCell key={label} align={align} sx={{
+                    fontWeight: 700, fontSize: '0.6875rem', letterSpacing: '0.04em',
+                    color: 'text.secondary',
+                    textTransform: 'uppercase',
+                    ...(width ? { width } : {}),
+                  }}>
+                    {label}
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
           <TableBody>
             {loading && jobs.length === 0 ? (
               // Skeleton 로딩 상태
@@ -686,29 +702,6 @@ export default function UploadJobsPage() {
                   <TableCell><Skeleton width={120} /></TableCell>
                 </TableRow>
               ))
-            ) : jobs.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 10 }}>
-                  <Box sx={{
-                    width: 80, height: 80, borderRadius: '50%', mx: 'auto', mb: 2,
-                    bgcolor: alpha(theme.palette.primary.main, 0.08),
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <UploadIcon sx={{ fontSize: 40, color: 'primary.main' }} />
-                  </Box>
-                  <Typography variant="h6" fontWeight={600} color="text.primary" gutterBottom>
-                    업로드 작업이 없습니다
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    UPM 전표 엑셀 파일을 업로드하여 시작하세요
-                  </Typography>
-                  <Button variant="contained" size="medium" startIcon={<UploadIcon />}
-                    onClick={() => router.push('/settlement/upload/sales')}
-                    sx={{ borderRadius: 2, px: 3, fontWeight: 600 }}>
-                    전표 업로드하기
-                  </Button>
-                </TableCell>
-              </TableRow>
             ) : (
               jobs.map((job) => {
                 const typeInfo = getJobTypeLabel(job.job_type);
@@ -830,11 +823,7 @@ export default function UploadJobsPage() {
             )}
           </TableBody>
         </Table>
-        <TablePagination component="div" count={total} page={page}
-          onPageChange={(_, p) => setPage(p)} rowsPerPage={pageSize}
-          onRowsPerPageChange={(e) => { setPageSize(parseInt(e.target.value, 10)); setPage(0); }}
-          rowsPerPageOptions={[25, 50, 100]} labelRowsPerPage="페이지당 행:" />
-      </TableContainer>
+      </AppTableShell>
 
       {/* ═══════════════════════════════════════════════════════════════════════
           상세 드로어 (Drawer) - Premium Design
@@ -1678,7 +1667,7 @@ export default function UploadJobsPage() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </AppPageContainer>
   );
 }
 

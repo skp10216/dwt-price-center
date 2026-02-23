@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Box, Typography, Paper, Button, Stack, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, TablePagination, IconButton, Tooltip,
+  Box, Typography, Button, Stack, Table, TableBody, TableCell,
+  TableHead, TableRow, Tooltip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Chip,
   MenuItem, Select, FormControl, InputLabel, InputAdornment, alpha,
   useTheme, Divider, Checkbox, Alert, AlertTitle, CircularProgress,
-  Collapse, ToggleButtonGroup, ToggleButton, Badge,
+  Collapse, ToggleButtonGroup, ToggleButton,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -22,11 +22,17 @@ import {
   ExpandLess as ExpandLessIcon,
   Star as StarIcon,
   StarBorder as StarBorderIcon,
-  FilterList as FilterListIcon,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
+import {
+  AppPageContainer,
+  AppPageHeader,
+  AppPageToolbar,
+  AppTableShell,
+  AppIconActionButton,
+} from '@/components/ui';
 
 interface CounterpartyRow {
   id: string;
@@ -267,151 +273,164 @@ export default function CounterpartiesPage() {
 
   const selectedCounterparties = counterparties.filter((cp) => selected.has(cp.id));
 
+  // ─── 헤더 액션 ──────────────────────────────────────────────────────────────
+  const headerActions = [
+    ...(selected.size > 0 ? [{
+      label: `${selected.size}건 삭제`,
+      onClick: handleDeleteConfirm,
+      variant: 'outlined' as const,
+      color: 'error' as const,
+      icon: <DeleteIcon />,
+    }] : []),
+    {
+      label: '거래처 등록',
+      onClick: openCreate,
+      variant: 'contained' as const,
+      color: 'primary' as const,
+      icon: <AddIcon />,
+    },
+  ];
+
   return (
-    <Box>
-      {/* ─── 헤더 ─── */}
-      <Stack direction="row" alignItems="flex-start" justifyContent="space-between" sx={{ mb: 3 }}>
-        <Box>
-          <Typography variant="h5" fontWeight={700}>거래처 관리</Typography>
-          <Typography variant="body2" color="text.secondary">
-            거래처 목록, 별칭 관리, 즐겨찾기를 통합 관리합니다.
-          </Typography>
-        </Box>
-        <Stack direction="row" spacing={1}>
-          {selected.size > 0 && (
-            <Button variant="contained" color="error" size="small" startIcon={<DeleteIcon />} onClick={handleDeleteConfirm}>
-              {selected.size}건 삭제
-            </Button>
-          )}
-          <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
-            거래처 등록
-          </Button>
-        </Stack>
-      </Stack>
-
-      {/* ─── 검색 + 필터 ─── */}
-      <Paper elevation={0} sx={{
-        p: 2, mb: 2,
-        border: '1px solid', borderColor: 'divider', borderRadius: 2,
-        background: `linear-gradient(135deg, ${alpha(theme.palette.warning.main, 0.03)} 0%, transparent 100%)`,
-      }}>
-        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
-          <TextField
+    <AppPageContainer>
+      {/* 페이지 헤더 */}
+      <AppPageHeader
+        icon={<BusinessIcon />}
+        title="거래처 관리"
+        description="거래처 목록, 별칭 관리, 즐겨찾기를 통합 관리합니다"
+        color="primary"
+        count={loading ? null : total}
+        onRefresh={loadCounterparties}
+        loading={loading}
+        chips={favoritesOnly ? [
+          <Chip
+            key="fav"
+            icon={<StarIcon sx={{ fontSize: '14px !important' }} />}
+            label={`즐겨찾기 ${total}개`}
+            color="warning"
             size="small"
-            placeholder="거래처명/사업자번호 검색"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-            onKeyDown={(e) => e.key === 'Enter' && loadCounterparties()}
-            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
-            sx={{ minWidth: 280 }}
+            sx={{ height: 22, fontSize: '0.7rem' }}
           />
-          <Button variant="contained" size="small" onClick={loadCounterparties}>조회</Button>
+        ] : []}
+        actions={headerActions}
+      />
 
-          <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
-
-          <ToggleButtonGroup
-            value={favoritesOnly ? 'favorites' : 'all'}
-            exclusive
-            size="small"
-            onChange={(_, v) => {
-              if (v !== null) { setFavoritesOnly(v === 'favorites'); setPage(0); }
-            }}
-          >
-            <ToggleButton value="all" sx={{ px: 2, fontWeight: 600 }}>
-              <FilterListIcon sx={{ mr: 0.5, fontSize: 16 }} />
-              전체
-            </ToggleButton>
-            <ToggleButton value="favorites" sx={{ px: 2, fontWeight: 600 }}>
-              <StarIcon sx={{ mr: 0.5, fontSize: 16, color: favoritesOnly ? 'warning.main' : 'inherit' }} />
-              즐겨찾기
-              {favoriteCount > 0 && (
-                <Chip
-                  label={favoriteCount}
-                  size="small"
-                  color="warning"
-                  sx={{ ml: 0.8, height: 18, fontSize: '0.65rem', fontWeight: 700, '& .MuiChip-label': { px: 0.8 } }}
-                />
-              )}
-            </ToggleButton>
-          </ToggleButtonGroup>
-
-          {favoritesOnly && (
-            <Chip
-              icon={<StarIcon sx={{ fontSize: '14px !important' }} />}
-              label={`즐겨찾기 ${total}개 표시 중`}
-              color="warning"
-              variant="outlined"
+      {/* 필터 툴바 */}
+      <AppPageToolbar
+        left={
+          <>
+            <ToggleButtonGroup
+              value={favoritesOnly ? 'favorites' : 'all'}
+              exclusive
               size="small"
-              sx={{ fontWeight: 600 }}
+              onChange={(_, v) => {
+                if (v !== null) { setFavoritesOnly(v === 'favorites'); setPage(0); }
+              }}
+            >
+              <ToggleButton value="all" sx={{ px: 1.5, fontWeight: 600, fontSize: '0.8rem' }}>
+                전체
+              </ToggleButton>
+              <ToggleButton value="favorites" sx={{ px: 1.5, fontWeight: 600, fontSize: '0.8rem', gap: 0.5 }}>
+                <StarIcon sx={{ fontSize: 14, color: favoritesOnly ? 'warning.main' : 'inherit' }} />
+                즐겨찾기
+                {favoriteCount > 0 && (
+                  <Chip
+                    label={favoriteCount}
+                    size="small"
+                    color="warning"
+                    sx={{ ml: 0.5, height: 16, fontSize: '0.6rem', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }}
+                  />
+                )}
+              </ToggleButton>
+            </ToggleButtonGroup>
+            <Divider orientation="vertical" flexItem sx={{ height: 20, alignSelf: 'center' }} />
+            <TextField
+              size="small"
+              placeholder="거래처명/사업자번호 검색"
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+              onKeyDown={(e) => e.key === 'Enter' && loadCounterparties()}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ width: 260 }}
             />
-          )}
-        </Stack>
-      </Paper>
+          </>
+        }
+        right={
+          <Button variant="outlined" size="small" onClick={loadCounterparties}>
+            조회
+          </Button>
+        }
+      />
 
-      {/* ─── 테이블 ─── */}
-      <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+      {/* 테이블 */}
+      <AppTableShell
+        loading={loading}
+        isEmpty={!loading && counterparties.length === 0}
+        emptyMessage={favoritesOnly ? '즐겨찾기한 거래처가 없습니다' : '등록된 거래처가 없습니다'}
+        count={total}
+        page={page}
+        rowsPerPage={pageSize}
+        onPageChange={(_, p) => setPage(p)}
+        onRowsPerPageChange={(e) => { setPageSize(parseInt(e.target.value, 10)); setPage(0); }}
+        rowsPerPageOptions={[25, 50, 100]}
+        stickyHeader
+      >
         <Table size="small">
-          <TableHead>
-            <TableRow sx={{
-              background: favoritesOnly
-                ? `linear-gradient(90deg, ${alpha(theme.palette.warning.main, 0.08)} 0%, transparent 100%)`
-                : `linear-gradient(90deg, ${alpha(theme.palette.info.main, 0.04)} 0%, transparent 100%)`,
-            }}>
-              <TableCell padding="checkbox" sx={{ width: 42 }}>
-                <Checkbox size="small" indeterminate={isSomeSelected} checked={isAllSelected}
-                  onChange={(e) => handleSelectAll(e.target.checked)} />
-              </TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 52 }}>
-                <Tooltip title="즐겨찾기">
-                  <StarBorderIcon sx={{ fontSize: 18, color: 'text.secondary', verticalAlign: 'middle' }} />
-                </Tooltip>
-              </TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>거래처명</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>사업자번호</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>유형</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>별칭</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>미수</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>미지급</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>담당자</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 700 }}>관리</TableCell>
-            </TableRow>
-          </TableHead>
+            <TableHead>
+              <TableRow>
+                <TableCell padding="checkbox" sx={{ width: 42 }}>
+                  <Checkbox size="small" indeterminate={isSomeSelected} checked={isAllSelected}
+                    onChange={(e) => handleSelectAll(e.target.checked)} />
+                </TableCell>
+                <TableCell sx={{ width: 48 }}>
+                  <Tooltip title="즐겨찾기">
+                    <StarBorderIcon sx={{ fontSize: 16, color: 'text.secondary', verticalAlign: 'middle' }} />
+                  </Tooltip>
+                </TableCell>
+                {['거래처명', '사업자번호', '유형', '별칭'].map((label) => (
+                  <TableCell key={label}>{label}</TableCell>
+                ))}
+                {['미수', '미지급'].map((label) => (
+                  <TableCell key={label} align="right">{label}</TableCell>
+                ))}
+                <TableCell>담당자</TableCell>
+                <TableCell align="center">관리</TableCell>
+              </TableRow>
+            </TableHead>
           <TableBody>
             {loading ? (
               [...Array(8)].map((_, i) => (
                 <TableRow key={`skeleton-${i}`}>
-                  {[42, 52, '25%', 100, 80, 100, 70, 70, 60, 100].map((w, j) => (
-                    <TableCell key={j} padding={j === 0 ? 'checkbox' : 'normal'}>
-                      <Box sx={{ width: w, height: 20, bgcolor: 'action.hover', borderRadius: 1 }} />
+                  {[42, 48, '22%', 100, 70, 100, 70, 70, 60, 100].map((w, j) => (
+                    <TableCell key={j} sx={{ py: 1, px: 1.5 }}>
+                      <Box sx={{ width: w, height: 16, bgcolor: 'action.hover', borderRadius: 0.5 }} />
                     </TableCell>
                   ))}
                 </TableRow>
               ))
             ) : counterparties.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} align="center" sx={{ py: 10 }}>
-                  <Box sx={{
-                    width: 72, height: 72, borderRadius: '50%', mx: 'auto', mb: 2,
-                    bgcolor: favoritesOnly ? alpha(theme.palette.warning.main, 0.08) : alpha(theme.palette.primary.main, 0.08),
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    {favoritesOnly
-                      ? <StarBorderIcon sx={{ fontSize: 36, color: 'warning.main' }} />
-                      : <BusinessIcon sx={{ fontSize: 36, color: 'primary.main' }} />
-                    }
-                  </Box>
-                  <Typography variant="h6" fontWeight={600} gutterBottom>
+                <TableCell colSpan={10} align="center" sx={{ py: 8 }}>
+                  {favoritesOnly
+                    ? <StarBorderIcon sx={{ fontSize: 44, color: 'text.disabled', mb: 1 }} />
+                    : <BusinessIcon sx={{ fontSize: 44, color: 'text.disabled', mb: 1 }} />
+                  }
+                  <Typography variant="h6" fontWeight={600} color="text.secondary" gutterBottom>
                     {favoritesOnly ? '즐겨찾기한 거래처가 없습니다' : '등록된 거래처가 없습니다'}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="body2" color="text.disabled" sx={{ mb: 2 }}>
                     {favoritesOnly
                       ? '거래처 목록에서 ☆ 아이콘을 클릭하여 즐겨찾기를 추가하세요'
-                      : '새 거래처를 등록하여 시작하세요'
-                    }
+                      : '새 거래처를 등록하여 시작하세요'}
                   </Typography>
                   {favoritesOnly && (
-                    <Button variant="outlined" size="small" sx={{ mt: 2 }}
-                      onClick={() => { setFavoritesOnly(false); setPage(0); }}>
+                    <Button variant="outlined" size="small" onClick={() => { setFavoritesOnly(false); setPage(0); }}>
                       전체 거래처 보기
                     </Button>
                   )}
@@ -425,95 +444,77 @@ export default function CounterpartiesPage() {
                     key={cp.id}
                     hover
                     selected={isChecked}
-                    sx={{
-                      transition: 'background 0.15s',
-                      ...(cp.is_favorite && {
-                        '& td:first-of-type + td': {
-                          borderLeft: `3px solid ${theme.palette.warning.main}`,
-                        },
-                      }),
-                    }}
+                    sx={{ transition: 'background 0.15s' }}
                   >
-                    <TableCell padding="checkbox">
+                    <TableCell padding="checkbox" sx={{ py: 0.5 }}>
                       <Checkbox size="small" checked={isChecked}
                         onChange={(e) => handleSelectOne(cp.id, e.target.checked)} />
                     </TableCell>
-
-                    {/* 즐겨찾기 버튼 */}
-                    <TableCell sx={{ py: 0.5 }}>
+                    <TableCell sx={{ py: 0.5, px: 1.5 }}>
                       <Tooltip title={cp.is_favorite ? '즐겨찾기 해제' : '즐겨찾기 추가'} placement="right">
                         <IconButton
                           size="small"
                           onClick={(e) => handleToggleFavorite(cp, e)}
                           sx={{
                             color: cp.is_favorite ? 'warning.main' : 'text.disabled',
-                            transition: 'all 0.2s',
-                            '&:hover': {
-                              color: 'warning.main',
-                              transform: 'scale(1.2)',
-                            },
+                            transition: 'color 0.2s',
+                            p: 0.5,
                           }}
                         >
-                          {cp.is_favorite
-                            ? <StarIcon fontSize="small" />
-                            : <StarBorderIcon fontSize="small" />
-                          }
+                          {cp.is_favorite ? <StarIcon sx={{ fontSize: 16 }} /> : <StarBorderIcon sx={{ fontSize: 16 }} />}
                         </IconButton>
                       </Tooltip>
                     </TableCell>
-
-                    <TableCell sx={{ fontWeight: 600 }}>
-                      <Stack direction="row" alignItems="center" spacing={1}>
-                        <BusinessIcon fontSize="small" color="action" />
+                    <TableCell sx={{ py: 1, px: 1.5, fontWeight: 600 }}>
+                      <Stack direction="row" alignItems="center" spacing={0.75}>
+                        <BusinessIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
                         <span>{cp.name}</span>
-                        {!cp.is_active && <Chip label="비활성" size="small" color="default" />}
+                        {!cp.is_active && <Chip label="비활성" size="small" sx={{ height: 18, fontSize: '0.65rem' }} />}
                       </Stack>
                     </TableCell>
-                    <TableCell>{cp.registration_number || '-'}</TableCell>
-                    <TableCell>
-                      <Chip label={typeLabels[cp.type] || cp.type} size="small" variant="outlined" />
+                    <TableCell sx={{ py: 1, px: 1.5, fontSize: '0.8125rem', color: 'text.secondary' }}>
+                      {cp.registration_number || '—'}
                     </TableCell>
-                    <TableCell>
+                    <TableCell sx={{ py: 1, px: 1.5 }}>
+                      <Chip label={typeLabels[cp.type] || cp.type} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
+                    </TableCell>
+                    <TableCell sx={{ py: 1, px: 1.5 }}>
                       <Stack direction="row" spacing={0.5} flexWrap="wrap">
                         {cp.aliases.slice(0, 3).map((a) => (
-                          <Chip key={a.id} label={a.alias_name} size="small" variant="outlined" color="info" />
+                          <Chip key={a.id} label={a.alias_name} size="small" variant="outlined" color="info" sx={{ height: 20, fontSize: '0.68rem' }} />
                         ))}
-                        {cp.aliases.length > 3 && <Chip label={`+${cp.aliases.length - 3}`} size="small" />}
+                        {cp.aliases.length > 3 && (
+                          <Chip label={`+${cp.aliases.length - 3}`} size="small" sx={{ height: 20, fontSize: '0.68rem' }} />
+                        )}
                       </Stack>
                     </TableCell>
-                    <TableCell align="right" sx={{ color: cp.outstanding_receivable > 0 ? 'error.main' : 'text.secondary', fontWeight: 600 }}>
+                    <TableCell align="right" sx={{
+                      py: 1, px: 1.5, fontWeight: 700,
+                      fontFeatureSettings: '"tnum"', fontVariantNumeric: 'tabular-nums',
+                      color: cp.outstanding_receivable > 0 ? 'error.main' : 'text.secondary',
+                    }}>
                       {formatAmount(cp.outstanding_receivable)}
                     </TableCell>
-                    <TableCell align="right" sx={{ color: cp.outstanding_payable > 0 ? 'warning.main' : 'text.secondary', fontWeight: 600 }}>
+                    <TableCell align="right" sx={{
+                      py: 1, px: 1.5, fontWeight: 700,
+                      fontFeatureSettings: '"tnum"', fontVariantNumeric: 'tabular-nums',
+                      color: cp.outstanding_payable > 0 ? 'warning.main' : 'text.secondary',
+                    }}>
                       {formatAmount(cp.outstanding_payable)}
                     </TableCell>
-                    <TableCell>{cp.contact_person || '-'}</TableCell>
+                    <TableCell sx={{ py: 1, px: 1.5, fontSize: '0.8125rem' }}>
+                      {cp.contact_person || '—'}
+                    </TableCell>
                     <TableCell align="center">
-                      <Stack direction="row" spacing={0.5} justifyContent="center">
-                        <Tooltip title="상세/요약">
-                          <IconButton size="small" color="primary" onClick={() => router.push(`/settlement/counterparties/${cp.id}`)}>
-                            <ViewIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="수정">
-                          <IconButton size="small" onClick={() => openEdit(cp)}>
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="별칭 관리">
-                          <IconButton size="small" color="info" onClick={() => openAlias(cp)}>
-                            <AliasIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="삭제">
-                          <IconButton size="small" color="error" onClick={() => {
-                            setSelected(new Set([cp.id]));
-                            setDeleteResult(null);
-                            setDeleteDialogOpen(true);
-                          }}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                      <Stack direction="row" spacing={0.25} justifyContent="center">
+                        <AppIconActionButton icon={<ViewIcon />} tooltip="상세/요약" color="primary"
+                          onClick={() => router.push(`/settlement/counterparties/${cp.id}`)} />
+                        <AppIconActionButton icon={<EditIcon />} tooltip="수정"
+                          onClick={() => openEdit(cp)} />
+                        <AppIconActionButton icon={<AliasIcon />} tooltip="별칭 관리" color="info"
+                          onClick={() => openAlias(cp)} />
+                        <AppIconActionButton icon={<DeleteIcon />} tooltip="삭제" color="error"
+                          onClick={() => { setSelected(new Set([cp.id])); setDeleteResult(null); setDeleteDialogOpen(true); }} />
                       </Stack>
                     </TableCell>
                   </TableRow>
@@ -530,9 +531,11 @@ export default function CounterpartiesPage() {
           rowsPerPage={pageSize}
           onRowsPerPageChange={(e) => { setPageSize(parseInt(e.target.value, 10)); setPage(0); }}
           rowsPerPageOptions={[25, 50, 100]}
-          labelRowsPerPage="페이지당 행:"
+          labelRowsPerPage="페이지당:"
+          sx={{ borderTop: '1px solid', borderColor: 'divider' }}
         />
       </TableContainer>
+      </Paper>
 
       {/* ═══ 거래처 편집 다이얼로그 ═══ */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
@@ -692,6 +695,6 @@ export default function CounterpartiesPage() {
           )}
         </DialogActions>
       </Dialog>
-    </Box>
+    </AppPageContainer>
   );
 }

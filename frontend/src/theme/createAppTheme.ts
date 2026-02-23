@@ -4,6 +4,11 @@
  * 
  * 사용법:
  * const theme = createAppTheme(settings, systemMode);
+ * 
+ * 밀도 모드에 따라 모든 컴포넌트의 크기/여백이 자동 조절됨:
+ * - compact: 정보 밀도 최대 (백오피스 기본)
+ * - regular: 표준 (기본 모드)
+ * - spacious: 편안한 모드 (접근성)
  */
 
 'use client';
@@ -38,6 +43,7 @@ const createComponentOverrides = (
         fontWeight: 600,
         boxShadow: 'none',
         transition: transitions.fast,
+        minHeight: density.inputHeight,
         '&:hover': {
           boxShadow: mode === 'light' ? shadows.sm : shadows.darkSm,
         },
@@ -54,10 +60,13 @@ const createComponentOverrides = (
         },
       },
       sizeSmall: {
-        padding: `${density.buttonPadding.y - 2}px ${density.buttonPadding.x - 4}px`,
+        padding: `${Math.max(density.buttonPadding.y - 2, 2)}px ${density.buttonPadding.x - 4}px`,
+        minHeight: density.inputHeight - 4,
+        fontSize: '0.8125rem',
       },
       sizeLarge: {
         padding: `${density.buttonPadding.y + 4}px ${density.buttonPadding.x + 8}px`,
+        minHeight: density.inputHeight + 8,
       },
     },
     defaultProps: {
@@ -69,14 +78,11 @@ const createComponentOverrides = (
   MuiCard: {
     styleOverrides: {
       root: {
-        borderRadius: density.borderRadius + 4,
-        boxShadow: mode === 'light' ? shadows.sm : shadows.darkSm,
+        borderRadius: density.borderRadius + 2,
+        boxShadow: mode === 'light' ? shadows.xs : shadows.darkSm,
         backgroundImage: 'none',
         border: `1px solid ${mode === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)'}`,
         transition: transitions.normal,
-        '&:hover': {
-          boxShadow: mode === 'light' ? shadows.md : shadows.darkMd,
-        },
       },
     },
   },
@@ -85,17 +91,17 @@ const createComponentOverrides = (
   MuiPaper: {
     styleOverrides: {
       root: {
-        borderRadius: density.borderRadius + 4,
+        borderRadius: density.borderRadius + 2,
         backgroundImage: 'none',
       },
       elevation1: {
-        boxShadow: mode === 'light' ? shadows.sm : shadows.darkSm,
+        boxShadow: mode === 'light' ? shadows.xs : shadows.darkSm,
       },
       elevation2: {
-        boxShadow: mode === 'light' ? shadows.md : shadows.darkMd,
+        boxShadow: mode === 'light' ? shadows.sm : shadows.darkMd,
       },
       elevation3: {
-        boxShadow: mode === 'light' ? shadows.lg : shadows.darkLg,
+        boxShadow: mode === 'light' ? shadows.md : shadows.darkLg,
       },
     },
   },
@@ -122,7 +128,23 @@ const createComponentOverrides = (
       },
       input: {
         padding: `${density.inputPadding.y}px ${density.inputPadding.x}px`,
+        height: 'auto',
       },
+      inputSizeSmall: {
+        padding: `${Math.max(density.inputPadding.y - 2, 4)}px ${density.inputPadding.x}px`,
+      },
+    },
+  },
+
+  // Select
+  MuiSelect: {
+    styleOverrides: {
+      select: {
+        minHeight: 'auto',
+      },
+    },
+    defaultProps: {
+      size: 'small',
     },
   },
 
@@ -134,14 +156,19 @@ const createComponentOverrides = (
         fontWeight: 500,
         borderRadius: density.borderRadius,
         transition: transitions.fast,
+        fontSize: '0.75rem',
       },
       sizeSmall: {
-        height: density.chipHeight - 4,
+        height: density.chipHeight - 2,
+        fontSize: '0.6875rem',
       },
       filled: {
         '&.MuiChip-colorDefault': {
           backgroundColor: mode === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.12)',
         },
+      },
+      icon: {
+        fontSize: density.chipHeight - 8,
       },
     },
   },
@@ -155,9 +182,11 @@ const createComponentOverrides = (
       },
       sizeSmall: {
         padding: 4,
+        '& svg': { fontSize: density.iconButtonSize - 12 },
       },
       sizeMedium: {
-        padding: 8,
+        padding: 6,
+        '& svg': { fontSize: density.iconButtonSize - 8 },
       },
     },
   },
@@ -196,6 +225,7 @@ const createComponentOverrides = (
       root: {
         borderRadius: density.borderRadius,
         alignItems: 'center',
+        padding: `${density.inputPadding.y}px ${density.inputPadding.x}px`,
       },
       standardSuccess: {
         backgroundColor: mode === 'light' 
@@ -236,16 +266,93 @@ const createComponentOverrides = (
     },
   },
 
-  // 테이블
+  // 테이블 셀
   MuiTableCell: {
     styleOverrides: {
       root: {
-        padding: density.tableCellPadding,
+        padding: `${density.tableCellPadding.y}px ${density.tableCellPadding.x}px`,
         borderBottom: `1px solid ${getDividerColor(mode)}`,
+        fontSize: '0.8125rem',
+        lineHeight: 1.4,
       },
       head: {
         fontWeight: 600,
         backgroundColor: mode === 'light' ? '#f8fafc' : '#27272a',
+        fontSize: '0.75rem',
+        letterSpacing: '0.02em',
+        color: mode === 'light' ? '#475569' : '#a1a1aa',
+        whiteSpace: 'nowrap',
+      },
+      sizeSmall: {
+        padding: `${Math.max(density.tableCellPadding.y - 2, 4)}px ${density.tableCellPadding.x}px`,
+      },
+    },
+  },
+
+  // 테이블 행
+  MuiTableRow: {
+    styleOverrides: {
+      root: {
+        height: density.tableRowHeight,
+        '&:hover': {
+          backgroundColor: alpha(accentColor, mode === 'light' ? 0.04 : 0.08),
+        },
+        '&.Mui-selected': {
+          backgroundColor: alpha(accentColor, mode === 'light' ? 0.08 : 0.16),
+          '&:hover': {
+            backgroundColor: alpha(accentColor, mode === 'light' ? 0.12 : 0.20),
+          },
+        },
+      },
+      head: {
+        height: density.tableHeaderHeight,
+      },
+    },
+  },
+
+  // 테이블 페이지네이션
+  MuiTablePagination: {
+    styleOverrides: {
+      root: {
+        borderTop: `1px solid ${getDividerColor(mode)}`,
+      },
+      toolbar: {
+        minHeight: `${density.toolbarHeight}px !important`,
+        paddingLeft: '8px',
+        paddingRight: '8px',
+      },
+      selectLabel: {
+        fontSize: '0.75rem',
+      },
+      displayedRows: {
+        fontSize: '0.75rem',
+      },
+    },
+  },
+
+  // Tabs
+  MuiTabs: {
+    styleOverrides: {
+      root: {
+        minHeight: density.toolbarHeight,
+      },
+      indicator: {
+        height: 2,
+      },
+    },
+  },
+
+  MuiTab: {
+    styleOverrides: {
+      root: {
+        minHeight: density.toolbarHeight,
+        padding: `${density.buttonPadding.y}px ${density.buttonPadding.x}px`,
+        fontWeight: 500,
+        fontSize: '0.8125rem',
+        textTransform: 'none',
+        '&.Mui-selected': {
+          fontWeight: 600,
+        },
       },
     },
   },
@@ -289,13 +396,72 @@ const createComponentOverrides = (
     },
   },
 
+  // 툴바 높이 compact 48px
+  MuiToolbar: {
+    styleOverrides: {
+      root: {
+        minHeight: '48px !important',
+        '@media (min-width: 600px)': {
+          minHeight: '48px !important',
+        },
+      },
+      dense: {
+        minHeight: '48px !important',
+      },
+    },
+  },
+
+  // ToggleButton
+  MuiToggleButton: {
+    styleOverrides: {
+      root: {
+        textTransform: 'none',
+        fontWeight: 500,
+        fontSize: '0.8125rem',
+        borderRadius: density.borderRadius,
+        padding: `${density.buttonPadding.y}px ${density.buttonPadding.x}px`,
+      },
+      sizeSmall: {
+        padding: `${Math.max(density.buttonPadding.y - 2, 2)}px ${density.buttonPadding.x - 4}px`,
+        fontSize: '0.75rem',
+      },
+    },
+  },
+
+  // ToggleButtonGroup
+  MuiToggleButtonGroup: {
+    styleOverrides: {
+      root: {
+        gap: 0,
+      },
+      grouped: {
+        '&:not(:first-of-type)': {
+          borderRadius: density.borderRadius,
+          marginLeft: -1,
+        },
+        '&:first-of-type': {
+          borderRadius: density.borderRadius,
+        },
+      },
+    },
+  },
+
+  // Divider
+  MuiDivider: {
+    styleOverrides: {
+      root: {
+        borderColor: getDividerColor(mode),
+      },
+    },
+  },
+
   // DataGrid (MUI X)
   // @ts-expect-error MUI X DataGrid 컴포넌트
   MuiDataGrid: {
     styleOverrides: {
       root: {
         border: 'none',
-        borderRadius: density.borderRadius + 4,
+        borderRadius: density.borderRadius + 2,
         '& .MuiDataGrid-columnHeaders': {
           backgroundColor: mode === 'light' ? '#f8fafc' : '#27272a',
           borderBottom: `1px solid ${getDividerColor(mode)}`,

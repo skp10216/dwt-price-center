@@ -8,26 +8,27 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Paper, Button, Stack, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, Chip, Dialog, DialogTitle,
+  TableHead, TableRow, Chip, Dialog, DialogTitle,
   DialogContent, DialogActions, TextField, Alert, alpha, useTheme,
-  IconButton, Tooltip, Card, CardContent, FormControl, InputLabel,
+  FormControl, InputLabel,
   Select, MenuItem, Tabs, Tab, LinearProgress, Skeleton, TablePagination,
   Fade, Avatar, InputAdornment,
 } from '@mui/material';
 import {
   Lock as LockIcon,
   LockOpen as LockOpenIcon,
-  Refresh as RefreshIcon,
   History as HistoryIcon,
   CalendarMonth as CalendarIcon,
   Search as SearchIcon,
-  CheckCircle as CheckCircleIcon,
-  Warning as WarningIcon,
-  Person as PersonIcon,
   EventNote as EventNoteIcon,
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
+import {
+  AppPageContainer,
+  AppPageHeader,
+  AppSectionCard,
+} from '@/components/ui';
 
 // ─── 타입 ───
 interface LockEntry {
@@ -182,53 +183,40 @@ export default function LockManagementPage() {
   };
 
   return (
-    <Box sx={{ maxWidth: 1400, mx: 'auto' }}>
-      {/* ─── 헤더 ─── */}
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>
-        <Box>
-          <Typography variant="h5" fontWeight={800} gutterBottom>
-            마감 관리
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            월별 전표 마감을 관리하고 이력을 조회합니다
-          </Typography>
-        </Box>
-        <Stack direction="row" spacing={1} alignItems="center">
+    <AppPageContainer>
+      {/* 페이지 헤더 */}
+      <AppPageHeader
+        icon={<LockIcon />}
+        title="마감 관리"
+        description="월별 전표 마감을 관리하고 이력을 조회합니다"
+        color="success"
+        highlight
+        chips={[
+          <Chip key="locked" label={`마감 ${stats.lockedCount}개월`} size="small" color="success" sx={{ height: 22, fontSize: '0.7rem' }} />,
+          <Chip key="open" label={`미마감 ${stats.openCount}개월`} size="small" color="warning" variant="outlined" sx={{ height: 22, fontSize: '0.7rem' }} />,
+        ]}
+        onRefresh={() => tab === 'management' ? loadLocks() : loadAuditLogs()}
+        loading={locksLoading || auditLoading}
+      />
+
+      {/* 연도 선택 + 탭 */}
+      <Paper elevation={0} sx={{ mb: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
+        <Stack direction="row" alignItems="center" sx={{ px: 2 }}>
+          <Tabs
+            value={tab}
+            onChange={(_, v) => setTab(v)}
+            sx={{ flex: 1, '& .MuiTab-root': { fontWeight: 600, minHeight: 44 } }}
+          >
+            <Tab value="management" icon={<LockIcon />} iconPosition="start" label="마감 관리" />
+            <Tab value="history" icon={<HistoryIcon />} iconPosition="start" label="마감 이력" />
+          </Tabs>
           <FormControl size="small" sx={{ minWidth: 100 }}>
             <InputLabel>연도</InputLabel>
             <Select label="연도" value={selectedYear} onChange={(e) => setSelectedYear(Number(e.target.value))}>
               {years.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
             </Select>
           </FormControl>
-          <IconButton onClick={() => tab === 'management' ? loadLocks() : loadAuditLogs()}>
-            <RefreshIcon />
-          </IconButton>
         </Stack>
-      </Stack>
-
-      {/* ─── 탭 ─── */}
-      <Paper elevation={0} sx={{ mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
-        <Tabs
-          value={tab}
-          onChange={(_, v) => setTab(v)}
-          sx={{
-            px: 2,
-            '& .MuiTab-root': { fontWeight: 600, py: 2 },
-          }}
-        >
-          <Tab
-            value="management"
-            icon={<LockIcon />}
-            iconPosition="start"
-            label="마감 관리"
-          />
-          <Tab
-            value="history"
-            icon={<HistoryIcon />}
-            iconPosition="start"
-            label="마감 이력"
-          />
-        </Tabs>
       </Paper>
 
       {/* ════════════════════════════════════════
@@ -237,91 +225,77 @@ export default function LockManagementPage() {
       {tab === 'management' && (
         <Fade in timeout={300}>
           <Box>
-            {/* 요약 카드 */}
-            <Stack direction="row" spacing={2} sx={{ mb: 3 }} flexWrap="wrap" useFlexGap>
-              <Paper elevation={0} sx={{
-                p: 3, minWidth: 160, borderRadius: 3,
-                border: '1px solid', borderColor: alpha(theme.palette.success.main, 0.3),
-                background: `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.08)} 0%, ${alpha(theme.palette.success.main, 0.02)} 100%)`,
-              }}>
-                <Stack direction="row" spacing={2} alignItems="center">
+            {/* 요약 카드 - 컴팩트 */}
+            <Stack direction="row" spacing={1.5} sx={{ mb: 1.5 }} flexWrap="wrap" useFlexGap>
+              <AppSectionCard sx={{ flex: 1, minWidth: 140, mb: 0, p: 2, borderColor: alpha(theme.palette.success.main, 0.3) }}>
+                <Stack direction="row" spacing={1.5} alignItems="center">
                   <Box sx={{
-                    width: 48, height: 48, borderRadius: 2,
-                    bgcolor: alpha(theme.palette.success.main, 0.15),
+                    width: 40, height: 40, borderRadius: 1.5,
+                    bgcolor: alpha(theme.palette.success.main, 0.12),
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <LockIcon sx={{ color: 'success.main', fontSize: 28 }} />
+                    <LockIcon sx={{ color: 'success.main', fontSize: 22 }} />
                   </Box>
                   <Box>
-                    <Typography variant="h4" fontWeight={800} color="success.main">{stats.lockedCount}</Typography>
-                    <Typography variant="body2" color="text.secondary">마감 완료</Typography>
+                    <Typography variant="h5" fontWeight={800} color="success.main">{stats.lockedCount}</Typography>
+                    <Typography variant="caption" color="text.secondary">마감 완료</Typography>
                   </Box>
                 </Stack>
-              </Paper>
+              </AppSectionCard>
 
-              <Paper elevation={0} sx={{
-                p: 3, minWidth: 160, borderRadius: 3,
-                border: '1px solid', borderColor: alpha(theme.palette.warning.main, 0.3),
-                background: `linear-gradient(135deg, ${alpha(theme.palette.warning.main, 0.08)} 0%, ${alpha(theme.palette.warning.main, 0.02)} 100%)`,
-              }}>
-                <Stack direction="row" spacing={2} alignItems="center">
+              <AppSectionCard sx={{ flex: 1, minWidth: 140, mb: 0, p: 2, borderColor: alpha(theme.palette.warning.main, 0.3) }}>
+                <Stack direction="row" spacing={1.5} alignItems="center">
                   <Box sx={{
-                    width: 48, height: 48, borderRadius: 2,
-                    bgcolor: alpha(theme.palette.warning.main, 0.15),
+                    width: 40, height: 40, borderRadius: 1.5,
+                    bgcolor: alpha(theme.palette.warning.main, 0.12),
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <LockOpenIcon sx={{ color: 'warning.main', fontSize: 28 }} />
+                    <LockOpenIcon sx={{ color: 'warning.main', fontSize: 22 }} />
                   </Box>
                   <Box>
-                    <Typography variant="h4" fontWeight={800} color="warning.main">{stats.openCount}</Typography>
-                    <Typography variant="body2" color="text.secondary">마감 대기</Typography>
+                    <Typography variant="h5" fontWeight={800} color="warning.main">{stats.openCount}</Typography>
+                    <Typography variant="caption" color="text.secondary">마감 대기</Typography>
                   </Box>
                 </Stack>
-              </Paper>
+              </AppSectionCard>
 
-              <Paper elevation={0} sx={{
-                p: 3, minWidth: 180, borderRadius: 3,
-                border: '1px solid', borderColor: 'divider',
-              }}>
-                <Stack direction="row" spacing={2} alignItems="center">
+              <AppSectionCard sx={{ flex: 1, minWidth: 160, mb: 0, p: 2 }}>
+                <Stack direction="row" spacing={1.5} alignItems="center">
                   <Box sx={{
-                    width: 48, height: 48, borderRadius: 2,
+                    width: 40, height: 40, borderRadius: 1.5,
                     bgcolor: alpha(theme.palette.info.main, 0.1),
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <EventNoteIcon sx={{ color: 'info.main', fontSize: 28 }} />
+                    <EventNoteIcon sx={{ color: 'info.main', fontSize: 22 }} />
                   </Box>
                   <Box>
-                    <Typography variant="h5" fontWeight={800}>{stats.lockedVouchers.toLocaleString()}</Typography>
-                    <Typography variant="body2" color="text.secondary">마감 전표 수</Typography>
+                    <Typography variant="h6" fontWeight={800}>{stats.lockedVouchers.toLocaleString()}</Typography>
+                    <Typography variant="caption" color="text.secondary">마감 전표 수</Typography>
                   </Box>
                 </Stack>
-              </Paper>
+              </AppSectionCard>
 
-              <Paper elevation={0} sx={{
-                p: 3, minWidth: 140, borderRadius: 3,
-                border: '1px solid', borderColor: 'divider',
-              }}>
-                <Stack direction="row" spacing={2} alignItems="center">
+              <AppSectionCard sx={{ flex: 1, minWidth: 120, mb: 0, p: 2 }}>
+                <Stack direction="row" spacing={1.5} alignItems="center">
                   <Box sx={{
-                    width: 48, height: 48, borderRadius: 2,
+                    width: 40, height: 40, borderRadius: 1.5,
                     bgcolor: alpha(theme.palette.primary.main, 0.1),
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <CalendarIcon sx={{ color: 'primary.main', fontSize: 28 }} />
+                    <CalendarIcon sx={{ color: 'primary.main', fontSize: 22 }} />
                   </Box>
                   <Box>
-                    <Typography variant="h5" fontWeight={800}>{selectedYear}</Typography>
-                    <Typography variant="body2" color="text.secondary">대상 연도</Typography>
+                    <Typography variant="h6" fontWeight={800}>{selectedYear}</Typography>
+                    <Typography variant="caption" color="text.secondary">대상 연도</Typography>
                   </Box>
                 </Stack>
-              </Paper>
+              </AppSectionCard>
             </Stack>
 
             {/* 월별 마감 테이블 */}
-            <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 3, overflow: 'hidden' }}>
-              {locksLoading && <LinearProgress />}
-              <TableContainer>
+            <AppSectionCard sx={{ mb: 0, p: 0, overflow: 'hidden' }}>
+              {locksLoading && <LinearProgress sx={{ height: 2 }} />}
+              <Box sx={{ overflow: 'auto' }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={{
@@ -405,8 +379,8 @@ export default function LockManagementPage() {
                     )}
                   </TableBody>
                 </Table>
-              </TableContainer>
-            </Paper>
+              </Box>
+            </AppSectionCard>
           </Box>
         </Fade>
       )}
@@ -418,7 +392,7 @@ export default function LockManagementPage() {
         <Fade in timeout={300}>
           <Box>
             {/* 검색 */}
-            <Paper elevation={0} sx={{ p: 2, mb: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+            <AppSectionCard sx={{ px: 2, py: 1 }}>
               <TextField
                 size="small"
                 placeholder="대상월, 사용자, 비고 검색..."
@@ -433,12 +407,12 @@ export default function LockManagementPage() {
                 }}
                 sx={{ width: 300 }}
               />
-            </Paper>
+            </AppSectionCard>
 
             {/* 이력 테이블 */}
-            <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 3, overflow: 'hidden' }}>
-              {auditLoading && <LinearProgress />}
-              <TableContainer sx={{ maxHeight: 600 }}>
+            <AppSectionCard sx={{ mb: 0, p: 0, overflow: 'hidden' }}>
+              {auditLoading && <LinearProgress sx={{ height: 2 }} />}
+              <Box sx={{ maxHeight: 600, overflow: 'auto' }}>
                 <Table size="small" stickyHeader>
                   <TableHead>
                     <TableRow sx={{
@@ -506,7 +480,7 @@ export default function LockManagementPage() {
                     )}
                   </TableBody>
                 </Table>
-              </TableContainer>
+              </Box>
               <TablePagination
                 component="div"
                 count={filteredAuditLogs.length}
@@ -517,7 +491,7 @@ export default function LockManagementPage() {
                 labelRowsPerPage=""
                 sx={{ borderTop: '1px solid', borderColor: 'divider' }}
               />
-            </Paper>
+            </AppSectionCard>
           </Box>
         </Fade>
       )}
@@ -551,6 +525,6 @@ export default function LockManagementPage() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </AppPageContainer>
   );
 }

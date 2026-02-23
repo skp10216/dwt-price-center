@@ -39,6 +39,7 @@ import {
   Layers as LayersIcon,
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
+import { AppPageContainer, AppPageHeader } from '@/components/ui';
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
 
@@ -437,54 +438,22 @@ export default function ActivityPage() {
   // ─── JSX ─────────────────────────────────────────────────────────────────────
 
   return (
-    <Box sx={{ maxWidth: 1200, mx: 'auto' }}>
+    <AppPageContainer>
 
       {/* 헤더 */}
-      <Paper elevation={0} sx={{
-        mb: 2.5, px: { xs: 2.5, md: 3 }, py: 2,
-        borderRadius: 3,
-        background: `linear-gradient(135deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%)`,
-        color: '#fff',
-      }}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} justifyContent="space-between" spacing={2}>
-          <Stack direction="row" alignItems="center" spacing={1.5}>
-            <Box sx={{
-              width: 38, height: 38, borderRadius: 2,
-              bgcolor: alpha('#fff', 0.1),
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <HistoryIcon />
-            </Box>
-            <Box>
-              <Typography variant="h6" fontWeight={800} lineHeight={1.2}>작업 내역</Typography>
-              <Typography variant="caption" sx={{ opacity: 0.6 }}>
-                정산 시스템의 모든 작업을 투명하게 추적합니다
-              </Typography>
-            </Box>
-          </Stack>
-
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="body2" sx={{ opacity: 0.7 }}>
-              총 <strong>{total.toLocaleString()}</strong>건
-            </Typography>
-            <Tooltip title="새로고침">
-              <span>
-                <IconButton
-                  onClick={loadLogs}
-                  disabled={loading}
-                  size="small"
-                  sx={{ color: '#fff', bgcolor: alpha('#fff', 0.08), '&:hover': { bgcolor: alpha('#fff', 0.15) } }}
-                >
-                  <RefreshIcon fontSize="small" />
-                </IconButton>
-              </span>
-            </Tooltip>
-          </Stack>
-        </Stack>
-      </Paper>
+      <AppPageHeader
+        icon={<HistoryIcon />}
+        title="작업 내역"
+        description="정산 시스템의 모든 작업을 투명하게 추적합니다"
+        color="primary"
+        highlight
+        count={loading ? null : total}
+        onRefresh={loadLogs}
+        loading={loading}
+      />
 
       {/* 필터 */}
-      <Paper elevation={0} sx={{ mb: 2, p: 2, borderRadius: 2.5, border: '1px solid', borderColor: 'divider' }}>
+      <Paper elevation={0} sx={{ mb: 1.5, px: 2, py: 1, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
         <Stack spacing={1.5}>
           {/* 카테고리 토글 */}
           <ToggleButtonGroup
@@ -542,7 +511,7 @@ export default function ActivityPage() {
       {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{error}</Alert>}
 
       {/* 타임라인 */}
-      <Paper elevation={0} sx={{ borderRadius: 2.5, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
+      <Paper elevation={0} sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
         {loading && <LinearProgress />}
 
         {!loading && logs.length === 0 ? (
@@ -757,7 +726,7 @@ export default function ActivityPage() {
           );
         })()}
       </Dialog>
-    </Box>
+    </AppPageContainer>
   );
 }
 

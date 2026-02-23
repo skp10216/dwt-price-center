@@ -38,7 +38,9 @@ export {
   getDensityConfig,
   shadows,
   transitions,
+  spacingScale,
   type Density,
+  type DensityTokens,
 } from './tokens';
 
 // ThemeRegistry 컴포넌트

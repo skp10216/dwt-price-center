@@ -32,5 +32,7 @@ export {
   breakpoints,
   zIndex,
   transitions,
+  spacingScale,
   type Density,
+  type DensityTokens,
 } from './spacing';
