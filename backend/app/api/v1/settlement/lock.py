@@ -1,13 +1,15 @@
 """
 정산 도메인 - 마감(LOCK) 관리
-전표 마감/해제 + 일괄 마감 + 마감 내역
+월별 마감 + 전표 마감/해제 + 일괄 마감 + 마감 내역
 """
 
+from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, or_
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import select, func, or_, extract, update, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -22,6 +24,241 @@ from app.schemas.settlement import BatchLockRequest, BatchLockResponse, LockHist
 
 router = APIRouter()
 
+
+# ─── 월별 마감 관리 ────────────────────────────────────────────────
+
+@router.get("", response_model=dict)
+async def list_monthly_locks(
+    year: int = Query(..., ge=2020, le=2100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """연도별 월간 마감 현황 조회 — 전표 trade_date 기준으로 월별 집계"""
+    locks = []
+    for month in range(1, 13):
+        year_month = f"{year}-{month:02d}"
+        first_day = date(year, month, 1)
+        if month == 12:
+            last_day = date(year + 1, 1, 1)
+        else:
+            last_day = date(year, month + 1, 1)
+
+        # 해당 월 전표 총 수
+        total_q = select(func.count()).select_from(Voucher).where(
+            Voucher.trade_date >= first_day,
+            Voucher.trade_date < last_day,
+        )
+        total_vouchers = (await db.execute(total_q)).scalar() or 0
+
+        # 마감된 전표 수 (settlement_status=LOCKED)
+        locked_q = select(func.count()).select_from(Voucher).where(
+            Voucher.trade_date >= first_day,
+            Voucher.trade_date < last_day,
+            Voucher.settlement_status == SettlementStatus.LOCKED,
+        )
+        locked_vouchers = (await db.execute(locked_q)).scalar() or 0
+
+        # 상태 판정: 전표가 있고 모두 마감이면 locked
+        if total_vouchers > 0 and locked_vouchers == total_vouchers:
+            status = "locked"
+        else:
+            status = "open"
+
+        # 마감자/마감일: 해당 월 가장 최근 batch_lock 감사 로그
+        last_lock_q = (
+            select(AuditLog)
+            .where(
+                AuditLog.action.in_([
+                    AuditAction.VOUCHER_BATCH_LOCK,
+                    AuditAction.VOUCHER_LOCK,
+                ]),
+                AuditLog.description.ilike(f"%{year_month}%"),
+            )
+            .order_by(AuditLog.created_at.desc())
+            .limit(1)
+        )
+        last_lock_result = await db.execute(last_lock_q)
+        last_lock_log = last_lock_result.scalar_one_or_none()
+
+        locked_at = None
+        locked_by_name = None
+        description = None
+        if last_lock_log and status == "locked":
+            locked_at = last_lock_log.created_at.isoformat() if last_lock_log.created_at else None
+            user = await db.get(User, last_lock_log.user_id)
+            locked_by_name = user.name if user else None
+            description = last_lock_log.description
+
+        locks.append({
+            "year_month": year_month,
+            "status": status,
+            "locked_vouchers": locked_vouchers,
+            "total_vouchers": total_vouchers,
+            "locked_at": locked_at,
+            "locked_by_name": locked_by_name,
+            "description": description,
+        })
+
+    return {"locks": locks}
+
+
+@router.post("/{year_month}", response_model=dict)
+async def create_monthly_lock(
+    year_month: str,
+    description: Optional[str] = Body(None, embed=True),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """월별 마감 — 해당 월의 모든 미마감 전표를 LOCKED로 변경"""
+    try:
+        year, month = year_month.split("-")
+        first_day = date(int(year), int(month), 1)
+        if int(month) == 12:
+            last_day = date(int(year) + 1, 1, 1)
+        else:
+            last_day = date(int(year), int(month) + 1, 1)
+    except (ValueError, IndexError):
+        raise HTTPException(status_code=400, detail="year_month 형식이 올바르지 않습니다 (YYYY-MM)")
+
+    # 미마감 전표를 일괄 LOCKED 처리
+    stmt = (
+        update(Voucher)
+        .where(
+            Voucher.trade_date >= first_day,
+            Voucher.trade_date < last_day,
+            Voucher.settlement_status != SettlementStatus.LOCKED,
+        )
+        .values(
+            settlement_status=SettlementStatus.LOCKED,
+            payment_status=PaymentStatus.LOCKED,
+        )
+    )
+    result = await db.execute(stmt)
+    locked_count = result.rowcount
+
+    db.add(AuditLog(
+        user_id=current_user.id,
+        action=AuditAction.VOUCHER_BATCH_LOCK,
+        target_type="voucher",
+        description=description or f"{year_month} 월별 마감 ({locked_count}건)",
+        after_data={"year_month": year_month, "locked_count": locked_count},
+    ))
+
+    await db.flush()
+    return {"message": f"{year_month} 마감 완료", "locked_count": locked_count}
+
+
+@router.delete("/{year_month}", response_model=dict)
+async def release_monthly_lock(
+    year_month: str,
+    description: Optional[str] = Body(None, embed=True),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """월별 마감 해제 — 해당 월의 LOCKED 전표를 OPEN으로 복원"""
+    try:
+        year, month = year_month.split("-")
+        first_day = date(int(year), int(month), 1)
+        if int(month) == 12:
+            last_day = date(int(year) + 1, 1, 1)
+        else:
+            last_day = date(int(year), int(month) + 1, 1)
+    except (ValueError, IndexError):
+        raise HTTPException(status_code=400, detail="year_month 형식이 올바르지 않습니다 (YYYY-MM)")
+
+    stmt = (
+        update(Voucher)
+        .where(
+            Voucher.trade_date >= first_day,
+            Voucher.trade_date < last_day,
+            Voucher.settlement_status == SettlementStatus.LOCKED,
+        )
+        .values(
+            settlement_status=SettlementStatus.OPEN,
+            payment_status=PaymentStatus.UNPAID,
+        )
+    )
+    result = await db.execute(stmt)
+    unlocked_count = result.rowcount
+
+    db.add(AuditLog(
+        user_id=current_user.id,
+        action=AuditAction.VOUCHER_BATCH_UNLOCK,
+        target_type="voucher",
+        description=description or f"{year_month} 월별 마감 해제 ({unlocked_count}건)",
+        after_data={"year_month": year_month, "unlocked_count": unlocked_count},
+    ))
+
+    await db.flush()
+    return {"message": f"{year_month} 마감 해제 완료", "unlocked_count": unlocked_count}
+
+
+@router.get("/audit-logs", response_model=dict)
+async def get_lock_audit_logs(
+    year: int = Query(..., ge=2020, le=2100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """마감 관련 감사 로그 (연도 필터)"""
+    lock_actions = [
+        AuditAction.VOUCHER_LOCK,
+        AuditAction.VOUCHER_UNLOCK,
+        AuditAction.VOUCHER_BATCH_LOCK,
+        AuditAction.VOUCHER_BATCH_UNLOCK,
+    ]
+
+    year_start = datetime(year, 1, 1)
+    year_end = datetime(year + 1, 1, 1)
+
+    query = (
+        select(AuditLog)
+        .where(
+            AuditLog.action.in_(lock_actions),
+            AuditLog.created_at >= year_start,
+            AuditLog.created_at < year_end,
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(500)
+    )
+    result = await db.execute(query)
+    logs = result.scalars().all()
+
+    items = []
+    # 사용자 캐시로 N+1 방지
+    user_cache: dict[UUID, User | None] = {}
+    for log in logs:
+        if log.user_id not in user_cache:
+            user_cache[log.user_id] = await db.get(User, log.user_id)
+        user = user_cache[log.user_id]
+
+        # year_month 추출: after_data에서 또는 description에서
+        year_month = ""
+        if log.after_data and isinstance(log.after_data, dict):
+            year_month = log.after_data.get("year_month", "")
+        if not year_month and log.description:
+            # "2026-01 월별 마감" 패턴에서 추출
+            import re
+            m = re.search(r"(\d{4}-\d{2})", log.description)
+            if m:
+                year_month = m.group(1)
+
+        action_str = "lock"
+        if log.action in (AuditAction.VOUCHER_UNLOCK, AuditAction.VOUCHER_BATCH_UNLOCK):
+            action_str = "unlock"
+
+        items.append({
+            "id": str(log.id),
+            "action": action_str,
+            "year_month": year_month,
+            "user_name": user.name if user else "알 수 없음",
+            "description": log.description,
+            "created_at": log.created_at.isoformat() if log.created_at else None,
+        })
+
+    return {"logs": items}
+
+
+# ─── 개별 전표 마감/해제 ────────────────────────────────────────────
 
 @router.post("/voucher/{voucher_id}", response_model=dict)
 async def lock_voucher(

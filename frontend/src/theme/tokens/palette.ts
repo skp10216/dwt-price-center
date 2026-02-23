@@ -135,6 +135,33 @@ export const userGreenTheme = {
   },
 } as const;
 
+// 경영지원(정산) 채널 전용 블루 테마 (로그인 등 특수 페이지용)
+export const settlementBlueTheme = {
+  sky: {
+    main: '#0284c7',
+    light: '#38bdf8',
+    dark: '#0369a1',
+    contrastText: '#ffffff',
+  },
+  indigo: {
+    main: '#3f51b5',
+    light: '#7986cb',
+    dark: '#303f9f',
+    contrastText: '#ffffff',
+  },
+  background: {
+    primary: '#f0f7ff',
+    secondary: '#eef2ff',
+    paper: 'rgba(255, 255, 255, 0.85)',
+    gradient: 'linear-gradient(135deg, #e0f2fe 0%, #eef2ff 50%, #f0f7ff 100%)',
+  },
+  text: {
+    primary: '#1e293b',
+    secondary: '#64748b',
+    accent: '#0284c7',
+  },
+} as const;
+
 // 모드별 배경색
 export const getBackgroundColors = (mode: PaletteMode) => ({
   default: mode === 'light' ? '#f8fafc' : '#0a0a0a',

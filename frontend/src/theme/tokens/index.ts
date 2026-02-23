@@ -9,6 +9,7 @@ export {
   semanticColors,
   adminGoldTheme,
   userGreenTheme,
+  settlementBlueTheme,
   getBackgroundColors,
   getTextColors,
   getDividerColor,

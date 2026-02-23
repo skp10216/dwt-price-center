@@ -48,7 +48,7 @@ import {
   saveEmailPreference,
 } from '@/lib/store';
 import { getDomainType, getAfterLoginPath, requiresAdminRole } from '@/lib/domain';
-import { userGreenTheme, shadows, transitions } from '@/theme/tokens';
+import { userGreenTheme, settlementBlueTheme, shadows, transitions } from '@/theme/tokens';
 
 // 로고 색상 기반 관리자 테마
 const adminTheme = {
@@ -91,7 +91,7 @@ function LoginPageInner() {
   const searchParams = useSearchParams();
   const { enqueueSnackbar } = useSnackbar();
   const setAuth = useAuthStore((state) => state.setAuth);
-  const { domainType, isAdminDomain, setDomainType } = useDomainStore();
+  const { domainType, isAdminDomain, isSettlementDomain, setDomainType } = useDomainStore();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -99,17 +99,18 @@ function LoginPageInner() {
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [domainDetected, setDomainDetected] = useState(false);
-  
-  // 클라이언트에서 도메인 타입 감지 (useLayoutEffect로 깜빡임 방지)
+
+  // 클라이언트에서 도메인 타입 감지
+  // useLayoutEffect는 paint 전에 동기적으로 실행 → 깜빡임 없음
+  // domainDetected 게이트를 제거: SSR에서는 기본 UserLoginUI가 렌더링되고,
+  // 클라이언트에서 즉시 올바른 UI로 교체됨. JS 로드 실패 시에도 로그인 가능한 UI 보장.
   useLayoutEffect(() => {
     if (typeof window !== 'undefined') {
       const host = window.location.host;
       const urlSearchParams = new URLSearchParams(window.location.search);
       const detected = getDomainType(host, urlSearchParams);
       setDomainType(detected);
-      setDomainDetected(true);
-      
+
       // 저장된 이메일 및 아이디 저장 상태 복원
       const savedEmail = getSavedEmail();
       const savedRememberMe = getRememberMe();
@@ -125,6 +126,8 @@ function LoginPageInner() {
     const errorParam = searchParams.get('error');
     if (errorParam === 'admin_required') {
       setError('관리자 도메인입니다. 관리자 계정으로 로그인해주세요.');
+    } else if (errorParam === 'settlement_required') {
+      setError('경영지원 도메인입니다. 권한이 있는 계정으로 로그인해주세요.');
     }
   }, [searchParams]);
   
@@ -166,26 +169,26 @@ function LoginPageInner() {
     }
   };
 
-  // 도메인 감지 전 로딩 화면 (깜빡임 방지)
-  if (!domainDetected) {
-    return (
-      <Box
-        sx={{
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          bgcolor: adminTheme.background.primary,
-        }}
-      >
-        <CircularProgress sx={{ color: adminTheme.teal.main }} />
-      </Box>
-    );
-  }
-
   // 관리자 도메인: 프리미엄 다크 + 골드 테마
   if (isAdminDomain) {
-    return <AdminLoginUI 
+    return <AdminLoginUI
+      email={email}
+      setEmail={setEmail}
+      password={password}
+      setPassword={setPassword}
+      showPassword={showPassword}
+      setShowPassword={setShowPassword}
+      rememberMe={rememberMe}
+      setRememberMe={setRememberMe}
+      loading={loading}
+      error={error}
+      handleSubmit={handleSubmit}
+    />;
+  }
+
+  // 경영지원(정산) 도메인: 프로스티드 블루 테마
+  if (isSettlementDomain) {
+    return <SettlementLoginUI
       email={email}
       setEmail={setEmail}
       password={password}
@@ -681,6 +684,425 @@ function AdminLoginUI({
             textAlign: 'center',
             mt: 2,
             color: alpha('#ffffff', 0.25),
+            fontSize: '0.7rem',
+          }}
+        >
+          DWT Price Center © 2024
+        </Typography>
+      </Box>
+    </Box>
+  );
+}
+
+// 경영지원(정산) 전용 입력 필드 스타일
+const createSettlementInputStyles = () => ({
+  mb: 2.5,
+  '& .MuiOutlinedInput-root': {
+    bgcolor: 'rgba(255, 255, 255, 0.7)',
+    borderRadius: 2.5,
+    transition: transitions.fast,
+    '& fieldset': {
+      borderColor: alpha('#94a3b8', 0.3),
+      transition: transitions.fast,
+    },
+    '&:hover fieldset': {
+      borderColor: alpha(settlementBlueTheme.sky.main, 0.5),
+    },
+    '&.Mui-focused fieldset': {
+      borderColor: settlementBlueTheme.sky.main,
+      borderWidth: 2,
+    },
+  },
+  '& .MuiOutlinedInput-input': {
+    color: settlementBlueTheme.text.primary,
+    py: 1.75,
+    fontSize: '0.95rem',
+    '&::placeholder': {
+      color: '#94a3b8',
+      opacity: 1,
+    },
+  },
+  '& .MuiInputLabel-root.Mui-focused': {
+    color: settlementBlueTheme.sky.main,
+  },
+});
+
+/**
+ * 경영지원(정산) 로그인 UI - 프로스티드 블루 테마
+ * sky blue + indigo 색상의 프로페셔널한 금융/정산 포탈
+ */
+function SettlementLoginUI({
+  email, setEmail, password, setPassword,
+  showPassword, setShowPassword, rememberMe, setRememberMe,
+  loading, error, handleSubmit,
+}: LoginUIProps) {
+  const theme = useTheme();
+  const { sky, indigo, background: bg, text } = settlementBlueTheme;
+
+  return (
+    <Box
+      sx={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        position: 'relative',
+        overflow: 'hidden',
+        // 밝은 블루-슬레이트 그래디언트 배경
+        background: `linear-gradient(135deg, #e0f2fe 0%, #dbeafe 30%, #eef2ff 60%, #f0f7ff 100%)`,
+      }}
+    >
+      {/* 대각선 라인 패턴 */}
+      <Box
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          backgroundImage: `repeating-linear-gradient(
+            -45deg,
+            transparent,
+            transparent 40px,
+            ${alpha(sky.main, 0.04)} 40px,
+            ${alpha(sky.main, 0.04)} 41px
+          )`,
+        }}
+      />
+
+      {/* 플로팅 오브 - sky blue (좌상단, 은은) */}
+      <Box
+        sx={{
+          position: 'absolute',
+          top: '8%',
+          left: '8%',
+          width: 300,
+          height: 300,
+          borderRadius: '50%',
+          background: `radial-gradient(circle, ${alpha(sky.main, 0.1)} 0%, transparent 70%)`,
+          filter: 'blur(60px)',
+          animation: 'settlementOrb1 14s ease-in-out infinite',
+          '@keyframes settlementOrb1': {
+            '0%, 100%': { transform: 'translate(0, 0) scale(1)', opacity: 0.5 },
+            '50%': { transform: 'translate(25px, 30px) scale(1.05)', opacity: 0.7 },
+          },
+        }}
+      />
+
+      {/* 플로팅 오브 - indigo (우하단, 은은) */}
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: '10%',
+          right: '8%',
+          width: 280,
+          height: 280,
+          borderRadius: '50%',
+          background: `radial-gradient(circle, ${alpha(indigo.main, 0.08)} 0%, transparent 70%)`,
+          filter: 'blur(60px)',
+          animation: 'settlementOrb2 16s ease-in-out infinite',
+          '@keyframes settlementOrb2': {
+            '0%, 100%': { transform: 'translate(0, 0) scale(1)', opacity: 0.4 },
+            '50%': { transform: 'translate(-30px, -20px) scale(1.08)', opacity: 0.6 },
+          },
+        }}
+      />
+
+      {/* 로그인 카드 컨테이너 */}
+      <Box
+        sx={{
+          width: '100%',
+          maxWidth: 440,
+          mx: 2,
+          position: 'relative',
+          zIndex: 1,
+        }}
+      >
+        {/* 메인 카드 - 프로스티드 글라스 */}
+        <Box
+          sx={{
+            background: bg.paper,
+            backdropFilter: 'blur(20px)',
+            borderRadius: 4,
+            border: `1px solid ${alpha(sky.main, 0.15)}`,
+            boxShadow: `
+              0 0 0 1px ${alpha(sky.main, 0.05)},
+              0 20px 50px -10px ${alpha(sky.main, 0.15)},
+              0 0 80px -20px ${alpha(indigo.main, 0.1)}
+            `,
+            p: { xs: 3.5, sm: 4.5 },
+            position: 'relative',
+            overflow: 'hidden',
+            transition: transitions.normal,
+            // 상단 sky-to-indigo 그래디언트 바
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 3,
+              background: `linear-gradient(90deg, ${sky.main} 0%, ${indigo.main} 100%)`,
+              opacity: 0.85,
+            },
+            '&:hover': {
+              border: `1px solid ${alpha(sky.main, 0.25)}`,
+              boxShadow: `
+                0 0 0 1px ${alpha(sky.main, 0.08)},
+                0 25px 60px -10px ${alpha(sky.main, 0.2)},
+                0 0 100px -20px ${alpha(indigo.main, 0.15)}
+              `,
+            },
+          }}
+        >
+          {/* 로고 + 타이틀 영역 */}
+          <Box sx={{ textAlign: 'center', mb: 3.5 }}>
+            <Box
+              sx={{
+                display: 'inline-flex',
+                p: 2,
+                mb: 2,
+                borderRadius: 3,
+                background: `linear-gradient(135deg, ${alpha(sky.main, 0.08)} 0%, ${alpha(indigo.main, 0.05)} 100%)`,
+                border: `1px solid ${alpha(sky.main, 0.12)}`,
+              }}
+            >
+              <Logo size="large" showCompanyName variant="light" />
+            </Box>
+
+            <Typography
+              variant="h6"
+              sx={{
+                color: text.primary,
+                fontWeight: 700,
+                fontSize: '1.15rem',
+                letterSpacing: '-0.01em',
+              }}
+            >
+              경영지원 시스템
+            </Typography>
+            <Typography
+              variant="body2"
+              sx={{
+                color: text.secondary,
+                mt: 0.5,
+                fontSize: '0.85rem',
+              }}
+            >
+              정산 관리 포탈
+            </Typography>
+          </Box>
+
+          {/* SETTLEMENT ACCESS 배지 */}
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 1.5,
+              mb: 3.5,
+              py: 1.25,
+              px: 2.5,
+              mx: 'auto',
+              width: 'fit-content',
+              borderRadius: 3,
+              background: `linear-gradient(135deg, ${alpha(sky.main, 0.1)} 0%, ${alpha(indigo.main, 0.06)} 100%)`,
+              border: `1px solid ${alpha(sky.main, 0.18)}`,
+            }}
+          >
+            <SecurityIcon
+              sx={{
+                fontSize: 16,
+                color: sky.main,
+              }}
+            />
+            <Typography
+              sx={{
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                color: sky.dark,
+                letterSpacing: '0.05em',
+              }}
+            >
+              SETTLEMENT ACCESS
+            </Typography>
+          </Box>
+
+          {error && (
+            <Alert
+              severity="error"
+              sx={{
+                mb: 3,
+                borderRadius: 2.5,
+              }}
+            >
+              {error}
+            </Alert>
+          )}
+
+          <Box component="form" onSubmit={handleSubmit}>
+            <TextField
+              fullWidth
+              placeholder="이메일"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoFocus
+              autoComplete="email"
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <EmailIcon sx={{ color: alpha(sky.main, 0.5), fontSize: 20 }} />
+                  </InputAdornment>
+                ),
+              }}
+              sx={createSettlementInputStyles()}
+            />
+
+            <TextField
+              fullWidth
+              placeholder="비밀번호"
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <LockIcon sx={{ color: alpha(sky.main, 0.5), fontSize: 20 }} />
+                  </InputAdornment>
+                ),
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowPassword(!showPassword)}
+                      edge="end"
+                      sx={{
+                        color: '#94a3b8',
+                        '&:hover': { color: sky.main },
+                      }}
+                    >
+                      {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+              sx={createSettlementInputStyles()}
+            />
+
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  sx={{
+                    color: alpha(sky.main, 0.5),
+                    '&.Mui-checked': {
+                      color: sky.main,
+                    },
+                  }}
+                />
+              }
+              label="아이디 저장"
+              sx={{
+                mb: 3,
+                '& .MuiFormControlLabel-label': {
+                  color: text.secondary,
+                  fontSize: '0.875rem',
+                },
+              }}
+            />
+
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained"
+              size="large"
+              disabled={loading}
+              sx={{
+                py: 1.6,
+                borderRadius: 2.5,
+                background: `linear-gradient(135deg, ${sky.main} 0%, ${indigo.main} 100%)`,
+                color: '#ffffff',
+                fontWeight: 600,
+                fontSize: '0.95rem',
+                letterSpacing: '0.02em',
+                boxShadow: `0 8px 30px ${alpha(sky.main, 0.3)}`,
+                transition: transitions.fast,
+                position: 'relative',
+                overflow: 'hidden',
+                // 샤인 효과
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  left: '-100%',
+                  width: '100%',
+                  height: '100%',
+                  background: `linear-gradient(90deg, transparent, ${alpha('#ffffff', 0.2)}, transparent)`,
+                  transition: 'left 0.6s ease',
+                },
+                '&:hover': {
+                  background: `linear-gradient(135deg, ${sky.light} 0%, ${sky.main} 50%, ${indigo.main} 100%)`,
+                  boxShadow: `0 12px 40px ${alpha(sky.main, 0.4)}`,
+                  transform: 'translateY(-2px)',
+                  '&::before': {
+                    left: '100%',
+                  },
+                },
+                '&:active': {
+                  transform: 'translateY(0)',
+                },
+                '&:disabled': {
+                  background: alpha(sky.main, 0.3),
+                  color: alpha('#ffffff', 0.6),
+                  boxShadow: 'none',
+                },
+              }}
+            >
+              {loading ? (
+                <CircularProgress size={22} sx={{ color: '#ffffff' }} />
+              ) : (
+                '로그인'
+              )}
+            </Button>
+          </Box>
+        </Box>
+
+        {/* 하단 보안 안내 */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 1,
+            mt: 3,
+          }}
+        >
+          <SecurityIcon
+            sx={{
+              fontSize: 14,
+              color: alpha(sky.main, 0.4),
+            }}
+          />
+          <Typography
+            variant="caption"
+            sx={{
+              color: alpha(text.secondary, 0.7),
+              fontSize: '0.75rem',
+            }}
+          >
+            권한이 없는 접근은 기록됩니다
+          </Typography>
+        </Box>
+
+        {/* 저작권 */}
+        <Typography
+          variant="caption"
+          sx={{
+            display: 'block',
+            textAlign: 'center',
+            mt: 2,
+            color: alpha(text.secondary, 0.5),
             fontSize: '0.7rem',
           }}
         >
