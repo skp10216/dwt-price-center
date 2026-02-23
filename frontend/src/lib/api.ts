@@ -16,10 +16,34 @@ const api: AxiosInstance = axios.create({
   timeout: 30000,
 });
 
+/**
+ * 쿠키에서 값 읽기 유틸리티
+ * 서브도메인 간 전환 시 localStorage에 토큰이 없을 때 쿠키에서 읽기 위함
+ */
+function getCookieValue(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 // 요청 인터셉터: 토큰 추가 + FormData Content-Type 자동 처리
 api.interceptors.request.use(
   (config) => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    let token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+
+    // localStorage에 토큰이 없으면 쿠키에서 읽기 (서브도메인 간 전환 시 대비)
+    // 쿠키는 domain=localhost 로 설정되어 서브도메인 간 공유됨
+    if (!token) {
+      const cookieToken = getCookieValue('token');
+      if (cookieToken) {
+        token = cookieToken;
+        // localStorage에도 동기화하여 이후 요청은 바로 사용
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('access_token', cookieToken);
+        }
+      }
+    }
+
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -32,6 +56,25 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+/**
+ * 쿠키 삭제 유틸리티 (도메인 포함)
+ * 서브도메인 간 공유 쿠키를 올바르게 삭제하기 위해 domain 속성 포함
+ */
+function clearAuthCookies() {
+  if (typeof document === 'undefined') return;
+  const expired = 'expires=Thu, 01 Jan 1970 00:00:00 GMT';
+  const hostname = window.location.hostname;
+  const isLocal = hostname === 'localhost' || hostname.endsWith('.localhost');
+  const domainPart = isLocal ? '; domain=localhost' : '; domain=.dwt.price';
+  
+  // 도메인 포함 쿠키 삭제 (서브도메인 간 공유 쿠키)
+  document.cookie = `token=; ${expired}; path=/${domainPart}`;
+  document.cookie = `user_role=; ${expired}; path=/${domainPart}`;
+  // 도메인 없이도 삭제 (혹시 도메인 없이 설정된 쿠키 대비)
+  document.cookie = `token=; ${expired}; path=/`;
+  document.cookie = `user_role=; ${expired}; path=/`;
+}
+
 // 응답 인터셉터: 에러 처리
 api.interceptors.response.use(
   (response) => response,
@@ -41,8 +84,7 @@ api.interceptors.response.use(
       if (typeof window !== 'undefined') {
         localStorage.removeItem('access_token');
         localStorage.removeItem('auth-storage'); // Zustand persist 상태 제거
-        document.cookie = 'token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
-        document.cookie = 'user_role=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+        clearAuthCookies();
         window.location.href = '/login';
       }
     }

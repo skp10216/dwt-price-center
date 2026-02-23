@@ -285,15 +285,16 @@ export default function SettlementDashboardPage() {
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
           <Stack direction="row" alignItems="center" spacing={1.5}>
             <Box sx={{
-              width: 28, height: 28, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 32, height: 32, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center',
               bgcolor: alpha(theme.palette.warning.main, 0.12),
+              boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.warning.main, 0.15)}`,
             }}>
-              <StarIcon sx={{ fontSize: 16, color: 'warning.main' }} />
+              <StarIcon sx={{ fontSize: 18, color: 'warning.main' }} />
             </Box>
             <Box>
-              <Typography variant="subtitle2" fontWeight={700} sx={{ lineHeight: 1.2 }}>내 즐겨찾기 현황</Typography>
+              <Typography variant="subtitle1" fontWeight={800} sx={{ lineHeight: 1.2, fontSize: '0.95rem', letterSpacing: '-0.01em' }}>내 즐겨찾기 현황</Typography>
               {!favLoading && (
-                <Typography variant="caption" color="text.secondary">
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
                   {favorites.length}개 거래처 모니터링 중
                 </Typography>
               )}
@@ -451,12 +452,13 @@ export default function SettlementDashboardPage() {
           <AppSectionCard sx={{ p: 2, height: '100%', mb: 0 }}>
             <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2 }}>
               <Box sx={{
-                width: 28, height: 28, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                bgcolor: alpha(theme.palette.primary.main, 0.1),
+                width: 32, height: 32, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                bgcolor: alpha(theme.palette.primary.main, 0.12),
+                boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.primary.main, 0.15)}`,
               }}>
-                <BusinessCenterIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+                <BusinessCenterIcon sx={{ fontSize: 18, color: 'primary.main' }} />
               </Box>
-              <Typography variant="subtitle2" fontWeight={700}>운영 현황</Typography>
+              <Typography variant="subtitle1" fontWeight={800} sx={{ fontSize: '0.95rem', letterSpacing: '-0.01em' }}>운영 현황</Typography>
             </Stack>
 
             <Grid container spacing={1.5}>
@@ -507,12 +509,13 @@ export default function SettlementDashboardPage() {
             <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
               <Stack direction="row" alignItems="center" spacing={1.5}>
                 <Box sx={{
-                  width: 28, height: 28, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  bgcolor: alpha(theme.palette.info.main, 0.1),
+                  width: 32, height: 32, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  bgcolor: alpha(theme.palette.info.main, 0.12),
+                  boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.info.main, 0.15)}`,
                 }}>
-                  <AccessTimeIcon sx={{ fontSize: 16, color: 'info.main' }} />
+                  <AccessTimeIcon sx={{ fontSize: 18, color: 'info.main' }} />
                 </Box>
-                <Typography variant="subtitle2" fontWeight={700}>최신 데이터</Typography>
+                <Typography variant="subtitle1" fontWeight={800} sx={{ fontSize: '0.95rem', letterSpacing: '-0.01em' }}>최신 데이터</Typography>
               </Stack>
               <Tooltip title="새로고침">
                 <span>
@@ -616,8 +619,8 @@ export default function SettlementDashboardPage() {
             }}>
               <Stack direction="row" alignItems="center" justifyContent="space-between">
                 <Stack direction="row" alignItems="center" spacing={1}>
-                  <TrendingUpIcon sx={{ color: 'error.main', fontSize: 18 }} />
-                  <Typography variant="subtitle2" fontWeight={700}>미수 상위 거래처</Typography>
+                  <TrendingUpIcon sx={{ color: 'error.main', fontSize: 20 }} />
+                  <Typography variant="subtitle1" fontWeight={800} sx={{ fontSize: '0.95rem', letterSpacing: '-0.01em' }}>미수 상위 거래처</Typography>
                   <Chip label="Top 5" size="small" color="error" variant="outlined" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700 }} />
                 </Stack>
                 <AppIconActionButton icon={<OpenInNewIcon />} tooltip="미수 현황 전체 보기"
@@ -705,8 +708,8 @@ export default function SettlementDashboardPage() {
             }}>
               <Stack direction="row" alignItems="center" justifyContent="space-between">
                 <Stack direction="row" alignItems="center" spacing={1}>
-                  <TrendingDownIcon sx={{ color: 'warning.main', fontSize: 18 }} />
-                  <Typography variant="subtitle2" fontWeight={700}>미지급 상위 거래처</Typography>
+                  <TrendingDownIcon sx={{ color: 'warning.main', fontSize: 20 }} />
+                  <Typography variant="subtitle1" fontWeight={800} sx={{ fontSize: '0.95rem', letterSpacing: '-0.01em' }}>미지급 상위 거래처</Typography>
                   <Chip label="Top 5" size="small" color="warning" variant="outlined" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700 }} />
                 </Stack>
                 <AppIconActionButton icon={<OpenInNewIcon />} tooltip="미지급 현황 전체 보기"

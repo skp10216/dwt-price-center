@@ -16,17 +16,32 @@ function isLocalhost(): boolean {
          hostname === '127.0.0.1';
 }
 
+/**
+ * 쿠키 도메인 결정
+ * - 프로덕션: .dwt.price (서브도메인 간 공유)
+ * - 개발 환경: .localhost (settlement.localhost ↔ admin.localhost ↔ localhost 간 공유)
+ */
+function getCookieDomain(): string {
+  if (typeof window === 'undefined') return '';
+  if (!isLocalhost()) return '; domain=.dwt.price';
+  // *.localhost 서브도메인 간 쿠키 공유 (Chrome/Edge/Firefox 지원)
+  const hostname = window.location.hostname;
+  if (hostname.endsWith('.localhost') || hostname === 'localhost') {
+    return '; domain=localhost';
+  }
+  return '';
+}
+
 function setCookie(name: string, value: string, days: number = 7) {
   if (typeof document === 'undefined') return;
   const expires = new Date(Date.now() + days * 864e5).toUTCString();
-  // 개발 환경: localhost 계열, 프로덕션: dwt.price 도메인
-  const domain = isLocalhost() ? '' : '; domain=.dwt.price';
+  const domain = getCookieDomain();
   document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/${domain}; SameSite=Lax`;
 }
 
 function deleteCookie(name: string) {
   if (typeof document === 'undefined') return;
-  const domain = isLocalhost() ? '' : '; domain=.dwt.price';
+  const domain = getCookieDomain();
   document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/${domain}`;
 }
 
@@ -74,6 +89,16 @@ interface AuthState {
   logout: () => void;
 }
 
+/**
+ * 쿠키에서 값 읽기 유틸리티
+ * 서브도메인 간 전환 시 localStorage에 토큰이 없을 때 쿠키에서 복원하기 위함
+ */
+function getCookieValue(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
@@ -105,10 +130,25 @@ export const useAuthStore = create<AuthState>()(
       partialize: (state) => ({ user: state.user, token: state.token, isAuthenticated: state.isAuthenticated }),
       onRehydrateStorage: () => {
         return (state) => {
-          // 새로고침 시 localStorage 인증 정보를 쿠키에 재동기화 (미들웨어용)
           if (state && state.isAuthenticated && state.user && state.token) {
+            // 정상 상태: localStorage 인증 정보를 쿠키에 재동기화 (미들웨어용)
             setCookie('token', state.token, 7);
             setCookie('user_role', state.user.role, 7);
+            // localStorage의 access_token도 동기화
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem('access_token', state.token);
+            }
+          } else {
+            // localStorage에 인증 정보가 없는 경우 (서브도메인 간 전환 시)
+            // 쿠키에 토큰이 남아있으면 복원 시도
+            const cookieToken = getCookieValue('token');
+            const cookieRole = getCookieValue('user_role') as User['role'] | null;
+            if (cookieToken && cookieRole) {
+              // 쿠키 토큰을 localStorage에 동기화 (API 요청용)
+              if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('access_token', cookieToken);
+              }
+            }
           }
         };
       },

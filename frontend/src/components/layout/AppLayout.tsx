@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useState, useEffect, Fragment, useCallback } from 'react';
+import { useState, useEffect, useRef, Fragment, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
   Box,
@@ -31,6 +31,7 @@ import {
   alpha,
   Button,
   Tooltip,
+  CircularProgress,
 } from '@mui/material';
 import { useSnackbar } from 'notistack';
 import { settlementApi } from '@/lib/api';
@@ -72,9 +73,10 @@ import {
   Lock as LockIcon,
   ManageSearch as ActivityIcon,
 } from '@mui/icons-material';
-import { useAuthStore, useUIStore, useDomainStore, useAuthHydrated, useThemeStore, type ThemeMode } from '@/lib/store';
+import { useAuthStore, useUIStore, useDomainStore, useAuthHydrated, useThemeStore, type ThemeMode, type User } from '@/lib/store';
 import { getDomainType, getDefaultPath } from '@/lib/domain';
 import { Logo } from '@/components/ui/Logo';
+import { authApi } from '@/lib/api';
 
 const DRAWER_WIDTH = 240;       // 280 → 240px (데이터 영역 확보)
 const DRAWER_MINI_WIDTH = 56;  // 64 → 56px
@@ -175,7 +177,7 @@ const settlementMenus: MenuItemType[] = [
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, logout, isAuthenticated } = useAuthStore();
+  const { user, logout, isAuthenticated, setAuth } = useAuthStore();
   const { sidebarOpen, toggleSidebar } = useUIStore();
   const { domainType, isAdminDomain, isSettlementDomain, setDomainType } = useDomainStore();
   const { mode, setMode } = useThemeStore();
@@ -186,7 +188,33 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [miniMode, setMiniMode] = useState(false);
   const [latestSalesDate, setLatestSalesDate] = useState<string | null>(null);
   const [latestPurchaseDate, setLatestPurchaseDate] = useState<string | null>(null);
+  const [sessionRestoring, setSessionRestoring] = useState(false);
   const { enqueueSnackbar, closeSnackbar } = useSnackbar();
+
+  // ────────────────────────────────────────────────────────────
+  // 안정적 참조(Ref): effect 의존성 배열에서 함수/객체 참조 불안정 제거
+  // router, setAuth, logout 등은 렌더마다 새 참조가 될 수 있어
+  // effect가 무한 재실행되는 원인이 됨 → ref로 항상 최신값 참조
+  // ────────────────────────────────────────────────────────────
+  const routerRef = useRef(router);
+  routerRef.current = router;
+  const setAuthRef = useRef(setAuth);
+  setAuthRef.current = setAuth;
+  const logoutRef = useRef(logout);
+  logoutRef.current = logout;
+
+  // Hydration 안전장치: 5초 이상 hydration 안 되면 강제 진행
+  const [hydrationFallback, setHydrationFallback] = useState(false);
+  useEffect(() => {
+    if (isHydrated) return;
+    const timer = setTimeout(() => {
+      console.warn('[AppLayout] Hydration 타임아웃 (5초) → 강제 진행');
+      setHydrationFallback(true);
+    }, 5_000);
+    return () => clearTimeout(timer);
+  }, [isHydrated]);
+
+  const effectiveHydrated = isHydrated || hydrationFallback;
 
   // 테마 전환 핸들러
   const handleThemeToggle = () => {
@@ -238,30 +266,93 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     setExpandedMenus(newExpanded);
   }, [pathname]);
   
-  // 인증 체크 (hydration 완료 후에만)
+  // 인증 체크 + 세션 복원 (hydration 완료 후에만)
+  // 서브도메인 간 전환 시 Zustand(localStorage)에는 인증 정보가 없지만
+  // 쿠키에 토큰이 남아있는 경우 /auth/me API로 세션을 복원
+  //
+  // ⚠️ 의존성에 router/setAuth/logout을 넣으면 렌더마다 effect가 재실행되어
+  //    무한 루프 발생 → ref 패턴으로 안정적 의존성만 사용
+  const sessionRestoredRef = useRef(false);
+
   useEffect(() => {
-    if (isHydrated && !isAuthenticated) {
-      router.push('/login');
+    if (!effectiveHydrated || isAuthenticated) return;
+    if (sessionRestoredRef.current) return; // 이미 복원 시도 중 → 중복 방지
+
+    // 쿠키에서 토큰 확인
+    const cookieMatch = document.cookie.match(/(?:^|;\s*)token=([^;]*)/);
+    if (!cookieMatch) {
+      // 쿠키에도 토큰 없음 → 로그인 필요
+      routerRef.current.push('/login');
+      return;
     }
-  }, [isHydrated, isAuthenticated, router]);
+
+    sessionRestoredRef.current = true;
+    const cookieToken = decodeURIComponent(cookieMatch[1]);
+    setSessionRestoring(true);
+
+    // 안전장치: 10초 타임아웃 (API 무응답 시 로딩 화면 탈출)
+    let cancelled = false;
+    const timeout = setTimeout(() => {
+      if (cancelled) return;
+      console.warn('[AppLayout] 세션 복원 타임아웃 (10초) → 로그인 페이지로 이동');
+      cancelled = true;
+      setSessionRestoring(false);
+      logoutRef.current();
+      routerRef.current.push('/login');
+    }, 10_000);
+
+    authApi.getMe()
+      .then((response) => {
+        if (cancelled) return;
+        clearTimeout(timeout);
+        const userData = response.data.data as User;
+        setSessionRestoring(false);
+        setAuthRef.current(userData, cookieToken);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        clearTimeout(timeout);
+        // 토큰 만료 또는 유효하지 않음 → 쿠키 정리 후 로그인 페이지
+        setSessionRestoring(false);
+        logoutRef.current();
+        routerRef.current.push('/login');
+      });
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveHydrated, isAuthenticated]);
   
-  // 관리자 도메인에서 admin 권한 강제 (hydration 완료 후에만)
+  // 관리자 도메인에서 admin 권한 강제
+  // ⚠️ isAuthenticated 체크 필수: 세션 복원 중에는 user가 null이므로
+  //    인증 완료 후에만 역할 검증해야 무한 로그아웃 루프 방지
   useEffect(() => {
-    if (isHydrated && isAdminDomain && user?.role !== 'admin') {
-      logout();
-      router.push('/login?error=admin_required');
+    if (effectiveHydrated && isAuthenticated && isAdminDomain && user?.role !== 'admin') {
+      logoutRef.current();
+      routerRef.current.push('/login?error=admin_required');
     }
-  }, [isHydrated, isAdminDomain, user, logout, router]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveHydrated, isAuthenticated, isAdminDomain, user?.role]);
 
   // 정산 도메인에서 settlement 또는 admin 권한 강제
   useEffect(() => {
-    if (isHydrated && isSettlementDomain && user?.role !== 'settlement' && user?.role !== 'admin') {
-      logout();
-      router.push('/login?error=settlement_required');
+    if (effectiveHydrated && isAuthenticated && isSettlementDomain && user?.role !== 'settlement' && user?.role !== 'admin') {
+      logoutRef.current();
+      routerRef.current.push('/login?error=settlement_required');
     }
-  }, [isHydrated, isSettlementDomain, user, logout, router]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveHydrated, isAuthenticated, isSettlementDomain, user?.role]);
 
   // 최신 업로드 버전 확인 (정산 도메인)
+  // ⚠️ router/enqueueSnackbar/closeSnackbar를 deps에 넣으면 매 렌더마다 재생성되어
+  //    interval effect가 매번 재실행 → ref로 안정화
+  const enqueueSnackbarRef = useRef(enqueueSnackbar);
+  enqueueSnackbarRef.current = enqueueSnackbar;
+  const closeSnackbarRef = useRef(closeSnackbar);
+  closeSnackbarRef.current = closeSnackbar;
+
   const checkLatestUploads = useCallback(async () => {
     try {
       const res = await settlementApi.listUploadJobs({ page_size: 20 });
@@ -282,10 +373,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         const lastSeen = localStorage.getItem('dwt_lastSeen_sales_confirmed_at');
         if (lastSeen && lastSeen !== latestSales.confirmed_at) {
           const dateStr = formatKSTShort(latestSales.confirmed_at);
-          enqueueSnackbar(`판매 데이터가 새로 업데이트되었습니다 (${dateStr})`, {
+          enqueueSnackbarRef.current(`판매 데이터가 새로 업데이트되었습니다 (${dateStr})`, {
             variant: 'info',
             action: (key) => (
-              <Button size="small" color="inherit" onClick={() => { router.push('/settlement/upload/jobs'); closeSnackbar(key); }}>
+              <Button size="small" color="inherit" onClick={() => { routerRef.current.push('/settlement/upload/jobs'); closeSnackbarRef.current(key); }}>
                 보기
               </Button>
             ),
@@ -299,10 +390,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         const lastSeen = localStorage.getItem('dwt_lastSeen_purchase_confirmed_at');
         if (lastSeen && lastSeen !== latestPurchase.confirmed_at) {
           const dateStr = formatKSTShort(latestPurchase.confirmed_at);
-          enqueueSnackbar(`매입 데이터가 새로 업데이트되었습니다 (${dateStr})`, {
+          enqueueSnackbarRef.current(`매입 데이터가 새로 업데이트되었습니다 (${dateStr})`, {
             variant: 'info',
             action: (key) => (
-              <Button size="small" color="inherit" onClick={() => { router.push('/settlement/upload/jobs'); closeSnackbar(key); }}>
+              <Button size="small" color="inherit" onClick={() => { routerRef.current.push('/settlement/upload/jobs'); closeSnackbarRef.current(key); }}>
                 보기
               </Button>
             ),
@@ -314,20 +405,34 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     } catch {
       // 조용히 실패 (헤더 기능이므로 오류 표시 불필요)
     }
-  }, [enqueueSnackbar, closeSnackbar, router]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!isSettlementDomain) return;
     checkLatestUploads();
     const timer = setInterval(checkLatestUploads, 3 * 60 * 1000);
     return () => clearInterval(timer);
-  }, [isSettlementDomain, checkLatestUploads]);
-  
-  // Hydration 완료 전에는 로딩 표시 (깜빡임 방지)
-  if (!isHydrated) {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSettlementDomain]);
+
+  // Hydration 완료 전 또는 세션 복원 중에는 로딩 표시 (깜빡임 방지)
+  if (!effectiveHydrated || sessionRestoring) {
     return (
-      <Box sx={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', bgcolor: 'background.default' }}>
+      <Box sx={{
+        display: 'flex',
+        height: '100vh',
+        width: '100vw',
+        alignItems: 'center',
+        justifyContent: 'center',
+        bgcolor: 'background.default',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        zIndex: (theme) => theme.zIndex.modal + 1,
+      }}>
         <Box sx={{ textAlign: 'center' }}>
+          <CircularProgress size={24} sx={{ mb: 1 }} />
           <Typography variant="body2" color="text.secondary">
             로딩 중...
           </Typography>
@@ -582,6 +687,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </Typography>
             </MenuItem>
             <Divider />
+            <MenuItem onClick={() => { handleUserMenuClose(); router.push('/settings/appearance'); }}>
+              <ListItemIcon>
+                <PaletteIcon fontSize="small" />
+              </ListItemIcon>
+              외관 설정
+            </MenuItem>
             <MenuItem onClick={handleLogout}>
               <ListItemIcon>
                 <LogoutIcon fontSize="small" />
@@ -599,14 +710,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         sx={{
           width: sidebarOpen ? (miniMode ? DRAWER_MINI_WIDTH : DRAWER_WIDTH) : 0,
           flexShrink: 0,
-          transition: 'width 0.3s',
+          transition: (theme) => theme.transitions.create('width', {
+            easing: theme.transitions.easing.sharp,
+            duration: theme.transitions.duration.enteringScreen,
+          }),
           '& .MuiDrawer-paper': {
             width: miniMode ? DRAWER_MINI_WIDTH : DRAWER_WIDTH,
             boxSizing: 'border-box',
             borderRight: (theme) => `1px solid ${theme.palette.divider}`,
             bgcolor: 'background.paper',
             overflowX: 'hidden',
-            transition: 'width 0.3s',
+            transition: (theme) => theme.transitions.create('width', {
+              easing: theme.transitions.easing.sharp,
+              duration: theme.transitions.duration.enteringScreen,
+            }),
             display: 'flex',
             flexDirection: 'column',
           },
@@ -756,12 +873,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         component="main"
         sx={{
           flexGrow: 1,
+          minWidth: 0, // flex 자식이 부모를 넘지 않도록 (텍스트 말줄임/테이블 축소 등)
           display: 'flex',
           flexDirection: 'column',
-          width: `calc(100% - ${sidebarOpen ? (miniMode ? DRAWER_MINI_WIDTH : DRAWER_WIDTH) : 0}px)`,
-          transition: 'width 0.3s',
           bgcolor: 'background.default',
-          height: '100vh',
+          height: '100%', // 부모(100vh) flex 컨테이너 내에서 늘어남
           overflow: 'hidden',
         }}
       >
@@ -770,8 +886,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <Box
           sx={{
             flex: 1,
+            minHeight: 0, // flex 자식 내부 스크롤이 정상 작동하도록
             overflow: 'auto',
-            p: 2, // 24px → 16px (데이터 영역 확보)
+            p: 2,
           }}
         >
           {children}

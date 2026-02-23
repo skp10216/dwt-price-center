@@ -64,7 +64,7 @@ export function AppSectionCard({
         ...sx,
       }}
     >
-      {/* 섹션 헤더 */}
+      {/* 섹션 헤더 — 제목 계층 강화 (subtitle2→subtitle1, fontWeight 600→700) */}
       {hasHeader && (
         <Box
           sx={{
@@ -79,12 +79,12 @@ export function AppSectionCard({
         >
           <Box>
             {title && (
-              <Typography variant="subtitle2" fontWeight={600} sx={{ lineHeight: 1.3 }}>
+              <Typography variant="subtitle1" fontWeight={700} sx={{ lineHeight: 1.3, fontSize: '0.925rem', letterSpacing: '-0.01em' }}>
                 {title}
               </Typography>
             )}
             {subtitle && (
-              <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.3 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.3, fontWeight: 500 }}>
                 {subtitle}
               </Typography>
             )}

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Button, Stack, Table, TableBody, TableCell,
-  TableHead, TableRow, Tooltip,
+  TableHead, TableRow, Tooltip, IconButton, Paper,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Chip,
   MenuItem, Select, FormControl, InputLabel, InputAdornment, alpha,
   useTheme, Divider, Checkbox, Alert, AlertTitle, CircularProgress,
@@ -523,19 +523,7 @@ export default function CounterpartiesPage() {
             )}
           </TableBody>
         </Table>
-        <TablePagination
-          component="div"
-          count={total}
-          page={page}
-          onPageChange={(_, p) => setPage(p)}
-          rowsPerPage={pageSize}
-          onRowsPerPageChange={(e) => { setPageSize(parseInt(e.target.value, 10)); setPage(0); }}
-          rowsPerPageOptions={[25, 50, 100]}
-          labelRowsPerPage="페이지당:"
-          sx={{ borderTop: '1px solid', borderColor: 'divider' }}
-        />
-      </TableContainer>
-      </Paper>
+      </AppTableShell>
 
       {/* ═══ 거래처 편집 다이얼로그 ═══ */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>

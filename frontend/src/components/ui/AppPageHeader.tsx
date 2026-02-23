@@ -1,12 +1,12 @@
 /**
- * AppPageHeader - 강조형 컴팩트 헤더 (전 페이지 공통)
+ * AppPageHeader - 페이지 대표 헤더 (전 페이지 공통)
  *
- * 설계 원칙:
- * 1. 좌측 3px accent bar로 시각적 강조 (과하지 않은 백오피스형)
- * 2. 좌: 아이콘박스(28×28) + 제목(h6, 1rem, 700) + 설명(caption)
+ * 설계 원칙 (v2 — 시선 집중 강화):
+ * 1. 좌측 4px accent bar + 은은한 그라디언트 배경으로 "페이지 시작점" 명확
+ * 2. 좌: 아이콘박스(36×36) + 제목(1.15rem, 800) + 설명(0.8rem)
  * 3. 우: KPI chips[] + count + 새로고침 + actions[]
- * 4. 내부 패딩: px:2, py:1.25 (compact하게)
- * 5. border-left accent color로 헤더 존재감 확보
+ * 4. 내부 패딩: px:2.5, py:1.75 — 본문 카드 대비 시각적 무게 차별화
+ * 5. 미세 box-shadow + gradient → 헤더 존재감 대폭 강화
  *
  * variants:
  * - default: 표준 헤더 (좌측 accent bar + 아이콘)
@@ -88,7 +88,7 @@ export interface AppPageHeaderProps {
   variant?: AppPageHeaderVariant;
   /**
    * 좌측 accent bar 강조 모드 (기본: false)
-   * true이면 배경에 은은한 그라디언트 톤 추가
+   * true이면 배경 그라디언트를 더 강하게 적용
    */
   highlight?: boolean;
   /** 추가 sx 스타일 */
@@ -118,6 +118,7 @@ export default function AppPageHeader({
     dark?: string;
   };
   const mainColor = paletteColor?.main ?? theme.palette.primary.main;
+  const darkColor = (paletteColor?.dark ?? mainColor);
 
   const isCompact = variant === 'compact';
 
@@ -128,21 +129,21 @@ export default function AppPageHeader({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        px: 2,
-        py: 1.25,
-        borderRadius: 2,
+        px: 2.5,
+        py: 1.75,
+        borderRadius: 2.5,
         border: '1px solid',
-        borderColor: 'divider',
-        bgcolor: 'background.paper',
+        borderColor: alpha(mainColor, 0.2),
         gap: 2,
         flexWrap: 'wrap',
-        // 좌측 accent bar (3px) — 헤더 존재감 강조
-        borderLeft: `3px solid ${mainColor}`,
+        // 좌측 accent bar (4px) — 페이지 대표 타이틀 강조
+        borderLeft: `4px solid ${mainColor}`,
         position: 'relative',
-        // highlight 모드: 배경에 은은한 그라디언트 톤 추가
-        ...(highlight && {
-          background: `linear-gradient(135deg, ${alpha(mainColor, 0.06)} 0%, transparent 60%)`,
-        }),
+        // 기본 모드: 은은한 그라디언트 + 미세 shadow (본문 카드 대비 시각적 무게 차별화)
+        background: highlight
+          ? `linear-gradient(135deg, ${alpha(mainColor, 0.08)} 0%, ${alpha(mainColor, 0.02)} 50%, ${theme.palette.background.paper} 100%)`
+          : `linear-gradient(135deg, ${alpha(mainColor, 0.04)} 0%, ${theme.palette.background.paper} 60%)`,
+        boxShadow: `0 1px 4px ${alpha(mainColor, 0.08)}, 0 0 0 1px ${alpha(mainColor, 0.04)}`,
         ...sx,
       }}
     >
@@ -151,16 +152,18 @@ export default function AppPageHeader({
         {icon && (
           <Box
             sx={{
-              width: 28,
-              height: 28,
-              borderRadius: 1.5,
-              bgcolor: alpha(mainColor, 0.1),
+              width: 36,
+              height: 36,
+              borderRadius: 2,
+              bgcolor: alpha(mainColor, 0.12),
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: mainColor,
               flexShrink: 0,
-              '& svg': { fontSize: 16 },
+              '& svg': { fontSize: 20 },
+              // 미세한 내부 border로 아이콘박스 존재감 강화
+              boxShadow: `inset 0 0 0 1px ${alpha(mainColor, 0.15)}`,
             }}
           >
             {icon}
@@ -169,16 +172,27 @@ export default function AppPageHeader({
         <Box sx={{ minWidth: 0 }}>
           <Typography
             variant="h6"
-            fontWeight={700}
-            sx={{ lineHeight: 1.2, fontSize: '1rem' }}
+            fontWeight={800}
+            color={darkColor}
+            sx={{
+              lineHeight: 1.2,
+              fontSize: '1.15rem',
+              letterSpacing: '-0.01em',
+            }}
           >
             {title}
           </Typography>
           {!isCompact && description && (
             <Typography
-              variant="caption"
+              variant="body2"
               color="text.secondary"
-              sx={{ display: 'block', lineHeight: 1.4, mt: 0.25 }}
+              sx={{
+                display: 'block',
+                lineHeight: 1.4,
+                mt: 0.25,
+                fontSize: '0.8rem',
+                fontWeight: 500,
+              }}
             >
               {description}
             </Typography>
@@ -225,12 +239,12 @@ export default function AppPageHeader({
                 size="small"
                 onClick={onRefresh}
                 disabled={loading}
-                sx={{ color: 'text.secondary', width: 28, height: 28 }}
+                sx={{ color: 'text.secondary', width: 30, height: 30 }}
               >
                 {loading ? (
                   <CircularProgress size={14} color="inherit" />
                 ) : (
-                  <RefreshIcon sx={{ fontSize: 16 }} />
+                  <RefreshIcon sx={{ fontSize: 17 }} />
                 )}
               </IconButton>
             </span>
