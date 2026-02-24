@@ -1,6 +1,6 @@
 """
 정산 도메인 - 마감(LOCK) 관리
-월별 마감 + 전표 마감/해제 + 일괄 마감 + 마감 내역
+PeriodLock 테이블 기반 월별 마감 + 전표 마감/해제 + 일괄 마감 + 마감 내역
 """
 
 from datetime import date, datetime
@@ -16,8 +16,10 @@ from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.voucher import Voucher
+from app.models.period_lock import PeriodLock
 from app.models.enums import (
     VoucherType, SettlementStatus, PaymentStatus, AuditAction,
+    PeriodLockStatus,
 )
 from app.models.audit_log import AuditLog
 from app.schemas.settlement import BatchLockRequest, BatchLockResponse, LockHistoryItem
@@ -25,7 +27,7 @@ from app.schemas.settlement import BatchLockRequest, BatchLockResponse, LockHist
 router = APIRouter()
 
 
-# ─── 월별 마감 관리 ────────────────────────────────────────────────
+# ─── 월별 마감 관리 (PeriodLock 기반) ────────────────────────────────
 
 @router.get("", response_model=dict)
 async def list_monthly_locks(
@@ -33,7 +35,7 @@ async def list_monthly_locks(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """연도별 월간 마감 현황 조회 — 전표 trade_date 기준으로 월별 집계"""
+    """연도별 월간 마감 현황 조회 — PeriodLock 테이블 우선, 없으면 전표 스캔"""
     locks = []
     for month in range(1, 13):
         year_month = f"{year}-{month:02d}"
@@ -58,46 +60,70 @@ async def list_monthly_locks(
         )
         locked_vouchers = (await db.execute(locked_q)).scalar() or 0
 
-        # 상태 판정: 전표가 있고 모두 마감이면 locked
-        if total_vouchers > 0 and locked_vouchers == total_vouchers:
-            status = "locked"
+        # PeriodLock 테이블 확인
+        period_lock = (await db.execute(
+            select(PeriodLock).where(PeriodLock.year_month == year_month)
+        )).scalar_one_or_none()
+
+        if period_lock:
+            status = period_lock.status.value if hasattr(period_lock.status, 'value') else period_lock.status
+            locked_at = period_lock.locked_at.isoformat() if period_lock.locked_at else None
+
+            locked_by_name = None
+            if period_lock.locked_by:
+                user = await db.get(User, period_lock.locked_by)
+                locked_by_name = user.name if user else None
+
+            locks.append({
+                "year_month": year_month,
+                "status": status,
+                "locked_vouchers": locked_vouchers,
+                "total_vouchers": total_vouchers,
+                "locked_at": locked_at,
+                "locked_by_name": locked_by_name,
+                "description": period_lock.memo,
+            })
         else:
-            status = "open"
+            # PeriodLock 레코드 없음 → 전표 상태로 판정 (하위 호환)
+            if total_vouchers > 0 and locked_vouchers == total_vouchers:
+                status = "locked"
+            else:
+                status = "open"
 
-        # 마감자/마감일: 해당 월 가장 최근 batch_lock 감사 로그
-        last_lock_q = (
-            select(AuditLog)
-            .where(
-                AuditLog.action.in_([
-                    AuditAction.VOUCHER_BATCH_LOCK,
-                    AuditAction.VOUCHER_LOCK,
-                ]),
-                AuditLog.description.ilike(f"%{year_month}%"),
+            # 감사 로그에서 마감 정보 추출 (레거시 호환)
+            last_lock_q = (
+                select(AuditLog)
+                .where(
+                    AuditLog.action.in_([
+                        AuditAction.VOUCHER_BATCH_LOCK,
+                        AuditAction.VOUCHER_LOCK,
+                    ]),
+                    AuditLog.description.ilike(f"%{year_month}%"),
+                )
+                .order_by(AuditLog.created_at.desc())
+                .limit(1)
             )
-            .order_by(AuditLog.created_at.desc())
-            .limit(1)
-        )
-        last_lock_result = await db.execute(last_lock_q)
-        last_lock_log = last_lock_result.scalar_one_or_none()
+            last_lock_result = await db.execute(last_lock_q)
+            last_lock_log = last_lock_result.scalar_one_or_none()
 
-        locked_at = None
-        locked_by_name = None
-        description = None
-        if last_lock_log and status == "locked":
-            locked_at = last_lock_log.created_at.isoformat() if last_lock_log.created_at else None
-            user = await db.get(User, last_lock_log.user_id)
-            locked_by_name = user.name if user else None
-            description = last_lock_log.description
+            locked_at = None
+            locked_by_name = None
+            description = None
+            if last_lock_log and status == "locked":
+                locked_at = last_lock_log.created_at.isoformat() if last_lock_log.created_at else None
+                user = await db.get(User, last_lock_log.user_id)
+                locked_by_name = user.name if user else None
+                description = last_lock_log.description
 
-        locks.append({
-            "year_month": year_month,
-            "status": status,
-            "locked_vouchers": locked_vouchers,
-            "total_vouchers": total_vouchers,
-            "locked_at": locked_at,
-            "locked_by_name": locked_by_name,
-            "description": description,
-        })
+            locks.append({
+                "year_month": year_month,
+                "status": status,
+                "locked_vouchers": locked_vouchers,
+                "total_vouchers": total_vouchers,
+                "locked_at": locked_at,
+                "locked_by_name": locked_by_name,
+                "description": description,
+            })
 
     return {"locks": locks}
 
@@ -109,7 +135,7 @@ async def create_monthly_lock(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """월별 마감 — 해당 월의 모든 미마감 전표를 LOCKED로 변경"""
+    """월별 마감 — 해당 월의 모든 미마감 전표를 LOCKED로 변경 + PeriodLock 갱신"""
     try:
         year, month = year_month.split("-")
         first_day = date(int(year), int(month), 1)
@@ -136,10 +162,40 @@ async def create_monthly_lock(
     result = await db.execute(stmt)
     locked_count = result.rowcount
 
+    # 전체 전표 수 조회
+    total_q = select(func.count()).select_from(Voucher).where(
+        Voucher.trade_date >= first_day,
+        Voucher.trade_date < last_day,
+    )
+    total_vouchers = (await db.execute(total_q)).scalar() or 0
+
+    # PeriodLock 레코드 생성/업데이트
+    period_lock = (await db.execute(
+        select(PeriodLock).where(PeriodLock.year_month == year_month)
+    )).scalar_one_or_none()
+
+    now = datetime.utcnow()
+    if period_lock:
+        period_lock.status = PeriodLockStatus.LOCKED
+        period_lock.locked_voucher_count = total_vouchers
+        period_lock.locked_at = now
+        period_lock.locked_by = current_user.id
+        period_lock.memo = description or f"{year_month} 월별 마감 ({locked_count}건)"
+    else:
+        period_lock = PeriodLock(
+            year_month=year_month,
+            status=PeriodLockStatus.LOCKED,
+            locked_voucher_count=total_vouchers,
+            locked_at=now,
+            locked_by=current_user.id,
+            memo=description or f"{year_month} 월별 마감 ({locked_count}건)",
+        )
+        db.add(period_lock)
+
     db.add(AuditLog(
         user_id=current_user.id,
-        action=AuditAction.VOUCHER_BATCH_LOCK,
-        target_type="voucher",
+        action=AuditAction.PERIOD_LOCK,
+        target_type="period_lock",
         description=description or f"{year_month} 월별 마감 ({locked_count}건)",
         after_data={"year_month": year_month, "locked_count": locked_count},
     ))
@@ -155,7 +211,7 @@ async def release_monthly_lock(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """월별 마감 해제 — 해당 월의 LOCKED 전표를 OPEN으로 복원"""
+    """월별 마감 해제 — 해당 월의 LOCKED 전표를 OPEN으로 복원 + PeriodLock 갱신"""
     try:
         year, month = year_month.split("-")
         first_day = date(int(year), int(month), 1)
@@ -181,10 +237,23 @@ async def release_monthly_lock(
     result = await db.execute(stmt)
     unlocked_count = result.rowcount
 
+    # PeriodLock 레코드 업데이트
+    period_lock = (await db.execute(
+        select(PeriodLock).where(PeriodLock.year_month == year_month)
+    )).scalar_one_or_none()
+
+    now = datetime.utcnow()
+    if period_lock:
+        period_lock.status = PeriodLockStatus.OPEN
+        period_lock.locked_voucher_count = 0
+        period_lock.unlocked_at = now
+        period_lock.unlocked_by = current_user.id
+        period_lock.memo = description or f"{year_month} 월별 마감 해제 ({unlocked_count}건)"
+
     db.add(AuditLog(
         user_id=current_user.id,
-        action=AuditAction.VOUCHER_BATCH_UNLOCK,
-        target_type="voucher",
+        action=AuditAction.PERIOD_UNLOCK,
+        target_type="period_lock",
         description=description or f"{year_month} 월별 마감 해제 ({unlocked_count}건)",
         after_data={"year_month": year_month, "unlocked_count": unlocked_count},
     ))
@@ -205,6 +274,9 @@ async def get_lock_audit_logs(
         AuditAction.VOUCHER_UNLOCK,
         AuditAction.VOUCHER_BATCH_LOCK,
         AuditAction.VOUCHER_BATCH_UNLOCK,
+        AuditAction.PERIOD_LOCK,
+        AuditAction.PERIOD_UNLOCK,
+        AuditAction.PERIOD_ADJUST,
     ]
 
     year_start = datetime(year, 1, 1)
@@ -243,8 +315,14 @@ async def get_lock_audit_logs(
                 year_month = m.group(1)
 
         action_str = "lock"
-        if log.action in (AuditAction.VOUCHER_UNLOCK, AuditAction.VOUCHER_BATCH_UNLOCK):
+        if log.action in (
+            AuditAction.VOUCHER_UNLOCK,
+            AuditAction.VOUCHER_BATCH_UNLOCK,
+            AuditAction.PERIOD_UNLOCK,
+        ):
             action_str = "unlock"
+        elif log.action == AuditAction.PERIOD_ADJUST:
+            action_str = "adjust"
 
         items.append({
             "id": str(log.id),
@@ -418,6 +496,9 @@ async def lock_history(
         AuditAction.VOUCHER_UNLOCK,
         AuditAction.VOUCHER_BATCH_LOCK,
         AuditAction.VOUCHER_BATCH_UNLOCK,
+        AuditAction.PERIOD_LOCK,
+        AuditAction.PERIOD_UNLOCK,
+        AuditAction.PERIOD_ADJUST,
     ]
 
     query = (

@@ -426,3 +426,301 @@ class LockHistoryItem(BaseModel):
     description: Optional[str] = None
     target_id: Optional[UUID] = None
     created_at: datetime
+
+
+# ============================================================================
+# 거래처 입출금 이벤트 (CounterpartyTransaction)
+# ============================================================================
+
+class TransactionCreate(BaseModel):
+    """입출금 이벤트 생성"""
+    counterparty_id: UUID
+    transaction_type: str = Field(..., description="deposit/withdrawal")
+    transaction_date: date
+    amount: Decimal = Field(..., gt=0, description="금액 (양수)")
+    memo: Optional[str] = None
+    bank_reference: Optional[str] = None
+
+
+class TransactionUpdate(BaseModel):
+    """입출금 이벤트 수정 (PENDING 상태만)"""
+    transaction_date: Optional[date] = None
+    amount: Optional[Decimal] = Field(None, gt=0)
+    memo: Optional[str] = None
+
+
+class TransactionResponse(BaseModel):
+    id: UUID
+    counterparty_id: UUID
+    counterparty_name: Optional[str] = None
+    transaction_type: str
+    transaction_date: date
+    amount: Decimal
+    allocated_amount: Decimal = Decimal("0")
+    unallocated_amount: Decimal = Decimal("0")
+    memo: Optional[str] = None
+    source: str
+    bank_reference: Optional[str] = None
+    netting_record_id: Optional[UUID] = None
+    status: str
+    created_by: UUID
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TransactionDetailResponse(TransactionResponse):
+    """상세 (배분 내역 포함)"""
+    allocations: List["AllocationResponse"] = []
+
+
+class TransactionListResponse(BaseModel):
+    transactions: List[TransactionResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+# ============================================================================
+# 배분 (TransactionAllocation)
+# ============================================================================
+
+class AllocationItem(BaseModel):
+    """배분 단일 항목"""
+    voucher_id: UUID
+    amount: Decimal = Field(..., gt=0)
+
+
+class AllocationRequest(BaseModel):
+    """수동 배분 요청"""
+    allocations: List[AllocationItem]
+
+
+class AutoAllocateRequest(BaseModel):
+    """자동 배분 요청"""
+    strategy: str = Field("fifo", description="fifo / proportional")
+    voucher_ids: Optional[List[UUID]] = None  # None이면 전체 대상
+
+
+class AllocationResponse(BaseModel):
+    id: UUID
+    transaction_id: UUID
+    voucher_id: UUID
+    voucher_number: Optional[str] = None
+    voucher_trade_date: Optional[date] = None
+    voucher_total_amount: Optional[Decimal] = None
+    allocated_amount: Decimal
+    allocation_order: int
+    memo: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================================
+# 거래처 타임라인 / 잔액
+# ============================================================================
+
+class CounterpartyTimelineItem(BaseModel):
+    """타임라인 항목 (입출금 + 배분 정보)"""
+    id: UUID
+    transaction_type: str
+    transaction_date: date
+    amount: Decimal
+    allocated_amount: Decimal
+    unallocated_amount: Decimal
+    source: str
+    status: str
+    memo: Optional[str] = None
+    allocation_count: int = 0
+    created_at: datetime
+
+
+class CounterpartyBalanceSummary(BaseModel):
+    """거래처 잔액 요약"""
+    counterparty_id: UUID
+    counterparty_name: str
+    total_deposits: Decimal = Decimal("0")
+    total_withdrawals: Decimal = Decimal("0")
+    total_allocated_deposits: Decimal = Decimal("0")
+    total_allocated_withdrawals: Decimal = Decimal("0")
+    unallocated_deposits: Decimal = Decimal("0")
+    unallocated_withdrawals: Decimal = Decimal("0")
+    total_receivable: Decimal = Decimal("0")   # 미수
+    total_payable: Decimal = Decimal("0")      # 미지급
+
+
+# ============================================================================
+# 상계 (Netting)
+# ============================================================================
+
+class NettingVoucherItem(BaseModel):
+    """상계 전표 항목"""
+    voucher_id: UUID
+    amount: Decimal = Field(..., gt=0)
+
+
+class NettingCreateRequest(BaseModel):
+    """상계 초안 생성"""
+    counterparty_id: UUID
+    netting_date: date
+    sales_vouchers: List[NettingVoucherItem]
+    purchase_vouchers: List[NettingVoucherItem]
+    memo: Optional[str] = None
+
+
+class NettingVoucherLinkResponse(BaseModel):
+    voucher_id: UUID
+    voucher_number: Optional[str] = None
+    voucher_type: Optional[str] = None
+    trade_date: Optional[date] = None
+    total_amount: Optional[Decimal] = None
+    netted_amount: Decimal
+
+    class Config:
+        from_attributes = True
+
+
+class NettingResponse(BaseModel):
+    id: UUID
+    counterparty_id: UUID
+    counterparty_name: Optional[str] = None
+    netting_date: date
+    netting_amount: Decimal
+    status: str
+    memo: Optional[str] = None
+    created_by: UUID
+    confirmed_by: Optional[UUID] = None
+    confirmed_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class NettingDetailResponse(NettingResponse):
+    """상세 (참여 전표 포함)"""
+    voucher_links: List[NettingVoucherLinkResponse] = []
+
+
+class NettingListResponse(BaseModel):
+    records: List[NettingResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class NettingEligibleVoucher(BaseModel):
+    """상계 대상 전표"""
+    id: UUID
+    voucher_number: str
+    voucher_type: str
+    trade_date: date
+    total_amount: Decimal
+    already_allocated: Decimal = Decimal("0")
+    available_for_netting: Decimal = Decimal("0")
+
+
+class NettingEligibleResponse(BaseModel):
+    """상계 가능 전표 목록"""
+    counterparty_id: UUID
+    counterparty_name: str
+    sales_vouchers: List[NettingEligibleVoucher] = []
+    purchase_vouchers: List[NettingEligibleVoucher] = []
+    max_nettable_amount: Decimal = Decimal("0")
+
+
+# ============================================================================
+# 은행 임포트 (BankImport)
+# ============================================================================
+
+class BankImportLineResponse(BaseModel):
+    id: UUID
+    line_number: int
+    transaction_date: date
+    description: str
+    amount: Decimal
+    balance_after: Optional[Decimal] = None
+    counterparty_name_raw: Optional[str] = None
+    counterparty_id: Optional[UUID] = None
+    counterparty_name: Optional[str] = None  # API에서 주입
+    status: str
+    match_confidence: Optional[Decimal] = None
+    duplicate_key: Optional[str] = None
+    bank_reference: Optional[str] = None
+    transaction_id: Optional[UUID] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BankImportLineUpdate(BaseModel):
+    """라인 수동 매칭/수정"""
+    counterparty_id: Optional[UUID] = None
+    status: Optional[str] = None  # matched/excluded
+
+
+class BankImportJobResponse(BaseModel):
+    id: UUID
+    original_filename: str
+    file_hash: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    import_date_from: Optional[date] = None
+    import_date_to: Optional[date] = None
+    status: str
+    total_lines: int
+    matched_lines: int
+    confirmed_lines: int
+    error_message: Optional[str] = None
+    created_by: UUID
+    created_by_name: Optional[str] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    confirmed_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BankImportJobDetailResponse(BankImportJobResponse):
+    """상세 (라인 목록 포함)"""
+    lines: List[BankImportLineResponse] = []
+
+
+# ============================================================================
+# 조정 전표 (Adjustment Voucher)
+# ============================================================================
+
+class AdjustmentVoucherCreate(BaseModel):
+    """조정 전표 생성 (마감된 전표 대상)"""
+    adjustment_type: str = Field(..., description="correction/return_/write_off/discount")
+    adjustment_reason: str = Field(..., min_length=1, description="조정 사유")
+    trade_date: date
+    total_amount: Decimal  # 음수 가능 (반품/대손)
+    quantity: int = 0
+    memo: Optional[str] = None
+
+
+# ============================================================================
+# 기간 마감 (PeriodLock)
+# ============================================================================
+
+class PeriodLockResponse(BaseModel):
+    id: UUID
+    year_month: str
+    status: str
+    locked_voucher_count: int
+    locked_at: Optional[datetime] = None
+    locked_by: Optional[UUID] = None
+    locked_by_name: Optional[str] = None
+    unlocked_at: Optional[datetime] = None
+    unlocked_by: Optional[UUID] = None
+    memo: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

@@ -25,6 +25,13 @@ from app.models.payment import Payment
 from app.models.voucher_change import VoucherChangeRequest
 from app.models.upload_template import UploadTemplate
 
+# 정산 도메인 - 입출금/배분/상계/은행임포트/기간마감
+from app.models.counterparty_transaction import CounterpartyTransaction
+from app.models.transaction_allocation import TransactionAllocation
+from app.models.netting_record import NettingRecord, NettingVoucherLink
+from app.models.bank_import import BankImportJob, BankImportLine
+from app.models.period_lock import PeriodLock
+
 __all__ = [
     "User",
     "SSOTModel",
@@ -54,4 +61,12 @@ __all__ = [
     "Payment",
     "VoucherChangeRequest",
     "UploadTemplate",
+    # 입출금/배분/상계/은행임포트/기간마감
+    "CounterpartyTransaction",
+    "TransactionAllocation",
+    "NettingRecord",
+    "NettingVoucherLink",
+    "BankImportJob",
+    "BankImportLine",
+    "PeriodLock",
 ]

@@ -9,14 +9,14 @@ from datetime import datetime, date
 from decimal import Decimal
 
 from sqlalchemy import (
-    String, Integer, Date, DateTime, Text, Numeric,
+    String, Integer, Boolean, Date, DateTime, Text, Numeric,
     ForeignKey, Enum as SQLEnum, UniqueConstraint, Index,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.enums import VoucherType, SettlementStatus, PaymentStatus
+from app.models.enums import VoucherType, SettlementStatus, PaymentStatus, AdjustmentType
 
 
 class Voucher(Base):
@@ -105,6 +105,25 @@ class Voucher(Base):
         Numeric(18, 2), nullable=True, comment="평균마진 (판매 전용)"
     )
 
+    # ==================== 조정 전표 필드 ====================
+    is_adjustment: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, comment="조정 전표 여부"
+    )
+    adjustment_type: Mapped[AdjustmentType | None] = mapped_column(
+        SQLEnum(AdjustmentType, name="adjustment_type"),
+        nullable=True,
+        comment="조정 유형: CORRECTION/RETURN/WRITE_OFF/DISCOUNT",
+    )
+    original_voucher_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("vouchers.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="원본 전표 ID (조정 전표일 경우)",
+    )
+    adjustment_reason: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="조정 사유"
+    )
+
     # ==================== 시스템 관리 필드 ====================
     settlement_status: Mapped[SettlementStatus] = mapped_column(
         SQLEnum(SettlementStatus, name="settlement_status"),
@@ -147,6 +166,16 @@ class Voucher(Base):
     receipts = relationship("Receipt", back_populates="voucher", cascade="all, delete-orphan")
     payments = relationship("Payment", back_populates="voucher", cascade="all, delete-orphan")
     change_requests = relationship("VoucherChangeRequest", back_populates="voucher")
+
+    # 입출금 배분/상계/조정 관계
+    allocations = relationship("TransactionAllocation", back_populates="voucher")
+    netting_links = relationship("NettingVoucherLink", back_populates="voucher")
+    adjustments = relationship(
+        "Voucher",
+        backref="original_voucher",
+        remote_side="Voucher.id",
+        foreign_keys="[Voucher.original_voucher_id]",
+    )
 
     # ==================== 제약 조건 / 인덱스 ====================
     __table_args__ = (

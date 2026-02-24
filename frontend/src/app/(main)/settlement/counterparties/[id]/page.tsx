@@ -7,7 +7,7 @@ import {
   Button, Stack, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TablePagination, IconButton, Tooltip,
   TextField, Dialog, DialogTitle, DialogContent, DialogActions,
-  alpha, useTheme, Skeleton, Alert, LinearProgress,
+  alpha, useTheme, Skeleton, Alert, LinearProgress, Tabs, Tab,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -21,9 +21,11 @@ import {
   Add as AddIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
+  SwapHoriz as SwapHorizIcon,
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
+import TransactionCreateDialog from '@/components/settlement/TransactionCreateDialog';
 
 interface CounterpartyDetail {
   id: string;
@@ -62,6 +64,25 @@ interface VoucherRow {
   balance: number;
 }
 
+interface TimelineItem {
+  id: string;
+  transaction_type: string;
+  transaction_date: string;
+  amount: number;
+  allocated_amount: number;
+  unallocated_amount: number;
+  source: string;
+  status: string;
+  memo: string | null;
+}
+
+const TXN_STATUS_MAP: Record<string, { label: string; color: 'error' | 'warning' | 'success' | 'default' }> = {
+  PENDING: { label: '미배분', color: 'error' },
+  PARTIAL: { label: '부분배분', color: 'warning' },
+  ALLOCATED: { label: '전액배분', color: 'success' },
+  CANCELLED: { label: '취소', color: 'default' },
+};
+
 const typeLabels: Record<string, string> = {
   seller: '매입처', buyer: '매출처', both: '매입/매출',
 };
@@ -92,6 +113,16 @@ export default function CounterpartyDetailPage() {
 
   const [vPage, setVPage] = useState(0);
   const [vPageSize, setVPageSize] = useState(10);
+
+  // 탭 상태
+  const [activeTab, setActiveTab] = useState(0);
+
+  // 입출금 타임라인
+  const [timeline, setTimeline] = useState<TimelineItem[]>([]);
+  const [timelineTotal, setTimelineTotal] = useState(0);
+  const [tPage, setTPage] = useState(0);
+  const [tPageSize, setTPageSize] = useState(10);
+  const [txnCreateOpen, setTxnCreateOpen] = useState(false);
 
   // 별칭 관리
   const [aliasDialogOpen, setAliasDialogOpen] = useState(false);
@@ -128,8 +159,23 @@ export default function CounterpartyDetailPage() {
     }
   }, [counterpartyId, vPage, vPageSize]);
 
+  const loadTimeline = useCallback(async () => {
+    try {
+      const res = await settlementApi.getCounterpartyTimeline(counterpartyId, {
+        page: tPage + 1,
+        page_size: tPageSize,
+      });
+      const data = res.data as unknown as { timeline: TimelineItem[]; total: number };
+      setTimeline(data.timeline || []);
+      setTimelineTotal(data.total || 0);
+    } catch {
+      // handled
+    }
+  }, [counterpartyId, tPage, tPageSize]);
+
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { loadVouchers(); }, [loadVouchers]);
+  useEffect(() => { if (activeTab === 1) loadTimeline(); }, [activeTab, loadTimeline]);
 
   const formatAmount = (amount: number) =>
     new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW', maximumFractionDigits: 0 }).format(amount);
@@ -374,99 +420,216 @@ export default function CounterpartyDetailPage() {
         </Grid>
       </Paper>
 
-      {/* 전표 이력 */}
+      {/* 탭: 전표 이력 / 입출금 타임라인 */}
       <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-        <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="subtitle1" fontWeight={700}>전표 이력 ({voucherTotal}건)</Typography>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}>
+          <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)}>
+            <Tab label={`전표 이력 (${voucherTotal})`} icon={<ReceiptIcon />} iconPosition="start" sx={{ minHeight: 48 }} />
+            <Tab label={`입출금 (${timelineTotal})`} icon={<SwapHorizIcon />} iconPosition="start" sx={{ minHeight: 48 }} />
+          </Tabs>
         </Box>
-        <Divider />
-        <TableContainer sx={{ maxHeight: 500 }}>
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 700 }}>일자</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>전표번호</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>유형</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 700 }}>수량</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 700 }}>금액</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 700 }}>잔액</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 700 }}>정산</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 700 }}>지급</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 700, width: 50 }}></TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {vouchers.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={9} align="center" sx={{ py: 6 }}>
-                    <ReceiptIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
-                    <Typography color="text.secondary">전표가 없습니다</Typography>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                vouchers.map((v) => {
-                  const sStatus = statusLabels[v.settlement_status] || { label: v.settlement_status, color: 'default' as const };
-                  const pStatus = statusLabels[v.payment_status] || { label: v.payment_status, color: 'default' as const };
-                  return (
-                    <TableRow
-                      key={v.id}
-                      hover
-                      sx={{ cursor: 'pointer' }}
-                      onClick={() => router.push(`/settlement/vouchers/${v.id}`)}
-                    >
-                      <TableCell>{v.trade_date}</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>{v.voucher_number}</TableCell>
-                      <TableCell>
-                        <Chip
-                          label={v.voucher_type === 'sales' ? '판매' : '매입'}
-                          size="small"
-                          variant="outlined"
-                          color={v.voucher_type === 'sales' ? 'info' : 'success'}
-                        />
-                      </TableCell>
-                      <TableCell align="right">{v.quantity}</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 600 }}>
-                        {new Intl.NumberFormat('ko-KR').format(v.total_amount)}
-                      </TableCell>
-                      <TableCell align="right" sx={{
-                        fontWeight: 600,
-                        color: v.balance > 0 ? 'error.main' : 'success.main',
-                      }}>
-                        {new Intl.NumberFormat('ko-KR').format(v.balance)}
-                      </TableCell>
-                      <TableCell align="center">
-                        <Chip label={sStatus.label} size="small" color={sStatus.color} variant="outlined" />
-                      </TableCell>
-                      <TableCell align="center">
-                        <Chip label={pStatus.label} size="small" color={pStatus.color} variant="outlined" />
-                      </TableCell>
-                      <TableCell align="center">
-                        <Tooltip title="전표 상세">
-                          <IconButton size="small">
-                            <ViewIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+
+        {/* 탭 0: 전표 이력 */}
+        {activeTab === 0 && (
+          <>
+            <TableContainer sx={{ maxHeight: 500 }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700 }}>일자</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>전표번호</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>유형</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>수량</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>금액</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>잔액</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700 }}>정산</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700 }}>지급</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, width: 50 }}></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {vouchers.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={9} align="center" sx={{ py: 6 }}>
+                        <ReceiptIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
+                        <Typography color="text.secondary">전표가 없습니다</Typography>
                       </TableCell>
                     </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        {voucherTotal > 0 && (
-          <TablePagination
-            component="div"
-            count={voucherTotal}
-            page={vPage}
-            onPageChange={(_, p) => setVPage(p)}
-            rowsPerPage={vPageSize}
-            onRowsPerPageChange={(e) => { setVPageSize(parseInt(e.target.value, 10)); setVPage(0); }}
-            rowsPerPageOptions={[5, 10, 25]}
-            labelRowsPerPage="페이지당 행:"
-          />
+                  ) : (
+                    vouchers.map((v) => {
+                      const sStatus = statusLabels[v.settlement_status] || { label: v.settlement_status, color: 'default' as const };
+                      const pStatus = statusLabels[v.payment_status] || { label: v.payment_status, color: 'default' as const };
+                      return (
+                        <TableRow
+                          key={v.id}
+                          hover
+                          sx={{ cursor: 'pointer' }}
+                          onClick={() => router.push(`/settlement/vouchers/${v.id}`)}
+                        >
+                          <TableCell>{v.trade_date}</TableCell>
+                          <TableCell sx={{ fontWeight: 600 }}>{v.voucher_number}</TableCell>
+                          <TableCell>
+                            <Chip
+                              label={v.voucher_type === 'sales' ? '판매' : '매입'}
+                              size="small"
+                              variant="outlined"
+                              color={v.voucher_type === 'sales' ? 'info' : 'success'}
+                            />
+                          </TableCell>
+                          <TableCell align="right">{v.quantity}</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 600 }}>
+                            {new Intl.NumberFormat('ko-KR').format(v.total_amount)}
+                          </TableCell>
+                          <TableCell align="right" sx={{
+                            fontWeight: 600,
+                            color: v.balance > 0 ? 'error.main' : 'success.main',
+                          }}>
+                            {new Intl.NumberFormat('ko-KR').format(v.balance)}
+                          </TableCell>
+                          <TableCell align="center">
+                            <Chip label={sStatus.label} size="small" color={sStatus.color} variant="outlined" />
+                          </TableCell>
+                          <TableCell align="center">
+                            <Chip label={pStatus.label} size="small" color={pStatus.color} variant="outlined" />
+                          </TableCell>
+                          <TableCell align="center">
+                            <Tooltip title="전표 상세">
+                              <IconButton size="small">
+                                <ViewIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+            {voucherTotal > 0 && (
+              <TablePagination
+                component="div"
+                count={voucherTotal}
+                page={vPage}
+                onPageChange={(_, p) => setVPage(p)}
+                rowsPerPage={vPageSize}
+                onRowsPerPageChange={(e) => { setVPageSize(parseInt(e.target.value, 10)); setVPage(0); }}
+                rowsPerPageOptions={[5, 10, 25]}
+                labelRowsPerPage="페이지당 행:"
+              />
+            )}
+          </>
+        )}
+
+        {/* 탭 1: 입출금 타임라인 */}
+        {activeTab === 1 && (
+          <>
+            <Box sx={{ p: 2, display: 'flex', justifyContent: 'flex-end' }}>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() => setTxnCreateOpen(true)}
+              >
+                입출금 등록
+              </Button>
+            </Box>
+            <Divider />
+            <TableContainer sx={{ maxHeight: 500 }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700 }}>일자</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>유형</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>금액</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>배분액</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>미배분</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>출처</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>상태</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>메모</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {timeline.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} align="center" sx={{ py: 6 }}>
+                        <SwapHorizIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
+                        <Typography color="text.secondary">입출금 내역이 없습니다</Typography>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    timeline.map((t) => {
+                      const sInfo = TXN_STATUS_MAP[t.status] || { label: t.status, color: 'default' as const };
+                      const isCancelled = t.status === 'CANCELLED';
+                      return (
+                        <TableRow key={t.id} hover sx={{ opacity: isCancelled ? 0.5 : 1 }}>
+                          <TableCell>{t.transaction_date}</TableCell>
+                          <TableCell>
+                            <Chip
+                              label={t.transaction_type === 'DEPOSIT' ? '입금' : '출금'}
+                              size="small"
+                              variant="outlined"
+                              color={t.transaction_type === 'DEPOSIT' ? 'info' : 'secondary'}
+                            />
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 600 }}>
+                            {new Intl.NumberFormat('ko-KR').format(t.amount)}
+                          </TableCell>
+                          <TableCell align="right" sx={{ color: 'success.main' }}>
+                            {new Intl.NumberFormat('ko-KR').format(t.allocated_amount)}
+                          </TableCell>
+                          <TableCell align="right" sx={{
+                            fontWeight: t.unallocated_amount > 0 ? 700 : 400,
+                            color: t.unallocated_amount > 0 ? 'error.main' : 'text.secondary',
+                          }}>
+                            {new Intl.NumberFormat('ko-KR').format(t.unallocated_amount)}
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              label={t.source === 'MANUAL' ? '수동' : t.source === 'BANK_IMPORT' ? '은행' : '상계'}
+                              size="small"
+                              variant="outlined"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Chip label={sInfo.label} size="small" color={sInfo.color} />
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 150 }}>
+                              {t.memo || '-'}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+            {timelineTotal > 0 && (
+              <TablePagination
+                component="div"
+                count={timelineTotal}
+                page={tPage}
+                onPageChange={(_, p) => setTPage(p)}
+                rowsPerPage={tPageSize}
+                onRowsPerPageChange={(e) => { setTPageSize(parseInt(e.target.value, 10)); setTPage(0); }}
+                rowsPerPageOptions={[5, 10, 25]}
+                labelRowsPerPage="페이지당 행:"
+              />
+            )}
+          </>
         )}
       </Paper>
+
+      {/* 입출금 등록 다이얼로그 */}
+      <TransactionCreateDialog
+        open={txnCreateOpen}
+        onClose={() => setTxnCreateOpen(false)}
+        onCreated={() => { loadTimeline(); loadData(); }}
+        counterpartyId={counterpartyId}
+        counterpartyName={detail.name}
+      />
 
       {/* 별칭 관리 다이얼로그 */}
       <Dialog open={aliasDialogOpen} onClose={() => setAliasDialogOpen(false)} maxWidth="sm" fullWidth>

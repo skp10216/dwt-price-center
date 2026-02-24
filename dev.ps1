@@ -161,49 +161,99 @@ function Invoke-GitPull {
     return @()
 }
 
+function Wait-ForBackend {
+    param([int]$maxWait = 30)
+    Write-Info "Waiting for backend to be ready..."
+    for ($i = 0; $i -lt $maxWait; $i++) {
+        $status = docker inspect --format='{{.State.Status}}' dwt-backend 2>$null
+        if ($status -eq "running") {
+            # alembic 실행 가능한지 확인 (DB 연결 포함)
+            $check = docker exec dwt-backend bash -c "cd /app && PYTHONPATH=/app alembic current 2>&1" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $check -match "\d{3}_") {
+                return $true
+            }
+        }
+        Start-Sleep -Seconds 1
+    }
+    Write-Warn "Backend not ready after ${maxWait}s"
+    return $false
+}
+
 function Get-MigrationStatus {
     Write-Step "Migration Status"
-    $current = docker exec -w /app dwt-backend bash -c "PYTHONPATH=/app alembic current 2>/dev/null" 2>$null
-    $heads = docker exec -w /app dwt-backend bash -c "PYTHONPATH=/app alembic heads 2>/dev/null" 2>$null
-    
-    if ($current -and $heads) {
-        # 버전 ID만 추출 (예: "008_add_user_counterparty_favorites (head)" -> "008_add_user_counterparty_favorites")
-        $currentVersion = ($current -split '\s')[0]
-        $headVersion = ($heads -split '\s')[0]
-        
-        Write-Info "Current: $currentVersion"
-        Write-Info "Head: $headVersion"
-        
-        # 현재 버전과 head가 다르면 pending migration 있음
+
+    # alembic current: 적용된 버전 (INFO 로그 제거 후 버전 라인만 추출)
+    $currentRaw = docker exec dwt-backend bash -c "cd /app && PYTHONPATH=/app alembic current 2>/dev/null" 2>$null
+    # alembic heads: 코드에 정의된 최신 버전
+    $headsRaw = docker exec dwt-backend bash -c "cd /app && PYTHONPATH=/app alembic heads 2>/dev/null" 2>$null
+
+    # 버전 ID 추출 (NNN_xxx 패턴만 매칭)
+    $currentVersion = ""
+    $headVersion = ""
+
+    if ($currentRaw) {
+        $match = [regex]::Match($currentRaw, '(\d{3}_\S+)')
+        if ($match.Success) { $currentVersion = $match.Groups[1].Value -replace '\s*\(head\)', '' }
+    }
+    if ($headsRaw) {
+        $match = [regex]::Match($headsRaw, '(\d{3}_\S+)')
+        if ($match.Success) { $headVersion = $match.Groups[1].Value -replace '\s*\(head\)', '' }
+    }
+
+    if ($currentVersion -and $headVersion) {
+        Write-Info "DB current : $currentVersion"
+        Write-Info "Code head  : $headVersion"
+
         if ($currentVersion -ne $headVersion) {
+            Write-Warn "Pending migrations detected!"
             return "pending"
         }
         return "ok"
     } else {
-        Write-Warn "Could not check migration status"
+        Write-Warn "Could not check migration status (current='$currentRaw', heads='$headsRaw')"
         return "error"
     }
 }
 
 # 마이그레이션 자동 적용
 function Invoke-AutoMigration {
+    # 백엔드가 준비될 때까지 대기
+    $ready = Wait-ForBackend
+    if (-not $ready) {
+        Write-Err "Cannot run migration: backend is not ready"
+        return
+    }
+
     $status = Get-MigrationStatus
-    
+
     if ($status -eq "pending") {
         Write-Step "Applying pending migrations"
-        $result = docker exec -w /app dwt-backend bash -c "PYTHONPATH=/app alembic upgrade head" 2>&1
+        $result = docker exec dwt-backend bash -c "cd /app && PYTHONPATH=/app alembic upgrade head 2>&1" 2>$null
         if ($LASTEXITCODE -eq 0) {
             Write-Ok "Migration applied successfully"
+            # 적용 후 최종 버전 확인
+            $finalVersion = docker exec dwt-backend bash -c "cd /app && PYTHONPATH=/app alembic current 2>/dev/null" 2>$null
+            $match = [regex]::Match($finalVersion, '(\d{3}_\S+)')
+            if ($match.Success) { Write-Info "Now at: $($match.Groups[1].Value)" }
             # 백엔드 재시작 (새 스키마 반영)
             Write-Info "Restarting backend to apply schema changes..."
             docker restart dwt-backend 2>$null
             Start-Sleep -Seconds 3
         } else {
-            Write-Err "Migration failed!"
-            Write-Info $result
+            Write-Err "Migration failed! Details:"
+            $result -split "`n" | ForEach-Object { Write-Info $_ }
+            Write-Warn "Run 'docker logs dwt-backend --tail 50' for full backend logs"
         }
     } elseif ($status -eq "ok") {
         Write-Ok "Database is up to date"
+    } elseif ($status -eq "error") {
+        Write-Warn "Attempting migration anyway..."
+        $result = docker exec dwt-backend bash -c "cd /app && PYTHONPATH=/app alembic upgrade head 2>&1" 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok "Migration applied successfully"
+        } else {
+            Write-Err "Migration failed: $result"
+        }
     }
 }
 
@@ -212,23 +262,28 @@ function Invoke-Migration {
 
     Write-Step "Migration: $action"
 
+    $alembicCmd = "cd /app && PYTHONPATH=/app alembic"
+
     if ($action -eq "new") {
         if (-not $message) {
             Write-Err "Usage: .\dev.ps1 migrate new 'description'"
             return
         }
-        docker exec dwt-backend alembic revision --autogenerate -m "$message"
+        docker exec dwt-backend bash -c "$alembicCmd revision --autogenerate -m '$message'"
         if ($LASTEXITCODE -eq 0) { Write-Ok "New migration created" }
     }
     elseif ($action -eq "down") {
-        docker exec dwt-backend alembic downgrade -1
-        Write-Warn "Rolled back 1 migration"
+        docker exec dwt-backend bash -c "$alembicCmd downgrade -1"
+        if ($LASTEXITCODE -eq 0) { Write-Warn "Rolled back 1 migration" } else { Write-Err "Rollback failed!" }
     }
     elseif ($action -eq "history") {
-        docker exec dwt-backend alembic history --verbose
+        docker exec dwt-backend bash -c "$alembicCmd history --verbose"
+    }
+    elseif ($action -eq "status") {
+        Get-MigrationStatus
     }
     else {
-        docker exec dwt-backend alembic upgrade head
+        docker exec dwt-backend bash -c "$alembicCmd upgrade head 2>&1"
         if ($LASTEXITCODE -eq 0) { Write-Ok "Migration applied" } else { Write-Err "Migration failed!" }
     }
 }

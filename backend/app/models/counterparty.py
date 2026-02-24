@@ -90,6 +90,10 @@ class Counterparty(Base):
     vouchers = relationship("Voucher", back_populates="counterparty")
     favorited_by = relationship("UserCounterpartyFavorite", back_populates="counterparty", cascade="all, delete-orphan")
 
+    # 입출금/상계 관계
+    transactions = relationship("CounterpartyTransaction", back_populates="counterparty")
+    netting_records = relationship("NettingRecord", back_populates="counterparty")
+
     def __repr__(self) -> str:
         return f"<Counterparty(id={self.id}, name={self.name}, type={self.counterparty_type})>"
 

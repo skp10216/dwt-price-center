@@ -75,6 +75,67 @@ class ChangeRequestStatus(str, enum.Enum):
     REJECTED = "rejected"   # 거부
 
 
+class TransactionType(str, enum.Enum):
+    """거래처 입출금 이벤트 타입"""
+    DEPOSIT = "deposit"         # 입금 (거래처로부터 수금)
+    WITHDRAWAL = "withdrawal"   # 출금 (거래처에 송금)
+
+
+class TransactionSource(str, enum.Enum):
+    """거래 발생 소스"""
+    MANUAL = "manual"           # 수동 등록
+    BANK_IMPORT = "bank_import" # 은행 파일 임포트
+    NETTING = "netting"         # 상계 처리로 자동 생성
+
+
+class TransactionStatus(str, enum.Enum):
+    """거래 상태 (배분 진행도)"""
+    PENDING = "pending"         # 미배분
+    PARTIAL = "partial"         # 부분 배분
+    ALLOCATED = "allocated"     # 전액 배분 완료
+    CANCELLED = "cancelled"     # 취소됨
+
+
+class NettingStatus(str, enum.Enum):
+    """상계 상태"""
+    DRAFT = "draft"             # 초안 (검토 전)
+    CONFIRMED = "confirmed"     # 확정
+    CANCELLED = "cancelled"     # 취소
+
+
+class AdjustmentType(str, enum.Enum):
+    """조정 전표 타입"""
+    CORRECTION = "correction"   # 수정
+    RETURN = "return_"          # 반품
+    WRITE_OFF = "write_off"     # 대손 처리
+    DISCOUNT = "discount"       # 할인/감액
+
+
+class BankImportLineStatus(str, enum.Enum):
+    """은행 임포트 라인 상태"""
+    UNMATCHED = "unmatched"     # 미매칭
+    MATCHED = "matched"         # 거래처 매칭됨
+    CONFIRMED = "confirmed"     # 확정 (Transaction 생성됨)
+    DUPLICATE = "duplicate"     # 중복 감지됨
+    EXCLUDED = "excluded"       # 제외됨
+
+
+class BankImportJobStatus(str, enum.Enum):
+    """은행 임포트 작업 상태"""
+    UPLOADED = "uploaded"       # 업로드됨
+    PARSED = "parsed"           # 파싱 완료
+    REVIEWING = "reviewing"     # 검토 중
+    CONFIRMED = "confirmed"     # 확정 완료
+    FAILED = "failed"           # 실패
+
+
+class PeriodLockStatus(str, enum.Enum):
+    """기간 마감 상태"""
+    OPEN = "open"               # 열림
+    LOCKED = "locked"           # 마감
+    ADJUSTING = "adjusting"     # 조정 중 (마감 후 조정전표만 허용)
+
+
 # ============================================================================
 # 기존 Enum 확장
 # ============================================================================
@@ -189,3 +250,31 @@ class AuditAction(str, enum.Enum):
     # 업로드 템플릿 관련
     UPLOAD_TEMPLATE_CREATE = "upload_template_create"
     UPLOAD_TEMPLATE_UPDATE = "upload_template_update"
+
+    # ========== 입출금/배분/상계/은행임포트 액션 ==========
+    # 거래처 입출금 이벤트
+    TRANSACTION_CREATE = "transaction_create"
+    TRANSACTION_UPDATE = "transaction_update"
+    TRANSACTION_CANCEL = "transaction_cancel"
+
+    # 배분
+    ALLOCATION_CREATE = "allocation_create"
+    ALLOCATION_DELETE = "allocation_delete"
+    ALLOCATION_AUTO = "allocation_auto"
+
+    # 상계
+    NETTING_CREATE = "netting_create"
+    NETTING_CONFIRM = "netting_confirm"
+    NETTING_CANCEL = "netting_cancel"
+
+    # 조정전표
+    ADJUSTMENT_VOUCHER_CREATE = "adjustment_voucher_create"
+
+    # 은행 임포트
+    BANK_IMPORT_UPLOAD = "bank_import_upload"
+    BANK_IMPORT_CONFIRM = "bank_import_confirm"
+
+    # 기간 마감 (신규)
+    PERIOD_LOCK = "period_lock"
+    PERIOD_UNLOCK = "period_unlock"
+    PERIOD_ADJUST = "period_adjust"

@@ -21,13 +21,16 @@ from app.models.receipt import Receipt
 from app.models.payment import Payment
 from app.models.enums import (
     VoucherType, SettlementStatus, PaymentStatus,
-    AuditAction,
+    AuditAction, AdjustmentType,
 )
 from app.models.audit_log import AuditLog
+from app.models.transaction_allocation import TransactionAllocation
+from app.models.counterparty_transaction import CounterpartyTransaction
 from app.schemas.settlement import (
     VoucherCreate, VoucherUpdate, VoucherResponse,
     VoucherDetailResponse, VoucherListResponse,
     ReceiptResponse, PaymentResponse,
+    AdjustmentVoucherCreate,
 )
 
 router = APIRouter()
@@ -42,23 +45,51 @@ def _compute_total_amount(voucher: Voucher) -> Decimal:
 
 
 async def _enrich_voucher(v: Voucher, db: AsyncSession) -> VoucherResponse:
-    """전표에 거래처명, 누적 입금/송금 정보 추가"""
+    """전표에 거래처명, 누적 입금/송금 정보 추가 (레거시 + 신규 배분 합산)"""
     # 거래처명 (async에서는 lazy loading 불가 → 직접 조회)
     cp_result = await db.execute(
         select(Counterparty.name).where(Counterparty.id == v.counterparty_id)
     )
     cp_name = cp_result.scalar_one_or_none()
 
-    # 누적 입금
-    total_receipts = (await db.execute(
+    # 레거시 누적 입금
+    legacy_receipts = (await db.execute(
         select(func.coalesce(func.sum(Receipt.amount), 0)).where(Receipt.voucher_id == v.id)
     )).scalar() or Decimal("0")
 
-    # 누적 송금
-    total_payments = (await db.execute(
+    # 레거시 누적 송금
+    legacy_payments = (await db.execute(
         select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.voucher_id == v.id)
     )).scalar() or Decimal("0")
 
+    # 신규 배분: DEPOSIT(입금) 타입 배분 합계
+    alloc_deposits = (await db.execute(
+        select(func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0))
+        .where(TransactionAllocation.voucher_id == v.id)
+        .where(
+            TransactionAllocation.transaction_id.in_(
+                select(CounterpartyTransaction.id).where(
+                    CounterpartyTransaction.transaction_type == "DEPOSIT"
+                )
+            )
+        )
+    )).scalar() or Decimal("0")
+
+    # 신규 배분: WITHDRAWAL(송금) 타입 배분 합계
+    alloc_withdrawals = (await db.execute(
+        select(func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0))
+        .where(TransactionAllocation.voucher_id == v.id)
+        .where(
+            TransactionAllocation.transaction_id.in_(
+                select(CounterpartyTransaction.id).where(
+                    CounterpartyTransaction.transaction_type == "WITHDRAWAL"
+                )
+            )
+        )
+    )).scalar() or Decimal("0")
+
+    total_receipts = legacy_receipts + alloc_deposits
+    total_payments = legacy_payments + alloc_withdrawals
     balance = v.total_amount - (total_receipts + total_payments)
 
     return VoucherResponse(
@@ -294,7 +325,7 @@ async def delete_voucher(
     if v.settlement_status == SettlementStatus.LOCKED or v.payment_status == PaymentStatus.LOCKED:
         raise HTTPException(status_code=400, detail="마감된 전표는 삭제할 수 없습니다")
 
-    # 연결된 입금/송금 내역 확인
+    # 연결된 입금/송금 내역 확인 (레거시)
     receipt_count = (await db.execute(
         select(func.count(Receipt.id)).where(Receipt.voucher_id == voucher_id)
     )).scalar() or 0
@@ -302,10 +333,24 @@ async def delete_voucher(
         select(func.count(Payment.id)).where(Payment.voucher_id == voucher_id)
     )).scalar() or 0
 
-    if receipt_count > 0 or payment_count > 0:
+    # 신규 배분 내역 확인
+    allocation_count = (await db.execute(
+        select(func.count(TransactionAllocation.id))
+        .where(TransactionAllocation.voucher_id == voucher_id)
+    )).scalar() or 0
+
+    linked_count = receipt_count + payment_count + allocation_count
+    if linked_count > 0:
+        parts = []
+        if receipt_count > 0:
+            parts.append(f"입금 {receipt_count}건")
+        if payment_count > 0:
+            parts.append(f"송금 {payment_count}건")
+        if allocation_count > 0:
+            parts.append(f"배분 {allocation_count}건")
         raise HTTPException(
             status_code=400,
-            detail=f"연결된 입금 {receipt_count}건, 송금 {payment_count}건이 있어 삭제할 수 없습니다. 먼저 입금/송금 내역을 삭제해주세요."
+            detail=f"연결된 {', '.join(parts)}이 있어 삭제할 수 없습니다. 먼저 관련 내역을 삭제해주세요."
         )
 
     # 감사로그
@@ -351,17 +396,29 @@ async def batch_delete_vouchers(
             errors.append(f"전표 '{v.voucher_number}' (ID: {vid})는 마감 상태입니다.")
             continue
 
-        # 연결된 입금/송금 내역 확인
+        # 연결된 입금/송금/배분 내역 확인
         receipt_count = (await db.execute(
             select(func.count(Receipt.id)).where(Receipt.voucher_id == vid)
         )).scalar() or 0
         payment_count = (await db.execute(
             select(func.count(Payment.id)).where(Payment.voucher_id == vid)
         )).scalar() or 0
+        allocation_count = (await db.execute(
+            select(func.count(TransactionAllocation.id))
+            .where(TransactionAllocation.voucher_id == vid)
+        )).scalar() or 0
 
-        if receipt_count > 0 or payment_count > 0:
+        linked_count = receipt_count + payment_count + allocation_count
+        if linked_count > 0:
+            parts = []
+            if receipt_count > 0:
+                parts.append(f"입금 {receipt_count}건")
+            if payment_count > 0:
+                parts.append(f"송금 {payment_count}건")
+            if allocation_count > 0:
+                parts.append(f"배분 {allocation_count}건")
             skipped_count += 1
-            errors.append(f"전표 '{v.voucher_number}'에 입금 {receipt_count}건, 송금 {payment_count}건이 연결되어 있습니다.")
+            errors.append(f"전표 '{v.voucher_number}'에 {', '.join(parts)}이 연결되어 있습니다.")
             continue
 
         # 감사로그
@@ -387,3 +444,107 @@ async def batch_delete_vouchers(
         "skipped_count": skipped_count,
         "errors": errors,
     }
+
+
+# ─── 조정 전표 ──────────────────────────────────────────────────────
+
+@router.post("/{voucher_id}/adjustment", response_model=VoucherResponse, status_code=201)
+async def create_adjustment_voucher(
+    voucher_id: UUID,
+    data: AdjustmentVoucherCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """마감된 전표에 대한 조정전표 생성
+
+    마감(LOCKED) 상태 전표의 금액 수정이 필요할 때, 원본을 직접 수정하지 않고
+    조정전표를 생성하여 차액만큼 반영합니다.
+    """
+    original = await db.get(Voucher, voucher_id)
+    if not original:
+        raise HTTPException(status_code=404, detail="원본 전표를 찾을 수 없습니다")
+
+    # 조정전표는 마감된 전표에 대해서만 생성 가능
+    if original.settlement_status != SettlementStatus.LOCKED:
+        raise HTTPException(
+            status_code=400,
+            detail="마감되지 않은 전표는 직접 수정하세요. 조정전표는 마감된 전표에 대해서만 생성 가능합니다."
+        )
+
+    # adjustment_type 유효성 검사
+    try:
+        adj_type = AdjustmentType(data.adjustment_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"잘못된 조정 유형입니다. 가능한 값: {[t.value for t in AdjustmentType]}"
+        )
+
+    # 조정전표 번호: 원본_ADJ_순번
+    existing_adj_count = (await db.execute(
+        select(func.count(Voucher.id)).where(
+            Voucher.original_voucher_id == voucher_id
+        )
+    )).scalar() or 0
+    adj_number = f"{original.voucher_number}_ADJ_{existing_adj_count + 1}"
+
+    adjustment = Voucher(
+        trade_date=data.trade_date,
+        counterparty_id=original.counterparty_id,
+        voucher_number=adj_number,
+        voucher_type=original.voucher_type,
+        quantity=data.quantity,
+        total_amount=data.total_amount,
+        memo=data.memo,
+        created_by=current_user.id,
+        # 조정전표 전용 필드
+        is_adjustment=True,
+        adjustment_type=adj_type,
+        original_voucher_id=voucher_id,
+        adjustment_reason=data.adjustment_reason,
+        # 조정전표는 OPEN 상태로 시작
+        settlement_status=SettlementStatus.OPEN,
+        payment_status=PaymentStatus.UNPAID,
+    )
+    db.add(adjustment)
+
+    db.add(AuditLog(
+        user_id=current_user.id,
+        action=AuditAction.ADJUSTMENT_VOUCHER_CREATE,
+        target_type="voucher",
+        target_id=adjustment.id,
+        after_data={
+            "original_voucher_id": str(voucher_id),
+            "adjustment_type": adj_type.value,
+            "total_amount": str(data.total_amount),
+            "reason": data.adjustment_reason,
+        },
+    ))
+
+    await db.flush()
+    return await _enrich_voucher(adjustment, db)
+
+
+@router.get("/{voucher_id}/adjustments", response_model=list[VoucherResponse])
+async def list_adjustment_vouchers(
+    voucher_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """전표의 조정 이력 조회"""
+    # 원본 전표 존재 확인
+    original = await db.get(Voucher, voucher_id)
+    if not original:
+        raise HTTPException(status_code=404, detail="전표를 찾을 수 없습니다")
+
+    result = await db.execute(
+        select(Voucher)
+        .where(Voucher.original_voucher_id == voucher_id)
+        .order_by(Voucher.created_at.desc())
+    )
+    adjustments = result.scalars().all()
+
+    enriched = []
+    for adj in adjustments:
+        enriched.append(await _enrich_voucher(adj, db))
+    return enriched

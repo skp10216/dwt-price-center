@@ -72,6 +72,9 @@ import {
   CloudUpload as CloudUploadIcon,
   Lock as LockIcon,
   ManageSearch as ActivityIcon,
+  SwapHoriz as SwapHorizIcon,
+  Balance as BalanceIcon,
+  AccountBalanceWallet as BankImportIcon,
 } from '@mui/icons-material';
 import { useAuthStore, useUIStore, useDomainStore, useThemeStore, type ThemeMode, type User } from '@/lib/store';
 import { getDomainType, getDefaultPath } from '@/lib/domain';
@@ -168,6 +171,9 @@ const settlementMenus: MenuItemType[] = [
   { id: 'stl-upload', label: 'UPM 업로드', icon: <CloudUploadIcon />, path: '/settlement/upload' },
   { id: 'stl-upload-history', label: '업로드 내역', icon: <HistoryIcon />, path: '/settlement/upload/jobs' },
   { id: 'stl-vouchers', label: '전표 목록', icon: <ReceiptIcon />, path: '/settlement/vouchers' },
+  { id: 'stl-transactions', label: '입출금 관리', icon: <SwapHorizIcon />, path: '/settlement/transactions' },
+  { id: 'stl-netting', label: '상계 관리', icon: <BalanceIcon />, path: '/settlement/netting' },
+  { id: 'stl-bank-import', label: '은행 임포트', icon: <BankImportIcon />, path: '/settlement/bank-import' },
   { id: 'stl-status', label: '거래처 현황', icon: <AccountBalanceIcon />, path: '/settlement/status' },
   { id: 'stl-counterparties', label: '거래처 관리', icon: <BusinessIcon />, path: '/settlement/counterparties' },
   { id: 'stl-lock', label: '마감 관리', icon: <LockIcon />, path: '/settlement/lock' },

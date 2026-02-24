@@ -16,6 +16,9 @@ from app.api.v1.settlement import (
     dashboard,
     lock,
     activity,
+    transactions,
+    netting,
+    bank_import,
 )
 
 settlement_router = APIRouter()
@@ -68,4 +71,19 @@ settlement_router.include_router(
 # 작업 내역
 settlement_router.include_router(
     activity.router, prefix="/activity", tags=["정산-작업내역"]
+)
+
+# 입출금 이벤트
+settlement_router.include_router(
+    transactions.router, prefix="/transactions", tags=["정산-입출금"]
+)
+
+# 상계
+settlement_router.include_router(
+    netting.router, prefix="/netting", tags=["정산-상계"]
+)
+
+# 은행 파일 임포트
+settlement_router.include_router(
+    bank_import.router, prefix="/bank-import", tags=["정산-은행임포트"]
 )

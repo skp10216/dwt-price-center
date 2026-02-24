@@ -10,13 +10,37 @@ import {
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
-  Add as AddIcon,
   Delete as DeleteIcon,
   Lock as LockIcon,
   LockOpen as LockOpenIcon,
+  AccountTree as AllocIcon,
+  Edit as AdjustIcon,
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
+
+interface AllocationRow {
+  id: string;
+  transaction_id: string;
+  voucher_id: string;
+  allocated_amount: number;
+  allocation_order: number;
+  memo: string | null;
+  created_at: string;
+  transaction_type?: string;
+  transaction_date?: string;
+  counterparty_name?: string;
+}
+
+interface AdjustmentRow {
+  id: string;
+  voucher_number: string;
+  trade_date: string;
+  total_amount: number;
+  adjustment_type: string;
+  adjustment_reason: string;
+  settlement_status: string;
+}
 
 interface VoucherDetail {
   id: string;
@@ -57,7 +81,7 @@ const statusColors: Record<string, 'default' | 'warning' | 'success' | 'error' |
 };
 
 /**
- * 전표 상세 - 입금/송금 이력 + 잔액 + 마감
+ * 전표 상세 - 배분 내역 + 잔액 + 마감 + 조정전표
  */
 export default function VoucherDetailPage() {
   const params = useParams();
@@ -69,12 +93,17 @@ export default function VoucherDetailPage() {
   const [voucher, setVoucher] = useState<VoucherDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // 입금/송금 다이얼로그
-  const [receiptOpen, setReceiptOpen] = useState(false);
-  const [paymentOpen, setPaymentOpen] = useState(false);
-  const [formDate, setFormDate] = useState('');
-  const [formAmount, setFormAmount] = useState('');
-  const [formMemo, setFormMemo] = useState('');
+  // 배분 내역 + 조정전표
+  const [allocations, setAllocations] = useState<AllocationRow[]>([]);
+  const [adjustments, setAdjustments] = useState<AdjustmentRow[]>([]);
+
+  // 조정전표 다이얼로그
+  const [adjOpen, setAdjOpen] = useState(false);
+  const [adjType, setAdjType] = useState('correction');
+  const [adjReason, setAdjReason] = useState('');
+  const [adjDate, setAdjDate] = useState(new Date().toISOString().slice(0, 10));
+  const [adjAmount, setAdjAmount] = useState('');
+  const [adjMemo, setAdjMemo] = useState('');
 
   const loadVoucher = useCallback(async () => {
     try {
@@ -88,42 +117,18 @@ export default function VoucherDetailPage() {
     }
   }, [voucherId, enqueueSnackbar]);
 
+  const loadAllocationsAndAdjustments = useCallback(async () => {
+    try {
+      const adjRes = await settlementApi.listAdjustmentVouchers(voucherId);
+      setAdjustments((adjRes.data as unknown as AdjustmentRow[]) || []);
+    } catch { /* ignore */ }
+  }, [voucherId]);
+
   useEffect(() => { loadVoucher(); }, [loadVoucher]);
+  useEffect(() => { loadAllocationsAndAdjustments(); }, [loadAllocationsAndAdjustments]);
 
   const formatAmount = (amount: number) =>
     new Intl.NumberFormat('ko-KR').format(amount);
-
-  const handleAddReceipt = async () => {
-    try {
-      await settlementApi.createReceipt(voucherId, {
-        receipt_date: formDate,
-        amount: parseFloat(formAmount),
-        memo: formMemo || null,
-      });
-      enqueueSnackbar('입금이 등록되었습니다', { variant: 'success' });
-      setReceiptOpen(false);
-      setFormDate(''); setFormAmount(''); setFormMemo('');
-      loadVoucher();
-    } catch {
-      enqueueSnackbar('입금 등록에 실패했습니다', { variant: 'error' });
-    }
-  };
-
-  const handleAddPayment = async () => {
-    try {
-      await settlementApi.createPayment(voucherId, {
-        payment_date: formDate,
-        amount: parseFloat(formAmount),
-        memo: formMemo || null,
-      });
-      enqueueSnackbar('송금이 등록되었습니다', { variant: 'success' });
-      setPaymentOpen(false);
-      setFormDate(''); setFormAmount(''); setFormMemo('');
-      loadVoucher();
-    } catch {
-      enqueueSnackbar('송금 등록에 실패했습니다', { variant: 'error' });
-    }
-  };
 
   const handleDeleteReceipt = async (receiptId: string) => {
     if (!confirm('이 입금 내역을 삭제하시겠습니까?')) return;
@@ -144,6 +149,29 @@ export default function VoucherDetailPage() {
       loadVoucher();
     } catch {
       enqueueSnackbar('송금 삭제에 실패했습니다', { variant: 'error' });
+    }
+  };
+
+  const handleCreateAdjustment = async () => {
+    if (!adjReason.trim() || !adjAmount) {
+      enqueueSnackbar('조정 사유와 금액을 입력해주세요.', { variant: 'warning' });
+      return;
+    }
+    try {
+      await settlementApi.createAdjustmentVoucher(voucherId, {
+        adjustment_type: adjType,
+        adjustment_reason: adjReason,
+        trade_date: adjDate,
+        total_amount: parseFloat(adjAmount),
+        quantity: 0,
+        memo: adjMemo || null,
+      });
+      enqueueSnackbar('조정전표가 생성되었습니다', { variant: 'success' });
+      setAdjOpen(false);
+      setAdjReason(''); setAdjAmount(''); setAdjMemo('');
+      loadAllocationsAndAdjustments();
+    } catch {
+      enqueueSnackbar('조정전표 생성에 실패했습니다', { variant: 'error' });
     }
   };
 
@@ -193,6 +221,11 @@ export default function VoucherDetailPage() {
         />
         <Chip label={statusLabels[voucher.settlement_status]} color={statusColors[voucher.settlement_status]} />
         <Chip label={statusLabels[voucher.payment_status]} color={statusColors[voucher.payment_status]} />
+        {isLocked && (
+          <Button variant="outlined" size="small" startIcon={<AdjustIcon />} onClick={() => setAdjOpen(true)}>
+            조정전표 생성
+          </Button>
+        )}
         {isLocked ? (
           <Button variant="outlined" color="warning" startIcon={<LockOpenIcon />} onClick={handleUnlock}>
             마감 해제
@@ -242,33 +275,42 @@ export default function VoucherDetailPage() {
         </Grid>
       </Grid>
 
-      {/* 입금 이력 */}
-      <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, mb: 3 }}>
-        <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="h6" fontWeight={600}>입금(수금) 이력</Typography>
-          {!isLocked && (
-            <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={() => setReceiptOpen(true)}>
-              입금 등록
-            </Button>
-          )}
-        </Box>
-        <Divider />
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 700 }}>입금일</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 700 }}>금액</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>메모</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>등록일</TableCell>
-                {!isLocked && <TableCell align="center" sx={{ fontWeight: 700 }}>삭제</TableCell>}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {voucher.receipts.length === 0 ? (
-                <TableRow><TableCell colSpan={5} align="center" sx={{ py: 4 }}>입금 내역이 없습니다</TableCell></TableRow>
-              ) : (
-                voucher.receipts.map((r) => (
+      {/* 거래처 입출금 안내 */}
+      <Alert severity="info" variant="outlined" sx={{ mb: 2 }}>
+        입출금은 <strong>입출금 관리</strong> 페이지 또는 거래처 상세에서 등록하세요.
+        거래처 수준으로 입출금을 등록하면 전표에 자동/수동 배분됩니다.
+        <Button
+          size="small"
+          sx={{ ml: 1 }}
+          onClick={() => router.push('/settlement/transactions')}
+        >
+          입출금 관리 →
+        </Button>
+      </Alert>
+
+      {/* 입금 이력 (레거시 — 읽기 전용) */}
+      {voucher.receipts.length > 0 && (
+        <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, mb: 3 }}>
+          <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <Typography variant="h6" fontWeight={600}>입금(수금) 이력</Typography>
+              <Chip label="레거시" size="small" variant="outlined" color="default" />
+            </Stack>
+          </Box>
+          <Divider />
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 700 }}>입금일</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>금액</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>메모</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>등록일</TableCell>
+                  {!isLocked && <TableCell align="center" sx={{ fontWeight: 700 }}>삭제</TableCell>}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {voucher.receipts.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell>{r.receipt_date}</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 600, color: 'success.main' }}>+{formatAmount(r.amount)}</TableCell>
@@ -282,40 +324,36 @@ export default function VoucherDetailPage() {
                       </TableCell>
                     )}
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Paper>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      )}
 
-      {/* 송금 이력 */}
-      <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-        <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="h6" fontWeight={600}>송금(지급) 이력</Typography>
-          {!isLocked && (
-            <Button variant="contained" size="small" color="secondary" startIcon={<AddIcon />} onClick={() => setPaymentOpen(true)}>
-              송금 등록
-            </Button>
-          )}
-        </Box>
-        <Divider />
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 700 }}>송금일</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 700 }}>금액</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>메모</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>등록일</TableCell>
-                {!isLocked && <TableCell align="center" sx={{ fontWeight: 700 }}>삭제</TableCell>}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {voucher.payments.length === 0 ? (
-                <TableRow><TableCell colSpan={5} align="center" sx={{ py: 4 }}>송금 내역이 없습니다</TableCell></TableRow>
-              ) : (
-                voucher.payments.map((p) => (
+      {/* 송금 이력 (레거시 — 읽기 전용) */}
+      {voucher.payments.length > 0 && (
+        <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, mb: 3 }}>
+          <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <Typography variant="h6" fontWeight={600}>송금(지급) 이력</Typography>
+              <Chip label="레거시" size="small" variant="outlined" color="default" />
+            </Stack>
+          </Box>
+          <Divider />
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 700 }}>송금일</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>금액</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>메모</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>등록일</TableCell>
+                  {!isLocked && <TableCell align="center" sx={{ fontWeight: 700 }}>삭제</TableCell>}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {voucher.payments.map((p) => (
                   <TableRow key={p.id}>
                     <TableCell>{p.payment_date}</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 600, color: 'info.main' }}>-{formatAmount(p.amount)}</TableCell>
@@ -329,42 +367,151 @@ export default function VoucherDetailPage() {
                       </TableCell>
                     )}
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Paper>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      )}
 
-      {/* 입금 등록 다이얼로그 */}
-      <Dialog open={receiptOpen} onClose={() => setReceiptOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>입금 등록</DialogTitle>
+      {/* 조정전표 이력 */}
+      {adjustments.length > 0 && (
+        <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, mb: 3 }}>
+          <Box sx={{ p: 2 }}>
+            <Typography variant="h6" fontWeight={600}>
+              <AllocIcon sx={{ mr: 1, verticalAlign: 'middle', fontSize: 20 }} />
+              조정전표 이력 ({adjustments.length}건)
+            </Typography>
+          </Box>
+          <Divider />
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 700 }}>전표번호</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>거래일</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>조정유형</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>금액</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>사유</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>상태</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {adjustments.map((adj) => (
+                  <TableRow
+                    key={adj.id}
+                    hover
+                    sx={{ cursor: 'pointer' }}
+                    onClick={() => router.push(`/settlement/vouchers/${adj.id}`)}
+                  >
+                    <TableCell sx={{ fontWeight: 600 }}>{adj.voucher_number}</TableCell>
+                    <TableCell>{adj.trade_date}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={
+                          adj.adjustment_type === 'correction' ? '수정' :
+                          adj.adjustment_type === 'return_' ? '반품' :
+                          adj.adjustment_type === 'write_off' ? '대손' :
+                          adj.adjustment_type === 'discount' ? '할인' :
+                          adj.adjustment_type
+                        }
+                        size="small"
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>
+                      {formatAmount(adj.total_amount)}
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                        {adj.adjustment_reason}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={statusLabels[adj.settlement_status] || adj.settlement_status}
+                        color={statusColors[adj.settlement_status] || 'default'}
+                        size="small"
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      )}
+
+      {/* 조정전표 생성 다이얼로그 */}
+      <Dialog open={adjOpen} onClose={() => setAdjOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>조정전표 생성</DialogTitle>
         <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="입금일" type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
-            <TextField label="금액" type="number" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} fullWidth />
-            <TextField label="메모" value={formMemo} onChange={(e) => setFormMemo(e.target.value)} fullWidth multiline rows={2} />
+          <Alert severity="info" sx={{ mb: 2, mt: 1 }}>
+            마감된 전표 <strong>{voucher?.voucher_number}</strong>에 대한 조정전표를 생성합니다.
+            원본 전표는 변경되지 않습니다.
+          </Alert>
+          <Stack spacing={2}>
+            <TextField
+              label="조정 유형"
+              select
+              value={adjType}
+              onChange={(e) => setAdjType(e.target.value)}
+              size="small"
+              fullWidth
+            >
+              {[
+                { value: 'correction', label: '수정 (Correction)' },
+                { value: 'return_', label: '반품 (Return)' },
+                { value: 'write_off', label: '대손 (Write-off)' },
+                { value: 'discount', label: '할인 (Discount)' },
+              ].map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </TextField>
+            <TextField
+              label="조정 사유"
+              value={adjReason}
+              onChange={(e) => setAdjReason(e.target.value)}
+              size="small"
+              fullWidth
+              required
+              multiline
+              rows={2}
+            />
+            <TextField
+              label="거래일"
+              type="date"
+              value={adjDate}
+              onChange={(e) => setAdjDate(e.target.value)}
+              size="small"
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              label="금액"
+              type="number"
+              value={adjAmount}
+              onChange={(e) => setAdjAmount(e.target.value)}
+              size="small"
+              fullWidth
+              helperText="음수 가능 (반품/대손 시)"
+            />
+            <TextField
+              label="메모"
+              value={adjMemo}
+              onChange={(e) => setAdjMemo(e.target.value)}
+              size="small"
+              fullWidth
+              multiline
+              rows={2}
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setReceiptOpen(false)}>취소</Button>
-          <Button variant="contained" onClick={handleAddReceipt} disabled={!formDate || !formAmount}>등록</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* 송금 등록 다이얼로그 */}
-      <Dialog open={paymentOpen} onClose={() => setPaymentOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>송금 등록</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="송금일" type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
-            <TextField label="금액" type="number" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} fullWidth />
-            <TextField label="메모" value={formMemo} onChange={(e) => setFormMemo(e.target.value)} fullWidth multiline rows={2} />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPaymentOpen(false)}>취소</Button>
-          <Button variant="contained" color="secondary" onClick={handleAddPayment} disabled={!formDate || !formAmount}>등록</Button>
+          <Button onClick={() => setAdjOpen(false)}>취소</Button>
+          <Button variant="contained" onClick={handleCreateAdjustment} disabled={!adjReason.trim() || !adjAmount}>
+            생성
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

@@ -21,17 +21,29 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "counterparties",
-        sa.Column(
-            "branch_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("branches.id", ondelete="SET NULL"),
-            nullable=True,
-            comment="소속 지사 ID",
-        ),
-    )
-    op.create_index("ix_counterparties_branch_id", "counterparties", ["branch_id"])
+    conn = op.get_bind()
+
+    # counterparties에 branch_id 컬럼 추가 (이미 존재하면 건너뛰기)
+    col_check = conn.execute(sa.text(
+        "SELECT 1 FROM information_schema.columns WHERE table_name='counterparties' AND column_name='branch_id'"
+    ))
+    if not col_check.fetchone():
+        op.add_column(
+            "counterparties",
+            sa.Column(
+                "branch_id",
+                postgresql.UUID(as_uuid=True),
+                sa.ForeignKey("branches.id", ondelete="SET NULL"),
+                nullable=True,
+                comment="소속 지사 ID",
+            ),
+        )
+
+    idx_check = conn.execute(sa.text(
+        "SELECT 1 FROM pg_indexes WHERE indexname = 'ix_counterparties_branch_id'"
+    ))
+    if not idx_check.fetchone():
+        op.create_index("ix_counterparties_branch_id", "counterparties", ["branch_id"])
 
 
 def downgrade() -> None:

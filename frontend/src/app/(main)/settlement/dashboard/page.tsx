@@ -23,6 +23,9 @@ import {
   ArrowForward as ArrowForwardIcon,
   BusinessCenter as BusinessCenterIcon,
   Refresh as RefreshIcon,
+  Balance as BalanceIcon,
+  AccountBalanceWallet as BankImportIcon,
+  CallMade as DepositIcon,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 import { settlementApi } from '@/lib/api';
@@ -45,6 +48,25 @@ interface DashboardData {
   unpaid_purchase_count: number;
   pending_changes_count: number;
   unmatched_count: number;
+}
+
+interface TransactionKpi {
+  pending_count: number;
+  pending_amount: number;
+  partial_count: number;
+  partial_amount: number;
+}
+
+interface NettingKpi {
+  draft_count: number;
+  draft_amount: number;
+  confirmed_count: number;
+  confirmed_amount: number;
+}
+
+interface BankImportKpi {
+  reviewing_count: number;
+  unmatched_lines: number;
 }
 
 interface TopItem {
@@ -125,6 +147,11 @@ export default function SettlementDashboardPage() {
   const [favorites, setFavorites] = useState<FavoriteCounterparty[]>([]);
   const [favLoading, setFavLoading] = useState(true);
 
+  // 신규 KPI
+  const [txnKpi, setTxnKpi] = useState<TransactionKpi | null>(null);
+  const [nettingKpi, setNettingKpi] = useState<NettingKpi | null>(null);
+  const [bankKpi, setBankKpi] = useState<BankImportKpi | null>(null);
+
   // ─── 데이터 로드 ────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
@@ -200,11 +227,59 @@ export default function SettlementDashboardPage() {
     }
   }, []);
 
+  // ─── 신규 KPI 로드 ──────────────────────────────────────────────────────
+  const loadNewKpis = useCallback(async () => {
+    try {
+      // 미배분 입출금 KPI: PENDING + PARTIAL 건수/금액
+      const txnRes = await settlementApi.listTransactions({ page_size: 1, status: 'PENDING' });
+      const txnData = txnRes.data as unknown as { total: number; transactions: Array<{ amount: number }> };
+      const txnRes2 = await settlementApi.listTransactions({ page_size: 1, status: 'PARTIAL' });
+      const txnData2 = txnRes2.data as unknown as { total: number; transactions: Array<{ amount: number }> };
+      setTxnKpi({
+        pending_count: txnData.total || 0,
+        pending_amount: 0, // 서버 집계 필요 — 목록에서는 합계를 알 수 없으므로 건수 위주 표시
+        partial_count: txnData2.total || 0,
+        partial_amount: 0,
+      });
+    } catch {
+      setTxnKpi(null);
+    }
+
+    try {
+      // 상계 KPI: DRAFT 건수/금액
+      const netRes = await settlementApi.listNettings({ page_size: 1, status: 'DRAFT' });
+      const netData = netRes.data as unknown as { total: number };
+      const netRes2 = await settlementApi.listNettings({ page_size: 1, status: 'CONFIRMED' });
+      const netData2 = netRes2.data as unknown as { total: number };
+      setNettingKpi({
+        draft_count: netData.total || 0,
+        draft_amount: 0,
+        confirmed_count: netData2.total || 0,
+        confirmed_amount: 0,
+      });
+    } catch {
+      setNettingKpi(null);
+    }
+
+    try {
+      // 은행 임포트 KPI: REVIEWING 작업 수
+      const bankRes = await settlementApi.listBankImportJobs({ page_size: 1, status: 'REVIEWING' });
+      const bankData = bankRes.data as unknown as { total: number };
+      setBankKpi({
+        reviewing_count: bankData.total || 0,
+        unmatched_lines: 0,
+      });
+    } catch {
+      setBankKpi(null);
+    }
+  }, []);
+
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { loadLatestVersions(); }, [loadLatestVersions]);
   useEffect(() => { loadFavorites(); }, [loadFavorites]);
+  useEffect(() => { loadNewKpis(); }, [loadNewKpis]);
 
-  const handleRefreshAll = () => { loadData(); loadLatestVersions(); loadFavorites(); };
+  const handleRefreshAll = () => { loadData(); loadLatestVersions(); loadFavorites(); loadNewKpis(); };
 
   // ─── 파생 데이터 ────────────────────────────────────────────────────────
 
@@ -263,6 +338,19 @@ export default function SettlementDashboardPage() {
         border: `1px solid ${alpha(theme.palette.success.main, 0.2)}`,
       }}
     />,
+    ...((txnKpi && (txnKpi.pending_count + txnKpi.partial_count) > 0) ? [
+      <Chip
+        key="unalloc"
+        size="small"
+        label={`미배분 ${txnKpi.pending_count + txnKpi.partial_count}건`}
+        sx={{
+          height: 20, fontSize: '0.7rem', fontWeight: 700,
+          bgcolor: alpha(theme.palette.info.main, 0.1),
+          color: 'info.dark',
+          border: `1px solid ${alpha(theme.palette.info.main, 0.2)}`,
+        }}
+      />,
+    ] : []),
   ] : [];
 
   // ─── 렌더링 ─────────────────────────────────────────────────────────────
@@ -468,7 +556,9 @@ export default function SettlementDashboardPage() {
               {[
                 { label: '미정산 판매', value: data?.open_sales_count ?? 0, icon: <ReceiptIcon />, color: theme.palette.error.main, path: '/settlement/status' },
                 { label: '미지급 매입', value: data?.unpaid_purchase_count ?? 0, icon: <ShoppingCartIcon />, color: theme.palette.warning.main, path: '/settlement/status' },
-                { label: '변경 요청 대기', value: data?.pending_changes_count ?? 0, icon: <WarningIcon />, color: '#ef6c00', path: null },
+                { label: '미배분 입출금', value: (txnKpi?.pending_count ?? 0) + (txnKpi?.partial_count ?? 0), icon: <DepositIcon />, color: theme.palette.info.main, path: '/settlement/transactions' },
+                { label: '상계 대기', value: nettingKpi?.draft_count ?? 0, icon: <BalanceIcon />, color: '#7b1fa2', path: '/settlement/netting' },
+                { label: '은행 임포트 검수', value: bankKpi?.reviewing_count ?? 0, icon: <BankImportIcon />, color: '#00838f', path: '/settlement/bank-import' },
                 { label: '미매칭 거래처', value: data?.unmatched_count ?? 0, icon: <AccountBalanceIcon />, color: theme.palette.text.secondary, path: '/settlement/counterparties' },
               ].map((card) => (
                 <Grid item xs={6} key={card.label}>

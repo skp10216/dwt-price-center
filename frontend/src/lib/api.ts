@@ -811,6 +811,88 @@ export const settlementApi = {
     api.get<ApiResponse<{ logs: unknown[]; total: number; page: number; page_size: number }>>('/settlement/activity', { params }),
   listTraceActivityLogs: (traceId: string) =>
     api.get<ApiResponse<{ logs: unknown[]; total: number }>>(`/settlement/activity/trace/${traceId}`),
+
+  // ── 입출금 이벤트 (Transactions) ──────────────────────────────────
+  listTransactions: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<unknown>>('/settlement/transactions', { params }),
+
+  createTransaction: (data: unknown) =>
+    api.post<ApiResponse<unknown>>('/settlement/transactions', data),
+
+  getTransaction: (id: string) =>
+    api.get<ApiResponse<unknown>>(`/settlement/transactions/${id}`),
+
+  updateTransaction: (id: string, data: unknown) =>
+    api.patch<ApiResponse<unknown>>(`/settlement/transactions/${id}`, data),
+
+  cancelTransaction: (id: string) =>
+    api.delete<ApiResponse<unknown>>(`/settlement/transactions/${id}`),
+
+  autoAllocate: (id: string, strategy?: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/transactions/${id}/auto-allocate`, { strategy }),
+
+  manualAllocate: (id: string, allocations: { voucher_id: string; amount: number; memo?: string }[]) =>
+    api.post<ApiResponse<unknown>>(`/settlement/transactions/${id}/allocate`, { allocations }),
+
+  deleteAllocation: (txnId: string, allocId: string) =>
+    api.delete<ApiResponse<unknown>>(`/settlement/transactions/${txnId}/allocations/${allocId}`),
+
+  getCounterpartyTimeline: (counterpartyId: string, params?: Record<string, unknown>) =>
+    api.get<ApiResponse<unknown>>(`/settlement/transactions/counterparty/${counterpartyId}/timeline`, { params }),
+
+  getCounterpartyBalance: (counterpartyId: string) =>
+    api.get<ApiResponse<unknown>>(`/settlement/transactions/counterparty/${counterpartyId}/balance`),
+
+  // ── 상계 (Netting) ──────────────────────────────────────────────
+  listNettings: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<unknown>>('/settlement/netting', { params }),
+
+  getNettingEligible: (counterpartyId: string) =>
+    api.get<ApiResponse<unknown>>(`/settlement/netting/counterparty/${counterpartyId}/eligible`),
+
+  createNetting: (data: unknown) =>
+    api.post<ApiResponse<unknown>>('/settlement/netting', data),
+
+  getNetting: (id: string) =>
+    api.get<ApiResponse<unknown>>(`/settlement/netting/${id}`),
+
+  confirmNetting: (id: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/netting/${id}/confirm`),
+
+  cancelNetting: (id: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/netting/${id}/cancel`),
+
+  // ── 은행 파일 임포트 (Bank Import) ────────────────────────────────
+  uploadBankFile: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post<ApiResponse<unknown>>('/settlement/bank-import/upload', formData);
+  },
+
+  listBankImportJobs: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<unknown>>('/settlement/bank-import/jobs', { params }),
+
+  getBankImportJob: (id: string) =>
+    api.get<ApiResponse<unknown>>(`/settlement/bank-import/jobs/${id}`),
+
+  autoMatchBankImport: (id: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/bank-import/jobs/${id}/auto-match`),
+
+  updateBankImportLine: (jobId: string, lineId: string, data: unknown) =>
+    api.patch<ApiResponse<unknown>>(`/settlement/bank-import/jobs/${jobId}/lines/${lineId}`, data),
+
+  confirmBankImport: (id: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/bank-import/jobs/${id}/confirm`),
+
+  deleteBankImportJob: (id: string) =>
+    api.delete<ApiResponse<unknown>>(`/settlement/bank-import/jobs/${id}`),
+
+  // ── 조정전표 (Adjustment Vouchers) ────────────────────────────────
+  createAdjustmentVoucher: (voucherId: string, data: unknown) =>
+    api.post<ApiResponse<unknown>>(`/settlement/vouchers/${voucherId}/adjustment`, data),
+
+  listAdjustmentVouchers: (voucherId: string) =>
+    api.get<ApiResponse<unknown>>(`/settlement/vouchers/${voucherId}/adjustments`),
 };
 
 export default api;
