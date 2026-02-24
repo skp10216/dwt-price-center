@@ -11,8 +11,8 @@ import { useState, useRef, useCallback, useMemo, DragEvent } from 'react';
 import {
   Box, Typography, Paper, Button, Stack, Alert, LinearProgress,
   alpha, useTheme, Stepper, Step, StepLabel,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  TableSortLabel,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TableFooter,
+  TableSortLabel, TablePagination,
   Chip, Divider, Tooltip, IconButton, Fade,
   Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress,
 } from '@mui/material';
@@ -163,10 +163,12 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  // ── 필터 & 정렬 상태 ──
+  // ── 필터 & 정렬 & 페이지네이션 상태 ──
   const [filter, setFilter] = useState<FilterType>('all');
   const [sortField, setSortField] = useState<SortField>('row_number');
   const [sortDir, setSortDir] = useState<SortDirection>('asc');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
 
   // ── 확인 다이얼로그 상태 ──
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -230,6 +232,18 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
     return rows;
   }, [preview, filter, sortField, sortDir]);
 
+  // ── 페이지네이션 된 데이터 ──
+  const paginatedData = useMemo(
+    () => filteredRows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+    [filteredRows, page, rowsPerPage]
+  );
+
+  // ── 현재 페이지 합계 (수량, 금액) ──
+  const pageSums = useMemo(() => ({
+    quantity: paginatedData.reduce((s, r) => s + (r.quantity ?? 0), 0),
+    amount: paginatedData.reduce((s, r) => s + (r.amount ?? 0), 0),
+  }), [paginatedData]);
+
   // ── 핸들러 ──
   const validateAndSetFile = useCallback((selectedFile: File) => {
     const ext = selectedFile.name.split('.').pop()?.toLowerCase();
@@ -280,6 +294,7 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
       setFilter('all');
       setSortField('row_number');
       setSortDir('asc');
+      setPage(0);
     } catch (err) {
       setError(extractErrorMessage(err, '파일 미리보기에 실패했습니다. 파일 형식을 확인해주세요.'));
     } finally {
@@ -359,6 +374,7 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
     setUploadResult(null);
     setError(null);
     setFilter('all');
+    setPage(0);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -373,6 +389,7 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
 
   const handleChipFilter = (type: FilterType) => {
     setFilter((prev) => (prev === type ? 'all' : type));
+    setPage(0);
   };
 
   // ── 상태 아이콘 렌더 ──
@@ -771,7 +788,7 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filteredRows.map((row) => (
+                  {paginatedData.map((row) => (
                     <TableRow
                       key={row.row_number}
                       hover
@@ -818,11 +835,44 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
                     </TableRow>
                   )}
                 </TableBody>
+                {paginatedData.length > 0 && (
+                  <TableFooter>
+                    <TableRow sx={{
+                      '& td': {
+                        borderBottom: 'none',
+                        fontWeight: 700,
+                        fontSize: '0.82rem',
+                        py: 1.2,
+                        bgcolor: alpha(theme.palette.background.default, 0.8),
+                        borderTop: `2px solid ${theme.palette.divider}`,
+                      },
+                    }}>
+                      <TableCell colSpan={4} sx={{ fontWeight: 700 }}>합계</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtNum(pageSums.quantity)}</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{fmtNum(pageSums.amount)}</TableCell>
+                      <TableCell colSpan={3} />
+                    </TableRow>
+                  </TableFooter>
+                )}
               </Table>
             </TableContainer>
 
-            {/* 하단 여백 */}
-            <Box sx={{ mt: 1 }} />
+            {/* 페이지네이션 */}
+            {filteredRows.length > 0 && (
+              <TablePagination
+                component="div"
+                count={filteredRows.length}
+                page={page}
+                onPageChange={(_, p) => setPage(p)}
+                rowsPerPage={rowsPerPage}
+                onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+                rowsPerPageOptions={[25, 50, 100]}
+                labelRowsPerPage="표시 수:"
+                labelDisplayedRows={({ from, to, count: c }) =>
+                  `${from}~${to} / ${c !== -1 ? `총 ${c.toLocaleString()}건` : `${to}건 이상`}`
+                }
+              />
+            )}
           </Box>
         </Fade>
       )}

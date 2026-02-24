@@ -3,6 +3,7 @@
  */
 
 import axios, { AxiosError, AxiosInstance } from 'axios';
+import { useAuthStore } from '@/lib/store';
 
 // API 기본 URL
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -84,16 +85,26 @@ function clearAuthCookies() {
   document.cookie = `user_role=; ${expired}; path=/; domain=.dwt.price`;
 }
 
-// 응답 인터셉터: 에러 처리
+// 응답 인터셉터: 인증 실패 처리
+// 401 (토큰 만료/유효하지 않음) 및 403 (토큰 누락 - FastAPI HTTPBearer) 모두 처리
+// 단, 403은 INVALID_TOKEN / Not authenticated 등 인증 관련만 처리
 api.interceptors.response.use(
   (response) => response,
-  (error: AxiosError<{ error: { code: string; message: string } }>) => {
-    if (error.response?.status === 401) {
-      // 토큰 만료 시 로그아웃 (localStorage + 쿠키 모두 정리)
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('auth-storage'); // Zustand persist 상태 제거
-        clearAuthCookies();
+  (error: AxiosError<{ detail?: { code?: string; message?: string } | string }>) => {
+    const status = error.response?.status;
+    const detail = error.response?.data?.detail;
+    const isAuthError =
+      status === 401 ||
+      (status === 403 && (
+        (typeof detail === 'string' && detail === 'Not authenticated') ||
+        (typeof detail === 'object' && detail?.code === 'INVALID_TOKEN')
+      ));
+
+    if (isAuthError && typeof window !== 'undefined') {
+      // 이미 로그인 페이지면 중복 리다이렉트 방지
+      if (!window.location.pathname.startsWith('/login')) {
+        // Zustand store의 logout()이 localStorage + 쿠키 모두 정리
+        useAuthStore.getState().logout();
         window.location.href = '/login';
       }
     }

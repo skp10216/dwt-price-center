@@ -153,18 +153,9 @@ export const useAuthStore = create<AuthState>()(
             if (typeof localStorage !== 'undefined') {
               localStorage.setItem('access_token', state.token);
             }
-          } else {
-            // localStorage에 인증 정보가 없는 경우 (서브도메인 간 전환 시)
-            // 쿠키에 토큰이 남아있으면 복원 시도
-            const cookieToken = getCookieValue('token');
-            const cookieRole = getCookieValue('user_role') as User['role'] | null;
-            if (cookieToken && cookieRole) {
-              // 쿠키 토큰을 localStorage에 동기화 (API 요청용)
-              if (typeof localStorage !== 'undefined') {
-                localStorage.setItem('access_token', cookieToken);
-              }
-            }
           }
+          // else: 인증 정보 없음 → api.ts 요청 인터셉터가 쿠키 토큰 폴백 처리
+          // AppLayout이 /auth/me로 비동기 세션 복원
         };
       },
     }

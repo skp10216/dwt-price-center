@@ -32,7 +32,6 @@ import {
   alpha,
   Button,
   Tooltip,
-  CircularProgress,
 } from '@mui/material';
 import { useSnackbar } from 'notistack';
 import { settlementApi } from '@/lib/api';
@@ -74,7 +73,7 @@ import {
   Lock as LockIcon,
   ManageSearch as ActivityIcon,
 } from '@mui/icons-material';
-import { useAuthStore, useUIStore, useDomainStore, useAuthHydrated, useThemeStore, type ThemeMode, type User } from '@/lib/store';
+import { useAuthStore, useUIStore, useDomainStore, useThemeStore, type ThemeMode, type User } from '@/lib/store';
 import { getDomainType, getDefaultPath } from '@/lib/domain';
 import { Logo } from '@/components/ui/Logo';
 import { authApi } from '@/lib/api';
@@ -178,24 +177,16 @@ const settlementMenus: MenuItemType[] = [
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, logout, isAuthenticated, setAuth } = useAuthStore();
+  const { user, logout, setAuth } = useAuthStore();
   const { sidebarOpen, toggleSidebar } = useUIStore();
   const { domainType, isAdminDomain, isSettlementDomain, setDomainType } = useDomainStore();
   const { mode, setMode } = useThemeStore();
-  const isHydrated = useAuthHydrated();
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set(['ssot-models']));
   const [miniMode, setMiniMode] = useState(false);
   const [latestSalesDate, setLatestSalesDate] = useState<string | null>(null);
   const [latestPurchaseDate, setLatestPurchaseDate] = useState<string | null>(null);
-  // 세션 복원 상태: 쿠키 토큰이 존재하면 true로 시작 → 빈 화면 깜빡임 방지
-  const [sessionRestoring, setSessionRestoring] = useState(() => {
-    if (typeof document === 'undefined') return true; // SSR: 안전하게 로딩 표시
-    return !!document.cookie.match(/(?:^|;\s*)token=([^;]*)/);
-  });
-  // Strict Mode 이중 실행 방지용 ref
-  const sessionCheckRef = useRef(false);
   // NProgress-style 경로 전환 로딩 상태
   const [navigating, setNavigating] = useState(false);
   const prevPathRef = useRef(pathname);
@@ -251,72 +242,55 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     setExpandedMenus(newExpanded);
   }, [pathname]);
   
-  // 인증 체크 + 세션 복원 (hydration 완료 후에만)
-  // 서브도메인 간 전환 시 Zustand(localStorage)에는 인증 정보가 없지만
-  // 쿠키에 토큰이 남아있는 경우 /auth/me API로 세션을 복원
+  // 비동기 사용자 정보 로딩 (논블로킹)
+  // Zustand persist가 복원한 user가 있으면 스킵.
+  // 없으면 (새 서브도메인 방문 등) 쿠키 토큰으로 /auth/me 호출.
+  // 실패 시 Axios 인터셉터가 /login 리다이렉트 처리 (단일 리다이렉트 지점).
   useEffect(() => {
-    // hydration 대기
-    if (!isHydrated) return;
+    if (user) return;
 
-    // 이미 인증됨 → 세션 복원 불필요, 로딩 해제
-    if (isAuthenticated) {
-      setSessionRestoring(false);
-      return;
-    }
-
-    // Strict Mode 이중 실행 방지
-    if (sessionCheckRef.current) return;
-    sessionCheckRef.current = true;
-
-    // 쿠키에서 토큰 확인
     const cookieMatch = document.cookie.match(/(?:^|;\s*)token=([^;]*)/);
-    if (!cookieMatch) {
-      // 쿠키에도 토큰 없음 → 로그인 필요
-      setSessionRestoring(false);
-      router.push('/login');
-      return;
+    if (!cookieMatch) return; // 미들웨어가 이미 리다이렉트했어야 함
+
+    const cookieToken = decodeURIComponent(cookieMatch[1]);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('access_token', cookieToken);
     }
 
-    // 쿠키 토큰으로 세션 복원 시도
-    const cookieToken = decodeURIComponent(cookieMatch[1]);
-    setSessionRestoring(true);
+    let cancelled = false;
     authApi.getMe()
       .then((response) => {
+        if (cancelled) return;
         const userData = response.data.data as User;
-        // setAuth(Zustand)와 setSessionRestoring(useState)을 함께 호출
-        // React 18 배칭으로 단일 렌더링에 반영됨
         setAuth(userData, cookieToken);
-        setSessionRestoring(false);
       })
       .catch(() => {
-        // 토큰 만료 또는 유효하지 않음 → 쿠키 정리 후 로그인 페이지
-        setSessionRestoring(false);
-        sessionCheckRef.current = false; // 다음 시도 허용
-        logout();
-        router.push('/login');
+        // Axios 인터셉터가 401/403 → /login 리다이렉트 처리
       });
+
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHydrated, isAuthenticated]);
+  }, [user]);
   
-  // 관리자 도메인에서 admin 권한 강제 (인증 완료 후에만)
+  // 관리자 도메인에서 admin 권한 강제
   useEffect(() => {
-    if (isHydrated && isAuthenticated && isAdminDomain && user?.role !== 'admin') {
-      console.warn('[AppLayout] 관리자 도메인 권한 불일치 → 로그아웃', { role: user?.role });
+    if (user && isAdminDomain && user.role !== 'admin') {
+      console.warn('[AppLayout] 관리자 도메인 권한 불일치 → 로그아웃', { role: user.role });
       logout();
       router.push('/login?error=admin_required');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHydrated, isAuthenticated, isAdminDomain, user?.role]);
+  }, [user, isAdminDomain]);
 
-  // 정산 도메인에서 settlement 또는 admin 권한 강제 (인증 완료 후에만)
+  // 정산 도메인에서 settlement 또는 admin 권한 강제
   useEffect(() => {
-    if (isHydrated && isAuthenticated && isSettlementDomain && user?.role !== 'settlement' && user?.role !== 'admin') {
-      console.warn('[AppLayout] 정산 도메인 권한 불일치 → 로그아웃', { role: user?.role, isSettlementDomain });
+    if (user && isSettlementDomain && user.role !== 'settlement' && user.role !== 'admin') {
+      console.warn('[AppLayout] 정산 도메인 권한 불일치 → 로그아웃', { role: user.role, isSettlementDomain });
       logout();
       router.push('/login?error=settlement_required');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHydrated, isAuthenticated, isSettlementDomain, user?.role]);
+  }, [user, isSettlementDomain]);
 
   // 최신 업로드 버전 확인 (정산 도메인)
   const checkLatestUploads = useCallback(async () => {
@@ -390,83 +364,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, [pathname]);
 
-  // ── sessionCheckRef 방어적 리셋 ──────────────────────────────
-  // isAuthenticated가 false가 되었는데 sessionCheckRef가 true이면 리셋
-  // → 다음 렌더 사이클에서 세션 복원 재시도 가능
-  useEffect(() => {
-    if (isHydrated && !isAuthenticated && sessionCheckRef.current) {
-      sessionCheckRef.current = false;
-    }
-  }, [isHydrated, isAuthenticated]);
-
-  // ── 로딩 판정 ──────────────────────────────────────────────────
-  // isAuthenticated가 true가 되면 sessionRestoring 상태와 무관하게 로딩 해제
-  // → Zustand(setAuth)와 useState(setSessionRestoring) 배칭 타이밍 차이 해결
-  const isLoading = !isHydrated || (sessionRestoring && !isAuthenticated);
-
-  // ── 로딩 안전장치 ──────────────────────────────────────────────
-  // 세션 복원이 비정상적으로 오래 걸리면(10초) 강제 정리 후 로그인 이동
-  const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!isLoading) {
-      if (loadingTimerRef.current) {
-        clearTimeout(loadingTimerRef.current);
-        loadingTimerRef.current = null;
-      }
-      return;
-    }
-    loadingTimerRef.current = setTimeout(() => {
-      console.warn('[AppLayout] 로딩 10초 초과 → 강제 정리 후 로그인 이동');
-      try {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('auth-storage');
-      } catch { /* ignore */ }
-      const expired = 'expires=Thu, 01 Jan 1970 00:00:00 GMT';
-      const domains = ['', '; domain=localhost', '; domain=.localhost', '; domain=.dwt.price'];
-      for (const d of domains) {
-        document.cookie = `token=; ${expired}; path=/${d}`;
-        document.cookie = `user_role=; ${expired}; path=/${d}`;
-      }
-      window.location.href = '/login';
-    }, 10_000);
-    return () => {
-      if (loadingTimerRef.current) {
-        clearTimeout(loadingTimerRef.current);
-        loadingTimerRef.current = null;
-      }
-    };
-  }, [isLoading]);
-
-  // Hydration 완료 전 또는 세션 복원 중에는 로딩 표시 (깜빡임 방지)
-  if (isLoading) {
-    return (
-      <Box sx={{
-        display: 'flex',
-        height: '100vh',
-        width: '100vw',
-        alignItems: 'center',
-        justifyContent: 'center',
-        bgcolor: 'background.default',
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        zIndex: (theme) => theme.zIndex.modal + 1,
-      }}>
-        <Box sx={{ textAlign: 'center' }}>
-          <CircularProgress size={24} sx={{ mb: 1 }} />
-          <Typography variant="body2" color="text.secondary">
-            로딩 중...
-          </Typography>
-        </Box>
-      </Box>
-    );
-  }
-  
-  if (!isAuthenticated) {
-    return null;
-  }
-  
   const isAdmin = user?.role === 'admin';
   const currentMenus = isSettlementDomain ? settlementMenus : isAdminDomain ? adminMenus : userMenus;
   
