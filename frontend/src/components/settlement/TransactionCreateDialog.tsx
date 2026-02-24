@@ -34,7 +34,7 @@ export default function TransactionCreateDialog({
 
   const [counterparties, setCounterparties] = useState<CounterpartyOption[]>([]);
   const [counterpartyId, setCounterpartyId] = useState(fixedCpId || '');
-  const [transactionType, setTransactionType] = useState<'DEPOSIT' | 'WITHDRAWAL'>('DEPOSIT');
+  const [transactionType, setTransactionType] = useState<'deposit' | 'withdrawal'>('deposit');
   const [transactionDate, setTransactionDate] = useState(new Date().toISOString().slice(0, 10));
   const [amount, setAmount] = useState('');
   const [memo, setMemo] = useState('');
@@ -44,7 +44,7 @@ export default function TransactionCreateDialog({
   const loadCounterparties = useCallback(async () => {
     if (fixedCpId) return;
     try {
-      const res = await settlementApi.listCounterparties({ page_size: 500 });
+      const res = await settlementApi.listCounterparties({ page_size: 200 });
       const data = res.data as unknown as { counterparties: CounterpartyOption[] };
       setCounterparties(data.counterparties || []);
     } catch { /* ignore */ }
@@ -54,7 +54,7 @@ export default function TransactionCreateDialog({
     if (open) {
       loadCounterparties();
       setCounterpartyId(fixedCpId || '');
-      setTransactionType('DEPOSIT');
+      setTransactionType('deposit');
       setTransactionDate(new Date().toISOString().slice(0, 10));
       setAmount('');
       setMemo('');
@@ -76,7 +76,7 @@ export default function TransactionCreateDialog({
         memo: memo || undefined,
       });
       enqueueSnackbar(
-        `${transactionType === 'DEPOSIT' ? '입금' : '출금'} 등록 완료`,
+        `${transactionType === 'deposit' ? '입금' : '출금'} 등록 완료`,
         { variant: 'success' },
       );
       onCreated();
@@ -122,10 +122,10 @@ export default function TransactionCreateDialog({
             <Select
               value={transactionType}
               label="유형"
-              onChange={(e) => setTransactionType(e.target.value as 'DEPOSIT' | 'WITHDRAWAL')}
+              onChange={(e) => setTransactionType(e.target.value as 'deposit' | 'withdrawal')}
             >
-              <MenuItem value="DEPOSIT">입금 (수금)</MenuItem>
-              <MenuItem value="WITHDRAWAL">출금 (송금)</MenuItem>
+              <MenuItem value="deposit">입금 (수금)</MenuItem>
+              <MenuItem value="withdrawal">출금 (송금)</MenuItem>
             </Select>
           </FormControl>
 

@@ -231,9 +231,9 @@ export default function SettlementDashboardPage() {
   const loadNewKpis = useCallback(async () => {
     try {
       // 미배분 입출금 KPI: PENDING + PARTIAL 건수/금액
-      const txnRes = await settlementApi.listTransactions({ page_size: 1, status: 'PENDING' });
+      const txnRes = await settlementApi.listTransactions({ page_size: 1, status: 'pending' });
       const txnData = txnRes.data as unknown as { total: number; transactions: Array<{ amount: number }> };
-      const txnRes2 = await settlementApi.listTransactions({ page_size: 1, status: 'PARTIAL' });
+      const txnRes2 = await settlementApi.listTransactions({ page_size: 1, status: 'partial' });
       const txnData2 = txnRes2.data as unknown as { total: number; transactions: Array<{ amount: number }> };
       setTxnKpi({
         pending_count: txnData.total || 0,
@@ -247,9 +247,9 @@ export default function SettlementDashboardPage() {
 
     try {
       // 상계 KPI: DRAFT 건수/금액
-      const netRes = await settlementApi.listNettings({ page_size: 1, status: 'DRAFT' });
+      const netRes = await settlementApi.listNettings({ page_size: 1, status: 'draft' });
       const netData = netRes.data as unknown as { total: number };
-      const netRes2 = await settlementApi.listNettings({ page_size: 1, status: 'CONFIRMED' });
+      const netRes2 = await settlementApi.listNettings({ page_size: 1, status: 'confirmed' });
       const netData2 = netRes2.data as unknown as { total: number };
       setNettingKpi({
         draft_count: netData.total || 0,
@@ -263,7 +263,7 @@ export default function SettlementDashboardPage() {
 
     try {
       // 은행 임포트 KPI: REVIEWING 작업 수
-      const bankRes = await settlementApi.listBankImportJobs({ page_size: 1, status: 'REVIEWING' });
+      const bankRes = await settlementApi.listBankImportJobs({ page_size: 1, status: 'reviewing' });
       const bankData = bankRes.data as unknown as { total: number };
       setBankKpi({
         reviewing_count: bankData.total || 0,

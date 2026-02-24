@@ -47,9 +47,9 @@ interface NettingDetailDialogProps {
 const formatAmount = (amount: number) => new Intl.NumberFormat('ko-KR').format(amount);
 
 const STATUS_MAP: Record<string, { label: string; color: 'warning' | 'success' | 'default' }> = {
-  DRAFT: { label: '초안', color: 'warning' },
-  CONFIRMED: { label: '확정', color: 'success' },
-  CANCELLED: { label: '취소', color: 'default' },
+  draft: { label: '초안', color: 'warning' },
+  confirmed: { label: '확정', color: 'success' },
+  cancelled: { label: '취소', color: 'default' },
 };
 
 export default function NettingDetailDialog({
@@ -229,7 +229,7 @@ export default function NettingDetailDialog({
         ) : null}
       </DialogContent>
       <DialogActions>
-        {detail?.status === 'DRAFT' && (
+        {detail?.status === 'draft' && (
           <>
             <Button color="error" onClick={handleCancel}>취소</Button>
             <Button variant="contained" color="success" onClick={handleConfirm}>

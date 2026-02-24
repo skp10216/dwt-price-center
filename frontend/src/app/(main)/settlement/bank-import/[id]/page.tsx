@@ -70,19 +70,19 @@ interface CounterpartyOption {
 const formatAmount = (amount: number) => new Intl.NumberFormat('ko-KR').format(amount);
 
 const JOB_STATUS_MAP: Record<string, { label: string; color: 'default' | 'info' | 'warning' | 'success' | 'error' }> = {
-  UPLOADED: { label: '업로드됨', color: 'default' },
-  PARSED: { label: '파싱완료', color: 'info' },
-  REVIEWING: { label: '검수중', color: 'warning' },
-  CONFIRMED: { label: '확정', color: 'success' },
-  FAILED: { label: '실패', color: 'error' },
+  uploaded: { label: '업로드됨', color: 'default' },
+  parsed: { label: '파싱완료', color: 'info' },
+  reviewing: { label: '검수중', color: 'warning' },
+  confirmed: { label: '확정', color: 'success' },
+  failed: { label: '실패', color: 'error' },
 };
 
 const LINE_STATUS_MAP: Record<string, { label: string; color: 'default' | 'info' | 'warning' | 'success' | 'error' }> = {
-  UNMATCHED: { label: '미매칭', color: 'error' },
-  MATCHED: { label: '매칭됨', color: 'info' },
-  CONFIRMED: { label: '확정', color: 'success' },
-  DUPLICATE: { label: '중복', color: 'warning' },
-  EXCLUDED: { label: '제외', color: 'default' },
+  unmatched: { label: '미매칭', color: 'error' },
+  matched: { label: '매칭됨', color: 'info' },
+  confirmed: { label: '확정', color: 'success' },
+  duplicate: { label: '중복', color: 'warning' },
+  excluded: { label: '제외', color: 'default' },
 };
 
 /**
@@ -124,7 +124,7 @@ export default function BankImportDetailPage() {
 
   const loadCounterparties = useCallback(async () => {
     try {
-      const res = await settlementApi.listCounterparties({ page_size: 500 });
+      const res = await settlementApi.listCounterparties({ page_size: 200 });
       const data = res.data as unknown as { counterparties: CounterpartyOption[] };
       setCounterparties(data.counterparties || []);
     } catch { /* ignore */ }
@@ -156,7 +156,7 @@ export default function BankImportDetailPage() {
     try {
       await settlementApi.updateBankImportLine(jobId, lineId, {
         counterparty_id: editCpId || null,
-        status: editCpId ? 'MATCHED' : 'UNMATCHED',
+        status: editCpId ? 'matched' : 'unmatched',
       });
       enqueueSnackbar('거래처 매핑이 업데이트되었습니다.', { variant: 'success' });
       setEditingLineId(null);
@@ -169,7 +169,7 @@ export default function BankImportDetailPage() {
 
   const handleExcludeLine = async (lineId: string) => {
     try {
-      await settlementApi.updateBankImportLine(jobId, lineId, { status: 'EXCLUDED' });
+      await settlementApi.updateBankImportLine(jobId, lineId, { status: 'excluded' });
       enqueueSnackbar('라인이 제외되었습니다.', { variant: 'success' });
       loadData();
     } catch {
@@ -196,14 +196,14 @@ export default function BankImportDetailPage() {
   // ─── 통계 ──────────────────────────────────────────────────────
 
   const lines = job?.lines || [];
-  const unmatchedCount = lines.filter((l) => l.status === 'UNMATCHED').length;
-  const matchedCount = lines.filter((l) => l.status === 'MATCHED').length;
-  const confirmedCount = lines.filter((l) => l.status === 'CONFIRMED').length;
-  const duplicateCount = lines.filter((l) => l.status === 'DUPLICATE').length;
-  const excludedCount = lines.filter((l) => l.status === 'EXCLUDED').length;
+  const unmatchedCount = lines.filter((l) => l.status === 'unmatched').length;
+  const matchedCount = lines.filter((l) => l.status === 'matched').length;
+  const confirmedCount = lines.filter((l) => l.status === 'confirmed').length;
+  const duplicateCount = lines.filter((l) => l.status === 'duplicate').length;
+  const excludedCount = lines.filter((l) => l.status === 'excluded').length;
   const totalDeposit = lines.filter((l) => l.amount > 0).reduce((s, l) => s + l.amount, 0);
   const totalWithdrawal = lines.filter((l) => l.amount < 0).reduce((s, l) => s + Math.abs(l.amount), 0);
-  const canConfirm = job?.status !== 'CONFIRMED' && matchedCount > 0;
+  const canConfirm = job?.status !== 'confirmed' && matchedCount > 0;
 
   const jobStatusInfo = job ? JOB_STATUS_MAP[job.status] || { label: job.status, color: 'default' as const } : null;
 
@@ -226,7 +226,7 @@ export default function BankImportDetailPage() {
         color="info"
         count={job?.total_lines}
         actions={
-          job?.status !== 'CONFIRMED'
+          job?.status !== 'confirmed'
             ? [
                 {
                   label: matching ? '매칭 중...' : '자동 매칭',
@@ -329,8 +329,8 @@ export default function BankImportDetailPage() {
               const lineStatus = LINE_STATUS_MAP[line.status] || { label: line.status, color: 'default' as const };
               const isDeposit = line.amount > 0;
               const isEditing = editingLineId === line.id;
-              const isExcluded = line.status === 'EXCLUDED';
-              const isConfirmed = line.status === 'CONFIRMED';
+              const isExcluded = line.status === 'excluded';
+              const isConfirmed = line.status === 'confirmed';
 
               return (
                 <TableRow
@@ -338,7 +338,7 @@ export default function BankImportDetailPage() {
                   hover
                   sx={{
                     opacity: isExcluded ? 0.4 : 1,
-                    bgcolor: line.status === 'DUPLICATE' ? 'warning.50' : undefined,
+                    bgcolor: line.status === 'duplicate' ? 'warning.50' : undefined,
                   }}
                 >
                   <TableCell>{line.line_number}</TableCell>

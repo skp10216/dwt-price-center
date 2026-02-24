@@ -48,9 +48,9 @@ interface NettingRow {
 const formatAmount = (amount: number) => new Intl.NumberFormat('ko-KR').format(amount);
 
 const STATUS_MAP: Record<string, { label: string; color: 'warning' | 'success' | 'default' }> = {
-  DRAFT: { label: '초안', color: 'warning' },
-  CONFIRMED: { label: '확정', color: 'success' },
-  CANCELLED: { label: '취소', color: 'default' },
+  draft: { label: '초안', color: 'warning' },
+  confirmed: { label: '확정', color: 'success' },
+  cancelled: { label: '취소', color: 'default' },
 };
 
 /**
@@ -94,8 +94,8 @@ export default function NettingPage() {
       if (dateTo) params.date_to = dateTo;
 
       const res = await settlementApi.listNettings(params);
-      const data = res.data as unknown as { nettings: NettingRow[]; total: number };
-      setNettings(data.nettings || []);
+      const data = res.data as unknown as { records: NettingRow[]; total: number };
+      setNettings(data.records || []);
       setTotal(data.total || 0);
     } catch {
       enqueueSnackbar('상계 목록 조회에 실패했습니다.', { variant: 'error' });
@@ -174,9 +174,9 @@ export default function NettingPage() {
               <InputLabel>상태</InputLabel>
               <Select value={statusFilter} label="상태" onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}>
                 <MenuItem value="">전체</MenuItem>
-                <MenuItem value="DRAFT">초안</MenuItem>
-                <MenuItem value="CONFIRMED">확정</MenuItem>
-                <MenuItem value="CANCELLED">취소</MenuItem>
+                <MenuItem value="draft">초안</MenuItem>
+                <MenuItem value="confirmed">확정</MenuItem>
+                <MenuItem value="cancelled">취소</MenuItem>
               </Select>
             </FormControl>
             <TextField
@@ -229,7 +229,7 @@ export default function NettingPage() {
           <TableBody>
             {nettings.map((row) => {
               const statusInfo = STATUS_MAP[row.status] || { label: row.status, color: 'default' as const };
-              const isCancelled = row.status === 'CANCELLED';
+              const isCancelled = row.status === 'cancelled';
 
               return (
                 <TableRow key={row.id} hover sx={{ opacity: isCancelled ? 0.5 : 1 }}>
@@ -271,7 +271,7 @@ export default function NettingPage() {
                           <ViewIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      {row.status === 'DRAFT' && (
+                      {row.status === 'draft' && (
                         <>
                           <Tooltip title="확정">
                             <IconButton

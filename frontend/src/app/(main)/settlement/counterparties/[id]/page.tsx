@@ -77,10 +77,10 @@ interface TimelineItem {
 }
 
 const TXN_STATUS_MAP: Record<string, { label: string; color: 'error' | 'warning' | 'success' | 'default' }> = {
-  PENDING: { label: '미배분', color: 'error' },
-  PARTIAL: { label: '부분배분', color: 'warning' },
-  ALLOCATED: { label: '전액배분', color: 'success' },
-  CANCELLED: { label: '취소', color: 'default' },
+  pending: { label: '미배분', color: 'error' },
+  partial: { label: '부분배분', color: 'warning' },
+  allocated: { label: '전액배분', color: 'success' },
+  cancelled: { label: '취소', color: 'default' },
 };
 
 const typeLabels: Record<string, string> = {
@@ -560,16 +560,16 @@ export default function CounterpartyDetailPage() {
                   ) : (
                     timeline.map((t) => {
                       const sInfo = TXN_STATUS_MAP[t.status] || { label: t.status, color: 'default' as const };
-                      const isCancelled = t.status === 'CANCELLED';
+                      const isCancelled = t.status === 'cancelled';
                       return (
                         <TableRow key={t.id} hover sx={{ opacity: isCancelled ? 0.5 : 1 }}>
                           <TableCell>{t.transaction_date}</TableCell>
                           <TableCell>
                             <Chip
-                              label={t.transaction_type === 'DEPOSIT' ? '입금' : '출금'}
+                              label={t.transaction_type === 'deposit' ? '입금' : '출금'}
                               size="small"
                               variant="outlined"
-                              color={t.transaction_type === 'DEPOSIT' ? 'info' : 'secondary'}
+                              color={t.transaction_type === 'deposit' ? 'info' : 'secondary'}
                             />
                           </TableCell>
                           <TableCell align="right" sx={{ fontWeight: 600 }}>

@@ -155,11 +155,11 @@ async def list_transactions(
     if counterparty_id:
         filters.append(CounterpartyTransaction.counterparty_id == counterparty_id)
     if transaction_type:
-        filters.append(CounterpartyTransaction.transaction_type == transaction_type.upper())
+        filters.append(CounterpartyTransaction.transaction_type == transaction_type)
     if status_filter:
-        filters.append(CounterpartyTransaction.status == status_filter.upper())
+        filters.append(CounterpartyTransaction.status == status_filter)
     if source:
-        filters.append(CounterpartyTransaction.source == source.upper())
+        filters.append(CounterpartyTransaction.source == source)
     if date_from:
         filters.append(CounterpartyTransaction.transaction_date >= date_from)
     if date_to:
@@ -217,7 +217,7 @@ async def create_transaction(
 
     txn = CounterpartyTransaction(
         counterparty_id=data.counterparty_id,
-        transaction_type=data.transaction_type.upper(),
+        transaction_type=data.transaction_type,
         transaction_date=data.transaction_date,
         amount=data.amount,
         memo=data.memo,
@@ -645,7 +645,7 @@ async def delete_allocation(
 # 거래처 타임라인 / 잔액
 # =============================================================================
 
-@router.get("/counterparty/{counterparty_id}/timeline", response_model=list[CounterpartyTimelineItem])
+@router.get("/counterparty/{counterparty_id}/timeline")
 async def get_counterparty_timeline(
     counterparty_id: UUID,
     date_from: Optional[date] = None,
@@ -660,23 +660,29 @@ async def get_counterparty_timeline(
     if not cp:
         raise HTTPException(status_code=404, detail="거래처를 찾을 수 없습니다")
 
+    base_filters = [
+        CounterpartyTransaction.counterparty_id == counterparty_id,
+        CounterpartyTransaction.status != TransactionStatus.CANCELLED,
+    ]
+    if date_from:
+        base_filters.append(CounterpartyTransaction.transaction_date >= date_from)
+    if date_to:
+        base_filters.append(CounterpartyTransaction.transaction_date <= date_to)
+
+    # 전체 건수
+    count_q = select(func.count(CounterpartyTransaction.id)).where(*base_filters)
+    total = (await db.execute(count_q)).scalar() or 0
+
     query = (
         select(CounterpartyTransaction)
-        .where(
-            CounterpartyTransaction.counterparty_id == counterparty_id,
-            CounterpartyTransaction.status != TransactionStatus.CANCELLED,
+        .where(*base_filters)
+        .order_by(
+            CounterpartyTransaction.transaction_date.desc(),
+            CounterpartyTransaction.created_at.desc(),
         )
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     )
-    if date_from:
-        query = query.where(CounterpartyTransaction.transaction_date >= date_from)
-    if date_to:
-        query = query.where(CounterpartyTransaction.transaction_date <= date_to)
-
-    query = query.order_by(
-        CounterpartyTransaction.transaction_date.desc(),
-        CounterpartyTransaction.created_at.desc(),
-    )
-    query = query.offset((page - 1) * page_size).limit(page_size)
 
     result = await db.execute(query)
     txns = result.scalars().all()
@@ -695,22 +701,27 @@ async def get_counterparty_timeline(
         )
         alloc_counts = {row[0]: row[1] for row in count_result.all()}
 
-    return [
-        CounterpartyTimelineItem(
-            id=t.id,
-            transaction_type=t.transaction_type.value if hasattr(t.transaction_type, 'value') else t.transaction_type,
-            transaction_date=t.transaction_date,
-            amount=t.amount,
-            allocated_amount=t.allocated_amount,
-            unallocated_amount=t.amount - t.allocated_amount,
-            source=t.source.value if hasattr(t.source, 'value') else t.source,
-            status=t.status.value if hasattr(t.status, 'value') else t.status,
-            memo=t.memo,
-            allocation_count=alloc_counts.get(t.id, 0),
-            created_at=t.created_at,
-        )
-        for t in txns
-    ]
+    return {
+        "timeline": [
+            CounterpartyTimelineItem(
+                id=t.id,
+                transaction_type=t.transaction_type.value if hasattr(t.transaction_type, 'value') else t.transaction_type,
+                transaction_date=t.transaction_date,
+                amount=t.amount,
+                allocated_amount=t.allocated_amount,
+                unallocated_amount=t.amount - t.allocated_amount,
+                source=t.source.value if hasattr(t.source, 'value') else t.source,
+                status=t.status.value if hasattr(t.status, 'value') else t.status,
+                memo=t.memo,
+                allocation_count=alloc_counts.get(t.id, 0),
+                created_at=t.created_at,
+            )
+            for t in txns
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.get("/counterparty/{counterparty_id}/balance", response_model=CounterpartyBalanceSummary)

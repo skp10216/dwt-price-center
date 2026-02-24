@@ -288,20 +288,41 @@ async def _parse_bank_file(
             line.status = BankImportLineStatus.DUPLICATE
 
 
-@router.get("/jobs", response_model=list[BankImportJobResponse])
+@router.get("/jobs")
 async def list_jobs(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    search: Optional[str] = Query(None, description="파일명/은행명 검색"),
+    status: Optional[str] = Query(None, description="상태 필터"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """임포트 작업 목록"""
-    result = await db.execute(
-        select(BankImportJob)
-        .order_by(BankImportJob.created_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    )
+    filters = []
+    if search:
+        search_like = f"%{search}%"
+        filters.append(
+            BankImportJob.original_filename.ilike(search_like)
+            | BankImportJob.bank_name.ilike(search_like)
+        )
+    if status:
+        filters.append(BankImportJob.status == status)
+
+    # 전체 건수
+    count_q = select(func.count(BankImportJob.id))
+    if filters:
+        for f in filters:
+            count_q = count_q.where(f)
+    total = (await db.execute(count_q)).scalar() or 0
+
+    # 목록 조회
+    q = select(BankImportJob).order_by(BankImportJob.created_at.desc())
+    if filters:
+        for f in filters:
+            q = q.where(f)
+    q = q.offset((page - 1) * page_size).limit(page_size)
+
+    result = await db.execute(q)
     jobs = result.scalars().all()
 
     user_ids = {j.created_by for j in jobs}
@@ -312,7 +333,12 @@ async def list_jobs(
         )
         user_map = {row.id: row.name for row in u_result.all()}
 
-    return [_job_to_response(j, user_map.get(j.created_by)) for j in jobs]
+    return {
+        "jobs": [_job_to_response(j, user_map.get(j.created_by)) for j in jobs],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.get("/jobs/{job_id}", response_model=BankImportJobDetailResponse)
@@ -448,7 +474,7 @@ async def update_line(
         line.match_confidence = Decimal("100.00")
 
     if data.status is not None:
-        line.status = data.status.upper()
+        line.status = data.status
 
     cp_name = None
     if line.counterparty_id:

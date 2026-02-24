@@ -51,15 +51,15 @@ type SortOrder = 'asc' | 'desc';
 const formatAmount = (amount: number) => new Intl.NumberFormat('ko-KR').format(amount);
 
 const TYPE_LABELS: Record<string, { label: string; color: 'info' | 'secondary' }> = {
-  DEPOSIT: { label: '입금', color: 'info' },
-  WITHDRAWAL: { label: '출금', color: 'secondary' },
+  deposit: { label: '입금', color: 'info' },
+  withdrawal: { label: '출금', color: 'secondary' },
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: 'error' | 'warning' | 'success' | 'default' }> = {
-  PENDING: { label: '미배분', color: 'error' },
-  PARTIAL: { label: '부분배분', color: 'warning' },
-  ALLOCATED: { label: '전액배분', color: 'success' },
-  CANCELLED: { label: '취소', color: 'default' },
+  pending: { label: '미배분', color: 'error' },
+  partial: { label: '부분배분', color: 'warning' },
+  allocated: { label: '전액배분', color: 'success' },
+  cancelled: { label: '취소', color: 'default' },
 };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -216,18 +216,18 @@ export default function TransactionsPage() {
               <InputLabel>유형</InputLabel>
               <Select value={typeFilter} label="유형" onChange={(e) => { setTypeFilter(e.target.value); setPage(0); }}>
                 <MenuItem value="">전체</MenuItem>
-                <MenuItem value="DEPOSIT">입금</MenuItem>
-                <MenuItem value="WITHDRAWAL">출금</MenuItem>
+                <MenuItem value="deposit">입금</MenuItem>
+                <MenuItem value="withdrawal">출금</MenuItem>
               </Select>
             </FormControl>
             <FormControl size="small" sx={{ minWidth: 110 }}>
               <InputLabel>상태</InputLabel>
               <Select value={statusFilter} label="상태" onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}>
                 <MenuItem value="">전체</MenuItem>
-                <MenuItem value="PENDING">미배분</MenuItem>
-                <MenuItem value="PARTIAL">부분배분</MenuItem>
-                <MenuItem value="ALLOCATED">전액배분</MenuItem>
-                <MenuItem value="CANCELLED">취소</MenuItem>
+                <MenuItem value="pending">미배분</MenuItem>
+                <MenuItem value="partial">부분배분</MenuItem>
+                <MenuItem value="allocated">전액배분</MenuItem>
+                <MenuItem value="cancelled">취소</MenuItem>
               </Select>
             </FormControl>
             <FormControl size="small" sx={{ minWidth: 100 }}>
@@ -327,7 +327,7 @@ export default function TransactionsPage() {
             {sortedTransactions.map((txn) => {
               const typeInfo = TYPE_LABELS[txn.transaction_type] || { label: txn.transaction_type, color: 'default' as const };
               const statusInfo = STATUS_LABELS[txn.status] || { label: txn.status, color: 'default' as const };
-              const isCancelled = txn.status === 'CANCELLED';
+              const isCancelled = txn.status === 'cancelled';
 
               return (
                 <TableRow
@@ -418,7 +418,7 @@ export default function TransactionsPage() {
                           </IconButton>
                         </Tooltip>
                       )}
-                      {txn.status === 'PENDING' && (
+                      {txn.status === 'pending' && (
                         <Tooltip title="취소">
                           <IconButton
                             size="small"

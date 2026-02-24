@@ -593,7 +593,9 @@ class NettingResponse(BaseModel):
     status: str
     memo: Optional[str] = None
     created_by: UUID
+    created_by_name: Optional[str] = None
     confirmed_by: Optional[UUID] = None
+    confirmed_by_name: Optional[str] = None
     confirmed_at: Optional[datetime] = None
     created_at: datetime
 

@@ -47,11 +47,11 @@ interface ImportJobRow {
 // ─── 상수 ──────────────────────────────────────────────────────────
 
 const STATUS_MAP: Record<string, { label: string; color: 'default' | 'info' | 'warning' | 'success' | 'error' }> = {
-  UPLOADED: { label: '업로드됨', color: 'default' },
-  PARSED: { label: '파싱완료', color: 'info' },
-  REVIEWING: { label: '검수중', color: 'warning' },
-  CONFIRMED: { label: '확정', color: 'success' },
-  FAILED: { label: '실패', color: 'error' },
+  uploaded: { label: '업로드됨', color: 'default' },
+  parsed: { label: '파싱완료', color: 'info' },
+  reviewing: { label: '검수중', color: 'warning' },
+  confirmed: { label: '확정', color: 'success' },
+  failed: { label: '실패', color: 'error' },
 };
 
 /**
@@ -337,7 +337,7 @@ export default function BankImportPage() {
                           <ViewIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      {job.status !== 'CONFIRMED' && (
+                      {job.status !== 'confirmed' && (
                         <Tooltip title="삭제">
                           <IconButton
                             size="small"

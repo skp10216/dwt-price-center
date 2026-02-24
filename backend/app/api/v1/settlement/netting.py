@@ -63,7 +63,12 @@ async def _get_voucher_allocated_total(voucher_id: UUID, db: AsyncSession) -> De
     return alloc + legacy
 
 
-def _netting_to_response(nr: NettingRecord, cp_name: str = None) -> NettingResponse:
+def _netting_to_response(
+    nr: NettingRecord,
+    cp_name: str = None,
+    created_by_name: str = None,
+    confirmed_by_name: str = None,
+) -> NettingResponse:
     return NettingResponse(
         id=nr.id,
         counterparty_id=nr.counterparty_id,
@@ -73,7 +78,9 @@ def _netting_to_response(nr: NettingRecord, cp_name: str = None) -> NettingRespo
         status=nr.status.value if hasattr(nr.status, 'value') else nr.status,
         memo=nr.memo,
         created_by=nr.created_by,
+        created_by_name=created_by_name,
         confirmed_by=nr.confirmed_by,
+        confirmed_by_name=confirmed_by_name,
         confirmed_at=nr.confirmed_at,
         created_at=nr.created_at,
     )
@@ -98,7 +105,7 @@ async def list_nettings(
     if counterparty_id:
         filters.append(NettingRecord.counterparty_id == counterparty_id)
     if status_filter:
-        filters.append(NettingRecord.status == status_filter.upper())
+        filters.append(NettingRecord.status == status_filter)
     if date_from:
         filters.append(NettingRecord.netting_date >= date_from)
     if date_to:
@@ -123,8 +130,24 @@ async def list_nettings(
         )
         cp_map = {row.id: row.name for row in cp_result.all()}
 
+    user_ids = {r.created_by for r in records} | {r.confirmed_by for r in records if r.confirmed_by}
+    user_map = {}
+    if user_ids:
+        u_result = await db.execute(
+            select(User.id, User.name).where(User.id.in_(user_ids))
+        )
+        user_map = {row.id: row.name for row in u_result.all()}
+
     return NettingListResponse(
-        records=[_netting_to_response(r, cp_map.get(r.counterparty_id)) for r in records],
+        records=[
+            _netting_to_response(
+                r,
+                cp_map.get(r.counterparty_id),
+                user_map.get(r.created_by),
+                user_map.get(r.confirmed_by) if r.confirmed_by else None,
+            )
+            for r in records
+        ],
         total=total,
         page=page,
         page_size=page_size,
@@ -302,7 +325,14 @@ async def get_netting(
             netted_amount=link.netted_amount,
         ))
 
-    resp = _netting_to_response(nr, cp.name if cp else None)
+    created_user = await db.get(User, nr.created_by)
+    confirmed_user = await db.get(User, nr.confirmed_by) if nr.confirmed_by else None
+    resp = _netting_to_response(
+        nr,
+        cp.name if cp else None,
+        created_user.name if created_user else None,
+        confirmed_user.name if confirmed_user else None,
+    )
     return NettingDetailResponse(**resp.model_dump(), voucher_links=link_responses)
 
 
@@ -426,7 +456,7 @@ async def confirm_netting(
             netted_amount=link.netted_amount,
         ))
 
-    resp = _netting_to_response(nr, cp.name if cp else None)
+    resp = _netting_to_response(nr, cp.name if cp else None, current_user.name, current_user.name)
     return NettingDetailResponse(**resp.model_dump(), voucher_links=link_responses)
 
 
@@ -483,4 +513,8 @@ async def cancel_netting(
     ))
 
     cp = await db.get(Counterparty, nr.counterparty_id)
-    return _netting_to_response(nr, cp.name if cp else None)
+    created_user = await db.get(User, nr.created_by)
+    return _netting_to_response(
+        nr, cp.name if cp else None,
+        created_user.name if created_user else None,
+    )

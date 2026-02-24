@@ -61,7 +61,7 @@ export default function NettingWizard({ open, onClose, onCreated }: NettingWizar
   const loadCounterparties = useCallback(async () => {
     setCpLoading(true);
     try {
-      const res = await settlementApi.listCounterparties({ page_size: 500 });
+      const res = await settlementApi.listCounterparties({ page_size: 200 });
       const data = res.data as unknown as { counterparties: CounterpartyOption[] };
       setCounterparties(data.counterparties || []);
     } catch {
@@ -91,8 +91,14 @@ export default function NettingWizard({ open, onClose, onCreated }: NettingWizar
     setEligibleLoading(true);
     try {
       const res = await settlementApi.getNettingEligible(selectedCpId);
-      const data = res.data as unknown as { vouchers: EligibleVoucher[] };
-      setEligibleVouchers(data.vouchers || []);
+      const data = res.data as unknown as {
+        sales_vouchers: EligibleVoucher[];
+        purchase_vouchers: EligibleVoucher[];
+      };
+      setEligibleVouchers([
+        ...(data.sales_vouchers || []),
+        ...(data.purchase_vouchers || []),
+      ]);
       setNettingAmounts({});
     } catch {
       enqueueSnackbar('상계 가능 전표 조회에 실패했습니다.', { variant: 'error' });
@@ -103,8 +109,8 @@ export default function NettingWizard({ open, onClose, onCreated }: NettingWizar
 
   // ─── 분류 ──────────────────────────────────────────────────────
 
-  const salesVouchers = eligibleVouchers.filter((v) => v.voucher_type === 'SALES');
-  const purchaseVouchers = eligibleVouchers.filter((v) => v.voucher_type === 'PURCHASE');
+  const salesVouchers = eligibleVouchers.filter((v) => v.voucher_type.toLowerCase() === 'sales');
+  const purchaseVouchers = eligibleVouchers.filter((v) => v.voucher_type.toLowerCase() === 'purchase');
 
   const getSelectedAmount = (id: string) => Number(nettingAmounts[id] || 0);
 
