@@ -21,7 +21,13 @@
       "Bash(cd /c/dev/dwt-price-center && docker compose restart frontend 2>&1)",
       "Bash(curl:*)",
       "Bash(find C:\\\\dev\\\\dwt-price-center\\\\frontend\\\\src\\\\app\\\\\\(main\\)\\\\settlement:*)",
-      "Bash(docker restart:*)"
+      "Bash(docker restart:*)",
+      "Bash(tail:*)",
+      "Bash(cd /c/dev/dwt-price-center && docker ps --format \"table {{.Names}}\\\\t{{.Status}}\\\\t{{.Ports}}\" 2>&1)",
+      "Bash(docker ps:*)",
+      "Bash(python3:*)",
+      "Bash(python:*)",
+      "Bash(docker cp:*)"
     ]
   }
 }
