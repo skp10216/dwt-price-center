@@ -28,9 +28,9 @@ logger = logging.getLogger(__name__)
 # 환경 변수
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+psycopg2://dwt_user:dwt_password@localhost:5432/dwt_price_center"
+    "postgresql+psycopg2://dwt_user:dwt_password@localhost:5532/dwt_price_center"
 )
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6479/0")
 
 # 데이터베이스 연결
 engine = create_engine(DATABASE_URL)

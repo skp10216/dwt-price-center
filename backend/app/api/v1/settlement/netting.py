@@ -175,10 +175,42 @@ async def get_eligible_vouchers(
     )
     vouchers = vouchers_result.scalars().all()
 
+    # 배분 누적액 배치 조회 (N+1 → 3 쿼리)
+    v_ids = [v.id for v in vouchers]
+    alloc_map = {}
+    receipt_map = {}
+    payment_map = {}
+    if v_ids:
+        alloc_result = await db.execute(
+            select(TransactionAllocation.voucher_id, func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0))
+            .where(TransactionAllocation.voucher_id.in_(v_ids))
+            .group_by(TransactionAllocation.voucher_id)
+        )
+        alloc_map = {row[0]: row[1] for row in alloc_result.all()}
+
+        receipt_result = await db.execute(
+            select(Receipt.voucher_id, func.coalesce(func.sum(Receipt.amount), 0))
+            .where(Receipt.voucher_id.in_(v_ids))
+            .group_by(Receipt.voucher_id)
+        )
+        receipt_map = {row[0]: row[1] for row in receipt_result.all()}
+
+        payment_result = await db.execute(
+            select(Payment.voucher_id, func.coalesce(func.sum(Payment.amount), 0))
+            .where(Payment.voucher_id.in_(v_ids))
+            .group_by(Payment.voucher_id)
+        )
+        payment_map = {row[0]: row[1] for row in payment_result.all()}
+
     sales = []
     purchases = []
     for v in vouchers:
-        allocated = await _get_voucher_allocated_total(v.id, db)
+        alloc_total = alloc_map.get(v.id, Decimal("0"))
+        if v.voucher_type == VoucherType.SALES:
+            legacy = receipt_map.get(v.id, Decimal("0"))
+        else:
+            legacy = payment_map.get(v.id, Decimal("0"))
+        allocated = alloc_total + legacy
         available = v.total_amount - allocated
         if available <= 0:
             continue
@@ -240,15 +272,51 @@ async def create_netting(
     db.add(nr)
     await db.flush()
 
+    # 전표 배치 로드 + 배분액 배치 계산
+    all_items = data.sales_vouchers + data.purchase_vouchers
+    all_voucher_ids = [item.voucher_id for item in all_items]
+
+    voucher_result = await db.execute(
+        select(Voucher).where(Voucher.id.in_(all_voucher_ids))
+    )
+    voucher_map = {v.id: v for v in voucher_result.scalars().all()}
+
+    # 배분 누적액 배치 조회
+    alloc_result = await db.execute(
+        select(TransactionAllocation.voucher_id, func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0))
+        .where(TransactionAllocation.voucher_id.in_(all_voucher_ids))
+        .group_by(TransactionAllocation.voucher_id)
+    )
+    alloc_map = {row[0]: row[1] for row in alloc_result.all()}
+
+    receipt_result = await db.execute(
+        select(Receipt.voucher_id, func.coalesce(func.sum(Receipt.amount), 0))
+        .where(Receipt.voucher_id.in_(all_voucher_ids))
+        .group_by(Receipt.voucher_id)
+    )
+    receipt_map = {row[0]: row[1] for row in receipt_result.all()}
+
+    payment_result = await db.execute(
+        select(Payment.voucher_id, func.coalesce(func.sum(Payment.amount), 0))
+        .where(Payment.voucher_id.in_(all_voucher_ids))
+        .group_by(Payment.voucher_id)
+    )
+    payment_map = {row[0]: row[1] for row in payment_result.all()}
+
     links = []
-    for item in data.sales_vouchers + data.purchase_vouchers:
-        v = await db.get(Voucher, item.voucher_id)
+    for item in all_items:
+        v = voucher_map.get(item.voucher_id)
         if not v:
             raise HTTPException(status_code=404, detail=f"전표 {item.voucher_id}를 찾을 수 없습니다")
         if v.counterparty_id != data.counterparty_id:
             raise HTTPException(status_code=400, detail=f"전표 {v.voucher_number}는 다른 거래처 소속입니다")
 
-        allocated = await _get_voucher_allocated_total(v.id, db)
+        alloc_total = alloc_map.get(v.id, Decimal("0"))
+        if v.voucher_type == VoucherType.SALES:
+            legacy = receipt_map.get(v.id, Decimal("0"))
+        else:
+            legacy = payment_map.get(v.id, Decimal("0"))
+        allocated = alloc_total + legacy
         available = v.total_amount - allocated
         if item.amount > available:
             raise HTTPException(
@@ -312,10 +380,26 @@ async def get_netting(
     if not nr:
         raise HTTPException(status_code=404, detail="상계 기록을 찾을 수 없습니다")
 
+    # 전표 + 거래처 + 사용자 배치 로드
+    link_voucher_ids = [link.voucher_id for link in nr.voucher_links]
+    voucher_map = {}
+    if link_voucher_ids:
+        v_result = await db.execute(
+            select(Voucher).where(Voucher.id.in_(link_voucher_ids))
+        )
+        voucher_map = {v.id: v for v in v_result.scalars().all()}
+
     cp = await db.get(Counterparty, nr.counterparty_id)
+
+    user_ids = {nr.created_by}
+    if nr.confirmed_by:
+        user_ids.add(nr.confirmed_by)
+    u_result = await db.execute(select(User.id, User.name).where(User.id.in_(user_ids)))
+    user_map = {row.id: row.name for row in u_result.all()}
+
     link_responses = []
     for link in nr.voucher_links:
-        v = await db.get(Voucher, link.voucher_id)
+        v = voucher_map.get(link.voucher_id)
         link_responses.append(NettingVoucherLinkResponse(
             voucher_id=link.voucher_id,
             voucher_number=v.voucher_number if v else None,
@@ -325,13 +409,11 @@ async def get_netting(
             netted_amount=link.netted_amount,
         ))
 
-    created_user = await db.get(User, nr.created_by)
-    confirmed_user = await db.get(User, nr.confirmed_by) if nr.confirmed_by else None
     resp = _netting_to_response(
         nr,
         cp.name if cp else None,
-        created_user.name if created_user else None,
-        confirmed_user.name if confirmed_user else None,
+        user_map.get(nr.created_by),
+        user_map.get(nr.confirmed_by) if nr.confirmed_by else None,
     )
     return NettingDetailResponse(**resp.model_dump(), voucher_links=link_responses)
 
@@ -354,13 +436,46 @@ async def confirm_netting(
     if nr.status != NettingStatus.DRAFT:
         raise HTTPException(status_code=400, detail="초안 상태에서만 확정할 수 있습니다")
 
+    # 전표 1회 배치 로드 (3중 조회 → 1회)
+    link_voucher_ids = [link.voucher_id for link in nr.voucher_links]
+    v_result = await db.execute(
+        select(Voucher).where(Voucher.id.in_(link_voucher_ids))
+    )
+    voucher_map = {v.id: v for v in v_result.scalars().all()}
+
+    # 배분 누적액 배치 조회
+    alloc_result = await db.execute(
+        select(TransactionAllocation.voucher_id, func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0))
+        .where(TransactionAllocation.voucher_id.in_(link_voucher_ids))
+        .group_by(TransactionAllocation.voucher_id)
+    )
+    alloc_map = {row[0]: row[1] for row in alloc_result.all()}
+
+    receipt_result = await db.execute(
+        select(Receipt.voucher_id, func.coalesce(func.sum(Receipt.amount), 0))
+        .where(Receipt.voucher_id.in_(link_voucher_ids))
+        .group_by(Receipt.voucher_id)
+    )
+    receipt_map = {row[0]: row[1] for row in receipt_result.all()}
+
+    payment_result = await db.execute(
+        select(Payment.voucher_id, func.coalesce(func.sum(Payment.amount), 0))
+        .where(Payment.voucher_id.in_(link_voucher_ids))
+        .group_by(Payment.voucher_id)
+    )
+    payment_map = {row[0]: row[1] for row in payment_result.all()}
+
     # 전표 잔액 재검증
     for link in nr.voucher_links:
-        v = await db.get(Voucher, link.voucher_id)
+        v = voucher_map.get(link.voucher_id)
         if not v:
             raise HTTPException(status_code=400, detail=f"전표 {link.voucher_id}가 삭제되었습니다")
-        allocated = await _get_voucher_allocated_total(v.id, db)
-        available = v.total_amount - allocated
+        alloc_total = alloc_map.get(v.id, Decimal("0"))
+        if v.voucher_type == VoucherType.SALES:
+            legacy = receipt_map.get(v.id, Decimal("0"))
+        else:
+            legacy = payment_map.get(v.id, Decimal("0"))
+        available = v.total_amount - (alloc_total + legacy)
         if link.netted_amount > available:
             raise HTTPException(
                 status_code=400,
@@ -398,11 +513,11 @@ async def confirm_netting(
     db.add(withdrawal_txn)
     await db.flush()
 
-    # 배분 생성
+    # 배분 생성 (voucher_map 재사용)
     order = 0
     affected_voucher_ids = []
     for link in nr.voucher_links:
-        v = await db.get(Voucher, link.voucher_id)
+        v = voucher_map[link.voucher_id]
         if v.voucher_type == VoucherType.SALES:
             txn = deposit_txn
         else:
@@ -442,11 +557,11 @@ async def confirm_netting(
         },
     ))
 
-    # 응답
+    # 응답 (voucher_map 재사용)
     cp = await db.get(Counterparty, nr.counterparty_id)
     link_responses = []
     for link in nr.voucher_links:
-        v = await db.get(Voucher, link.voucher_id)
+        v = voucher_map.get(link.voucher_id)
         link_responses.append(NettingVoucherLinkResponse(
             voucher_id=link.voucher_id,
             voucher_number=v.voucher_number if v else None,

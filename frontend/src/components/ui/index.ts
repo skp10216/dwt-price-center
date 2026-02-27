@@ -19,6 +19,9 @@ export {
 } from './AppPageHeader';
 export { default as AppPageToolbar, type AppPageToolbarProps } from './AppPageToolbar';
 
+// 상세 Drawer
+export { default as AppDetailDrawer, type AppDetailDrawerProps } from './AppDetailDrawer';
+
 // 카드 / 섹션
 export {
   AppSectionCard,
@@ -29,6 +32,7 @@ export {
 
 // 테이블
 export { default as AppTableShell, type AppTableShellProps } from './AppTableShell';
+export { default as AppDataTable, type AppDataTableProps, type AppColumnDef } from './AppDataTable';
 
 // 상태 / 칩
 export {

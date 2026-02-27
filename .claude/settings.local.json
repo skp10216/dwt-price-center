@@ -27,7 +27,12 @@
       "Bash(docker ps:*)",
       "Bash(python3:*)",
       "Bash(python:*)",
-      "Bash(docker cp:*)"
+      "Bash(docker cp:*)",
+      "Bash(ls /c/Source/dwt-price-center/backend/.venv/Scripts/python.exe 2>/dev/null && /c/Source/dwt-price-center/backend/.venv/Scripts/python.exe --version 2>&1)",
+      "Bash(cd /c/Source/dwt-price-center && git push 2>&1)",
+      "Bash(head:*)",
+      "Bash(find:*)",
+      "Bash(done)"
     ]
   }
 }

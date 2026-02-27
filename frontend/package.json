@@ -4,9 +4,9 @@
   "description": "단가표 통합 관리 시스템 - Frontend",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --port 3100",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --port 3100",
     "lint": "next lint",
     "type-check": "tsc --noEmit"
   },
@@ -15,6 +15,7 @@
     "@emotion/styled": "11.11.0",
     "@hookform/resolvers": "3.3.4",
     "@mui/icons-material": "5.15.7",
+    "@mui/lab": "^5.0.0-alpha.170",
     "@mui/material": "5.15.7",
     "@mui/x-data-grid": "6.19.2",
     "axios": "1.6.7",

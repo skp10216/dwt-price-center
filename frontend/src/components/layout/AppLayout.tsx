@@ -35,51 +35,54 @@ import {
 } from '@mui/material';
 import { useSnackbar } from 'notistack';
 import { settlementApi } from '@/lib/api';
-import {
-  Menu as MenuIcon,
-  ChevronLeft as ChevronLeftIcon,
-  ChevronRight as ChevronRightIcon,
-  PriceCheck as PriceCheckIcon,
-  Compare as CompareIcon,
-  Star as StarIcon,
-  Search as SearchIcon,
-  Settings as SettingsIcon,
-  Upload as UploadIcon,
-  Business as BusinessIcon,
-  Grade as GradeIcon,
-  RemoveCircle as RemoveCircleIcon,
-  History as HistoryIcon,
-  People as PeopleIcon,
-  ExpandLess,
-  ExpandMore,
-  Logout as LogoutIcon,
-  AdminPanelSettings as AdminIcon,
-  Smartphone as SmartphoneIcon,
-  Tablet as TabletIcon,
-  Watch as WatchIcon,
-  Apple as AppleIcon,
-  PhoneAndroid as SamsungIcon,
-  Dashboard as DashboardIcon,
-  LightMode as LightModeIcon,
-  DarkMode as DarkModeIcon,
-  SettingsBrightness as AutoModeIcon,
-  Add as AddIcon,
-  Palette as PaletteIcon,
-  TableChart as TableChartIcon,
-  // 정산 도메인 아이콘
-  Receipt as ReceiptIcon,
-  AccountBalance as AccountBalanceIcon,
-  CloudUpload as CloudUploadIcon,
-  Lock as LockIcon,
-  ManageSearch as ActivityIcon,
-  SwapHoriz as SwapHorizIcon,
-  Balance as BalanceIcon,
-  AccountBalanceWallet as BankImportIcon,
-} from '@mui/icons-material';
+// MUI 아이콘 개별 경로 임포트 (tree-shaking 보장)
+import MenuIcon from '@mui/icons-material/Menu';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import PriceCheckIcon from '@mui/icons-material/PriceCheck';
+import CompareIcon from '@mui/icons-material/Compare';
+import StarIcon from '@mui/icons-material/Star';
+import SearchIcon from '@mui/icons-material/Search';
+import SettingsIcon from '@mui/icons-material/Settings';
+import UploadIcon from '@mui/icons-material/Upload';
+import BusinessIcon from '@mui/icons-material/Business';
+import GradeIcon from '@mui/icons-material/Grade';
+import RemoveCircleIcon from '@mui/icons-material/RemoveCircle';
+import HistoryIcon from '@mui/icons-material/History';
+import PeopleIcon from '@mui/icons-material/People';
+import ExpandLess from '@mui/icons-material/ExpandLess';
+import ExpandMore from '@mui/icons-material/ExpandMore';
+import LogoutIcon from '@mui/icons-material/Logout';
+import AdminIcon from '@mui/icons-material/AdminPanelSettings';
+import SmartphoneIcon from '@mui/icons-material/Smartphone';
+import TabletIcon from '@mui/icons-material/Tablet';
+import WatchIcon from '@mui/icons-material/Watch';
+import AppleIcon from '@mui/icons-material/Apple';
+import SamsungIcon from '@mui/icons-material/PhoneAndroid';
+import DashboardIcon from '@mui/icons-material/Dashboard';
+import LightModeIcon from '@mui/icons-material/LightMode';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
+import AutoModeIcon from '@mui/icons-material/SettingsBrightness';
+import AddIcon from '@mui/icons-material/Add';
+import PaletteIcon from '@mui/icons-material/Palette';
+import TableChartIcon from '@mui/icons-material/TableChart';
+// 정산 도메인 아이콘
+import ReceiptIcon from '@mui/icons-material/Receipt';
+import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import LockIcon from '@mui/icons-material/Lock';
+import ActivityIcon from '@mui/icons-material/ManageSearch';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import BalanceIcon from '@mui/icons-material/Balance';
+import BankImportIcon from '@mui/icons-material/AccountBalanceWallet';
+import SpeedDial from '@mui/material/SpeedDial';
+import SpeedDialAction from '@mui/material/SpeedDialAction';
+import SpeedDialIcon from '@mui/material/SpeedDialIcon';
 import { useAuthStore, useUIStore, useDomainStore, useThemeStore, type ThemeMode, type User } from '@/lib/store';
 import { getDomainType, getDefaultPath } from '@/lib/domain';
 import { Logo } from '@/components/ui/Logo';
 import { authApi } from '@/lib/api';
+import TransactionCreateDialog from '@/components/settlement/TransactionCreateDialog';
 
 const DRAWER_WIDTH = 240;       // 280 → 240px (데이터 영역 확보)
 const DRAWER_MINI_WIDTH = 56;  // 64 → 56px
@@ -195,6 +198,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [latestPurchaseDate, setLatestPurchaseDate] = useState<string | null>(null);
   // NProgress-style 경로 전환 로딩 상태
   const [navigating, setNavigating] = useState(false);
+  // 정산 도메인 FAB
+  const [fabTxnOpen, setFabTxnOpen] = useState(false);
   const prevPathRef = useRef(pathname);
   const { enqueueSnackbar, closeSnackbar } = useSnackbar();
 
@@ -357,7 +362,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isSettlementDomain) return;
     checkLatestUploads();
-    const timer = setInterval(checkLatestUploads, 3 * 60 * 1000);
+    const timer = setInterval(() => {
+      // 탭 비활성 시 폴링 중지
+      if (!document.hidden) {
+        checkLatestUploads();
+      }
+    }, 5 * 60 * 1000);
     return () => clearInterval(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSettlementDomain]);
@@ -854,12 +864,46 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           sx={{
             flex: 1,
             minHeight: 0, // flex 자식 내부 스크롤이 정상 작동하도록
-            overflow: 'auto',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
             p: 2,
           }}
         >
           {children}
         </Box>
+
+        {/* ─── 정산 도메인 플로팅 액션 버튼 ─── */}
+        {pathname.startsWith('/settlement') && (
+          <>
+            <SpeedDial
+              ariaLabel="빠른 작업"
+              sx={{ position: 'fixed', bottom: 24, right: 24 }}
+              icon={<SpeedDialIcon />}
+            >
+              <SpeedDialAction
+                icon={<SwapHorizIcon />}
+                tooltipTitle="입출금 등록"
+                onClick={() => setFabTxnOpen(true)}
+              />
+              <SpeedDialAction
+                icon={<ReceiptIcon />}
+                tooltipTitle="전표 목록"
+                onClick={() => router.push('/settlement/vouchers')}
+              />
+              <SpeedDialAction
+                icon={<AccountBalanceIcon />}
+                tooltipTitle="거래처 현황"
+                onClick={() => router.push('/settlement/status')}
+              />
+            </SpeedDial>
+            <TransactionCreateDialog
+              open={fabTxnOpen}
+              onClose={() => setFabTxnOpen(false)}
+              onCreated={() => { /* 페이지별 refresh는 개별 페이지에서 처리 */ }}
+            />
+          </>
+        )}
       </Box>
     </Box>
   );

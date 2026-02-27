@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Box, Typography, Paper, Button, Stack, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, IconButton, Tooltip, Dialog,
-  DialogTitle, DialogContent, DialogActions, TextField, Chip, Alert,
-  MenuItem, Select, FormControl, InputLabel, alpha, useTheme,
+  Box, Typography, Button, Stack, IconButton, Tooltip, Dialog,
+  DialogTitle, DialogContent, DialogActions, TextField, Chip,
+  MenuItem, Select, FormControl, InputLabel,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -13,9 +12,16 @@ import {
   Delete as DeleteIcon,
   Star as StarIcon,
   StarBorder as StarBorderIcon,
+  Description as TemplateIcon,
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
+import {
+  AppPageContainer,
+  AppPageHeader,
+  AppDataTable,
+  type AppColumnDef,
+} from '@/components/ui';
 
 interface UploadTemplate {
   id: string;
@@ -32,7 +38,6 @@ interface UploadTemplate {
  * 업로드 템플릿 관리 페이지
  */
 export default function UploadTemplatesPage() {
-  const theme = useTheme();
   const { enqueueSnackbar } = useSnackbar();
   const [templates, setTemplates] = useState<UploadTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,59 +123,99 @@ export default function UploadTemplatesPage() {
     }
   };
 
-  return (
-    <Box>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>
-        <Box>
-          <Typography variant="h5" fontWeight={700}>업로드 템플릿 관리</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Excel 파일의 컬럼과 시스템 필드를 매핑하는 템플릿을 관리합니다.
-          </Typography>
-        </Box>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
-          템플릿 추가
-        </Button>
-      </Stack>
+  // ─── 컬럼 정의 ──────────────────────────────────────────────────
 
-      <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-        <Table size="small">
-          <TableHead>
-            <TableRow sx={{ bgcolor: alpha(theme.palette.info.main, 0.04) }}>
-              <TableCell sx={{ fontWeight: 700 }}>기본</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>이름</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>타입</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>설명</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>수정일</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 700 }}>관리</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading ? (
-              <TableRow><TableCell colSpan={6} align="center" sx={{ py: 8 }}>로딩 중...</TableCell></TableRow>
-            ) : templates.length === 0 ? (
-              <TableRow><TableCell colSpan={6} align="center" sx={{ py: 8 }}>등록된 템플릿이 없습니다</TableCell></TableRow>
-            ) : (
-              templates.map((t) => (
-                <TableRow key={t.id} hover>
-                  <TableCell>
-                    {t.is_default ? <StarIcon fontSize="small" color="warning" /> : <StarBorderIcon fontSize="small" color="disabled" />}
-                  </TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>{t.name}</TableCell>
-                  <TableCell>
-                    <Chip label={t.voucher_type === 'sales' ? '판매' : '매입'} size="small" color={t.voucher_type === 'sales' ? 'primary' : 'secondary'} variant="outlined" />
-                  </TableCell>
-                  <TableCell>{t.description || '-'}</TableCell>
-                  <TableCell>{new Date(t.updated_at).toLocaleDateString('ko-KR')}</TableCell>
-                  <TableCell align="center">
-                    <Tooltip title="수정"><IconButton size="small" onClick={() => openEdit(t)}><EditIcon fontSize="small" /></IconButton></Tooltip>
-                    <Tooltip title="삭제"><IconButton size="small" color="error" onClick={() => handleDelete(t.id)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+  const columns = useMemo<AppColumnDef<UploadTemplate>[]>(() => [
+    {
+      field: 'is_default',
+      headerName: '기본',
+      sortable: false,
+      width: 60,
+      renderCell: (row) => (
+        row.is_default
+          ? <StarIcon fontSize="small" color="warning" />
+          : <StarBorderIcon fontSize="small" color="disabled" />
+      ),
+    },
+    {
+      field: 'name',
+      headerName: '이름',
+      cellSx: { fontWeight: 600 },
+    },
+    {
+      field: 'voucher_type',
+      headerName: '타입',
+      sortable: false,
+      renderCell: (row) => (
+        <Chip
+          label={row.voucher_type === 'sales' ? '판매' : '매입'}
+          size="small"
+          color={row.voucher_type === 'sales' ? 'primary' : 'secondary'}
+          variant="outlined"
+        />
+      ),
+    },
+    {
+      field: 'description',
+      headerName: '설명',
+      sortable: false,
+      renderCell: (row) => (
+        <Typography variant="body2" color="text.secondary">
+          {row.description || '-'}
+        </Typography>
+      ),
+    },
+    {
+      field: 'updated_at',
+      headerName: '수정일',
+      renderCell: (row) => new Date(row.updated_at).toLocaleDateString('ko-KR'),
+    },
+  ], []);
+
+  return (
+    <AppPageContainer>
+      <AppPageHeader
+        icon={<TemplateIcon />}
+        title="업로드 템플릿 관리"
+        description="Excel 파일의 컬럼과 시스템 필드를 매핑하는 템플릿을 관리합니다"
+        color="info"
+        count={loading ? null : templates.length}
+        onRefresh={loadTemplates}
+        loading={loading}
+        actions={[
+          {
+            label: '템플릿 추가',
+            onClick: openCreate,
+            variant: 'contained' as const,
+            icon: <AddIcon />,
+          },
+        ]}
+      />
+
+      <AppDataTable<UploadTemplate>
+        columns={columns}
+        rows={templates}
+        getRowKey={(r) => r.id}
+        defaultSortField="updated_at"
+        defaultSortOrder="desc"
+        loading={loading}
+        emptyMessage="등록된 템플릿이 없습니다"
+        emptyIcon={<TemplateIcon sx={{ fontSize: 40, opacity: 0.4 }} />}
+        renderActions={(t) => (
+          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+            <Tooltip title="수정">
+              <IconButton size="small" onClick={() => openEdit(t)}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="삭제">
+              <IconButton size="small" color="error" onClick={() => handleDelete(t.id)}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        )}
+      />
 
       {/* 템플릿 편집 다이얼로그 */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
@@ -203,6 +248,6 @@ export default function UploadTemplatesPage() {
           <Button variant="contained" onClick={handleSave} disabled={!formName || !formMapping}>저장</Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </AppPageContainer>
   );
 }

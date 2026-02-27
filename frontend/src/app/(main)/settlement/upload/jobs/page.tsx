@@ -16,7 +16,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Chip, IconButton, Tooltip,
-  Stack, alpha, useTheme, LinearProgress, Button, Checkbox,
+  Stack, alpha, useTheme, LinearProgress, Button,
   Dialog, DialogTitle, DialogContent, DialogActions,
   Drawer, Tabs, Tab, Divider, Alert, AlertTitle, CircularProgress,
   Autocomplete, TextField, FormControl, InputLabel,
@@ -49,11 +49,11 @@ import {
   History as HistoryIcon,
 } from '@mui/icons-material';
 import Avatar from '@mui/material/Avatar';
-import Skeleton from '@mui/material/Skeleton';
 import {
   AppPageContainer,
   AppPageHeader,
-  AppTableShell,
+  AppDataTable,
+  type AppColumnDef,
 } from '@/components/ui';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
@@ -227,6 +227,7 @@ export default function UploadJobsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [showOnlyConfirmed, setShowOnlyConfirmed] = useState(true);
 
   // ─── 상세 드로어 상태 ───
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -272,7 +273,8 @@ export default function UploadJobsPage() {
       const data = res.data as unknown as { jobs: UploadJob[]; total: number };
       setJobs(data.jobs || []);
       setTotal(data.total || 0);
-      setAutoRefresh((data.jobs || []).some((j) => isActiveStatus(j.status)));
+      const hasActive = (data.jobs || []).some((j) => isActiveStatus(j.status));
+      setAutoRefresh(hasActive);
     } catch {
       enqueueSnackbar('작업 목록 로딩 실패', { variant: 'error' });
     } finally {
@@ -287,6 +289,23 @@ export default function UploadJobsPage() {
     const timer = setInterval(loadJobs, 3000);
     return () => clearInterval(timer);
   }, [autoRefresh, loadJobs]);
+
+  // ─── 확정 필터 ───
+  // showOnlyConfirmed=true 시: 확정된 작업 + 실행 중/대기 중 작업만 표시 (위자드 진행 중 미확정 완료 작업은 숨김)
+  const displayJobs = useMemo(() => {
+    if (!showOnlyConfirmed) return jobs;
+    return jobs.filter((j) => {
+      // 실행 중/대기 중: 항상 표시
+      if (isActiveStatus(j.status)) return true;
+      // 실패: 항상 표시
+      if (isFailed(j.status)) return true;
+      // 성공: 확정된 것만 표시
+      if (isSucceeded(j.status)) return j.is_confirmed;
+      return true;
+    });
+  }, [jobs, showOnlyConfirmed]);
+
+  const displayTotal = showOnlyConfirmed ? displayJobs.length : total;
 
   // ─── 상세 로드 ───
   const loadJobDetail = useCallback(async (jobId: string, initialTab?: number) => {
@@ -455,23 +474,7 @@ export default function UploadJobsPage() {
   const linkCount = Object.values(mappingActions).filter((v) => v.action === 'link').length;
   const skipCount = Object.values(mappingActions).filter((v) => v.action === 'skip').length;
 
-  // ─── 체크박스 핸들러 ───
-  const deletableJobs = jobs.filter((j) => !isRunning(j.status));
-
-  const handleSelectAll = (checked: boolean) => {
-    setSelected(checked ? new Set(deletableJobs.map((j) => j.id)) : new Set());
-  };
-
-  const handleSelectOne = (id: string, checked: boolean) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      checked ? next.add(id) : next.delete(id);
-      return next;
-    });
-  };
-
-  const isAllSelected = deletableJobs.length > 0 && deletableJobs.every((j) => selected.has(j.id));
-  const isSomeSelected = selected.size > 0 && !isAllSelected;
+  // ─── 체크박스 (AppDataTable이 처리) ───
 
   // ─── 일괄 삭제 ───
   const executeDelete = async () => {
@@ -549,6 +552,132 @@ export default function UploadJobsPage() {
       .sort((a, b) => new Date(b.confirmed_at!).getTime() - new Date(a.confirmed_at!).getTime())[0];
     return { latestSalesId: salesLatest?.id ?? null, latestPurchaseId: purchaseLatest?.id ?? null };
   }, [jobs]);
+
+  // ─── 컬럼 정의 ───
+  const columns = useMemo<AppColumnDef<UploadJob>[]>(() => [
+    {
+      field: 'created_at',
+      headerName: '등록일시',
+      width: 155,
+      renderCell: (row) => (
+        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ whiteSpace: 'nowrap' }}>
+          <AccessTimeIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
+          <span>{formatKST(row.created_at)}</span>
+        </Stack>
+      ),
+    },
+    {
+      field: 'job_type',
+      headerName: '타입',
+      width: 70,
+      align: 'center',
+      sortable: false,
+      renderCell: (row) => {
+        const typeInfo = getJobTypeLabel(row.job_type);
+        return (
+          <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
+            <Chip label={typeInfo.label} size="small" color={typeInfo.color} variant="outlined" sx={{ fontWeight: 600 }} />
+            {(row.id === latestSalesId || row.id === latestPurchaseId) && (
+              <Chip label="최신" size="small" color="success" sx={{ fontWeight: 700 }} />
+            )}
+          </Stack>
+        );
+      },
+    },
+    {
+      field: 'original_filename',
+      headerName: '파일명',
+      renderCell: (row) => (
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ maxWidth: 200, overflow: 'hidden' }}>
+          <Tooltip title={row.original_filename} arrow>
+            <Typography variant="body2" noWrap fontWeight={500}>{row.original_filename}</Typography>
+          </Tooltip>
+          {row.is_confirmed && (
+            <Chip icon={<VerifiedIcon sx={{ fontSize: '12px !important' }} />} label="확정"
+              size="small" color="success" variant="filled"
+              sx={{ fontWeight: 700, '& .MuiChip-icon': { ml: 0.5 } }} />
+          )}
+        </Stack>
+      ),
+    },
+    {
+      field: 'created_by_name',
+      headerName: '작업자',
+      width: 110,
+      sortable: false,
+      renderCell: (row) => (
+        row.created_by_name ? (
+          <Tooltip title={row.created_by_email || ''} arrow placement="top">
+            <Stack direction="row" spacing={0.8} alignItems="center">
+              <Avatar sx={{
+                width: 26, height: 26, fontSize: '0.7rem', fontWeight: 700,
+                bgcolor: getAvatarColor(row.created_by_name),
+              }}>
+                {getInitials(row.created_by_name)}
+              </Avatar>
+              <Typography variant="caption" fontWeight={500} noWrap sx={{ maxWidth: 70 }}>
+                {row.created_by_name}
+              </Typography>
+            </Stack>
+          </Tooltip>
+        ) : (
+          <Typography variant="caption" color="text.disabled">—</Typography>
+        )
+      ),
+    },
+    {
+      field: 'status',
+      headerName: '상태',
+      width: 90,
+      align: 'center',
+      sortable: false,
+      renderCell: (row) => {
+        const statusInfo = getStatusInfo(row.status);
+        return (
+          <Chip icon={statusInfo.icon as React.ReactElement} label={statusInfo.label} size="small"
+            color={statusInfo.color} sx={{ fontWeight: 600 }} />
+        );
+      },
+    },
+    {
+      field: 'progress',
+      headerName: '진행률',
+      width: 90,
+      align: 'center',
+      sortable: false,
+      renderCell: (row) => (
+        isActiveStatus(row.status) ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <LinearProgress variant={row.progress > 0 ? 'determinate' : 'indeterminate'} value={row.progress}
+              sx={{ flex: 1, height: 6, borderRadius: 1 }} />
+            <Typography variant="caption" color="text.secondary" sx={{ minWidth: 32, textAlign: 'right' }}>
+              {row.progress}%
+            </Typography>
+          </Box>
+        ) : isSucceeded(row.status) ? (
+          <Typography variant="caption" color="success.main" fontWeight={600}>100%</Typography>
+        ) : (
+          <Typography variant="caption" color="text.disabled">—</Typography>
+        )
+      ),
+    },
+    {
+      field: 'result_summary',
+      headerName: '결과 요약',
+      sortable: false,
+      renderCell: (row) => (
+        <Box onClick={(e) => e.stopPropagation()}>{renderSummary(row)}</Box>
+      ),
+    },
+    {
+      field: 'completed_at',
+      headerName: '완료시간',
+      width: 155,
+      renderCell: (row) => (
+        <span style={{ whiteSpace: 'nowrap' }}>{formatKST(row.completed_at)}</span>
+      ),
+    },
+  ], [latestSalesId, latestPurchaseId]);
 
   // ─── 결과 요약 Chip 렌더링 (클릭 가능) ───
   const renderSummary = (job: UploadJob) => {
@@ -636,194 +765,72 @@ export default function UploadJobsPage() {
         title="업로드 작업 내역"
         description="행을 클릭하면 상세 결과를 확인합니다. 결과 요약 칩을 클릭하면 해당 탭으로 바로 이동합니다"
         color="primary"
-        count={loading ? null : total}
+        count={loading ? null : displayTotal}
         onRefresh={loadJobs}
         loading={loading}
         highlight
-        chips={autoRefresh ? [
-          <Chip key="auto" label="자동 새로고침" size="small" color="info" variant="outlined"
-            sx={{ height: 20, fontSize: '0.68rem' }} />
-        ] : []}
+        chips={[
+          ...(autoRefresh ? [
+            <Chip key="auto" label="자동 새로고침" size="small" color="info" variant="outlined"
+              sx={{ height: 20, fontSize: '0.68rem' }} />
+          ] : []),
+          <Chip
+            key="filter"
+            label={showOnlyConfirmed ? '확정만 보기' : '전체 보기'}
+            size="small"
+            color={showOnlyConfirmed ? 'primary' : 'default'}
+            variant={showOnlyConfirmed ? 'filled' : 'outlined'}
+            onClick={() => setShowOnlyConfirmed((v) => !v)}
+            sx={{ height: 20, fontSize: '0.68rem', cursor: 'pointer' }}
+          />,
+        ]}
         actions={headerActions}
       />
 
       {/* 테이블 */}
-      <AppTableShell
+      <AppDataTable<UploadJob>
+        columns={columns}
+        rows={displayJobs}
+        getRowKey={(r) => r.id}
+        defaultSortField="created_at"
+        defaultSortOrder="desc"
         loading={loading}
-        isEmpty={!loading && jobs.length === 0}
         emptyMessage="업로드 작업이 없습니다"
-        count={total}
+        emptyIcon={<HistoryIcon sx={{ fontSize: 40, opacity: 0.4 }} />}
+        count={displayTotal}
         page={page}
         rowsPerPage={pageSize}
         onPageChange={(_, p) => setPage(p)}
         onRowsPerPageChange={(e) => { setPageSize(parseInt(e.target.value, 10)); setPage(0); }}
-      >
-        <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell padding="checkbox" sx={{ width: 42 }}>
-                  <Checkbox size="small" indeterminate={isSomeSelected} checked={isAllSelected}
-                    onChange={(e) => handleSelectAll(e.target.checked)} />
-                </TableCell>
-                {[
-                  { label: '등록일시', width: 155 },
-                  { label: '타입', width: 70, align: 'center' as const },
-                  { label: '파일명' },
-                  { label: '작업자', width: 110 },
-                  { label: '상태', width: 90, align: 'center' as const },
-                  { label: '진행률', width: 90, align: 'center' as const },
-                  { label: '결과 요약' },
-                  { label: '완료시간', width: 155 },
-                ].map(({ label, width, align }) => (
-                  <TableCell key={label} align={align} sx={{
-                    fontWeight: 700, fontSize: '0.6875rem', letterSpacing: '0.04em',
-                    color: 'text.secondary',
-                    textTransform: 'uppercase',
-                    ...(width ? { width } : {}),
-                  }}>
-                    {label}
-                  </TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
-          <TableBody>
-            {loading && jobs.length === 0 ? (
-              // Skeleton 로딩 상태
-              [...Array(5)].map((_, i) => (
-                <TableRow key={`skeleton-${i}`}>
-                  <TableCell padding="checkbox"><Skeleton variant="rectangular" width={18} height={18} /></TableCell>
-                  <TableCell><Skeleton width={120} /></TableCell>
-                  <TableCell align="center"><Skeleton variant="rounded" width={40} height={22} /></TableCell>
-                  <TableCell><Skeleton width="80%" /></TableCell>
-                  <TableCell><Stack direction="row" spacing={1} alignItems="center"><Skeleton variant="circular" width={28} height={28} /><Skeleton width={50} /></Stack></TableCell>
-                  <TableCell align="center"><Skeleton variant="rounded" width={50} height={22} /></TableCell>
-                  <TableCell align="center"><Skeleton width={40} /></TableCell>
-                  <TableCell><Skeleton width="60%" /></TableCell>
-                  <TableCell><Skeleton width={120} /></TableCell>
-                </TableRow>
-              ))
-            ) : (
-              jobs.map((job) => {
-                const typeInfo = getJobTypeLabel(job.job_type);
-                const statusInfo = getStatusInfo(job.status);
-                const canSelect = !isRunning(job.status);
-                const isChecked = selected.has(job.id);
-                const canViewDetail = isSucceeded(job.status) || isFailed(job.status);
-
-                // 상태별 좌측 인디케이터 색상
-                const indicatorColor = isFailed(job.status) ? theme.palette.error.main
-                  : isSucceeded(job.status) && job.is_confirmed ? theme.palette.success.main
-                  : isSucceeded(job.status) ? theme.palette.info.main
-                  : isRunning(job.status) ? theme.palette.warning.main
-                  : 'transparent';
-
-                return (
-                  <TableRow
-                    key={job.id}
-                    hover
-                    selected={isChecked}
-                    onClick={() => canViewDetail && loadJobDetail(job.id)}
-                    sx={{
-                      cursor: canViewDetail ? 'pointer' : 'default',
-                      bgcolor: isFailed(job.status) ? alpha(theme.palette.error.main, 0.02) : 'transparent',
-                      position: 'relative',
-                      transition: 'all 0.15s ease-in-out',
-                      '&:hover': {
-                        bgcolor: alpha(theme.palette.primary.main, 0.04),
-                        boxShadow: canViewDetail ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
-                        transform: canViewDetail ? 'translateY(-1px)' : 'none',
-                      },
-                      // 좌측 상태 인디케이터
-                      '&::before': {
-                        content: '""',
-                        position: 'absolute',
-                        left: 0, top: 0, bottom: 0,
-                        width: 4,
-                        bgcolor: indicatorColor,
-                        borderRadius: '0 2px 2px 0',
-                      },
-                    }}
-                  >
-                    <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
-                      <Checkbox size="small" checked={isChecked} disabled={!canSelect}
-                        onChange={(e) => handleSelectOne(job.id, e.target.checked)} />
-                    </TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                      <Stack direction="row" spacing={0.5} alignItems="center">
-                        <AccessTimeIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
-                        <span>{formatKST(job.created_at)}</span>
-                      </Stack>
-                    </TableCell>
-                    <TableCell align="center">
-                      <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
-                        <Chip label={typeInfo.label} size="small" color={typeInfo.color} variant="outlined"
-                          sx={{ fontWeight: 600 }} />
-                        {(job.id === latestSalesId || job.id === latestPurchaseId) && (
-                          <Chip label="최신" size="small" color="success"
-                            sx={{ fontWeight: 700 }} />
-                        )}
-                      </Stack>
-                    </TableCell>
-                    <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Tooltip title={job.original_filename} arrow>
-                          <Typography variant="body2" noWrap fontWeight={500}>{job.original_filename}</Typography>
-                        </Tooltip>
-                        {job.is_confirmed && (
-                          <Chip icon={<VerifiedIcon sx={{ fontSize: '12px !important' }} />} label="확정"
-                            size="small" color="success" variant="filled"
-                            sx={{ fontWeight: 700, '& .MuiChip-icon': { ml: 0.5 } }} />
-                        )}
-                      </Stack>
-                    </TableCell>
-                    {/* 작업자 컬럼 */}
-                    <TableCell>
-                      {job.created_by_name ? (
-                        <Tooltip title={job.created_by_email || ''} arrow placement="top">
-                          <Stack direction="row" spacing={0.8} alignItems="center">
-                            <Avatar sx={{
-                              width: 26, height: 26, fontSize: '0.7rem', fontWeight: 700,
-                              bgcolor: getAvatarColor(job.created_by_name),
-                            }}>
-                              {getInitials(job.created_by_name)}
-                            </Avatar>
-                            <Typography variant="caption" fontWeight={500} noWrap sx={{ maxWidth: 70 }}>
-                              {job.created_by_name}
-                            </Typography>
-                          </Stack>
-                        </Tooltip>
-                      ) : (
-                        <Typography variant="caption" color="text.disabled">—</Typography>
-                      )}
-                    </TableCell>
-                    <TableCell align="center">
-                      <Chip icon={statusInfo.icon as React.ReactElement} label={statusInfo.label} size="small"
-                        color={statusInfo.color} sx={{ fontWeight: 600 }} />
-                    </TableCell>
-                    <TableCell align="center">
-                      {isActiveStatus(job.status) ? (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <LinearProgress variant={job.progress > 0 ? 'determinate' : 'indeterminate'} value={job.progress}
-                            sx={{ flex: 1, height: 6, borderRadius: 1 }} />
-                          <Typography variant="caption" color="text.secondary" sx={{ minWidth: 32, textAlign: 'right' }}>
-                            {job.progress}%
-                          </Typography>
-                        </Box>
-                      ) : isSucceeded(job.status) ? (
-                        <Typography variant="caption" color="success.main" fontWeight={600}>100%</Typography>
-                      ) : (
-                        <Typography variant="caption" color="text.disabled">—</Typography>
-                      )}
-                    </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>{renderSummary(job)}</TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatKST(job.completed_at)}</TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </AppTableShell>
+        selectable
+        selected={selected}
+        onSelectionChange={setSelected}
+        isRowSelectable={(job) => !isRunning(job.status)}
+        onRowClick={(job) => {
+          if (isSucceeded(job.status) || isFailed(job.status)) loadJobDetail(job.id);
+        }}
+        getRowSx={(job) => {
+          const canViewDetail = isSucceeded(job.status) || isFailed(job.status);
+          const indicatorColor = isFailed(job.status) ? theme.palette.error.main
+            : isSucceeded(job.status) && job.is_confirmed ? theme.palette.success.main
+            : isSucceeded(job.status) ? theme.palette.info.main
+            : isRunning(job.status) ? theme.palette.warning.main
+            : 'transparent';
+          return {
+            cursor: canViewDetail ? 'pointer' : 'default',
+            bgcolor: isFailed(job.status) ? alpha(theme.palette.error.main, 0.02) : 'transparent',
+            transition: 'all 0.15s ease-in-out',
+            '&:hover': {
+              bgcolor: alpha(theme.palette.primary.main, 0.04),
+              boxShadow: canViewDetail ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
+            },
+            // 좌측 상태 인디케이터 — 첫 번째 셀의 borderLeft로 표시
+            '& td:first-of-type': {
+              borderLeft: `4px solid ${indicatorColor}`,
+            },
+          };
+        }}
+      />
 
       {/* ═══════════════════════════════════════════════════════════════════════
           상세 드로어 (Drawer) - Premium Design
@@ -1668,16 +1675,6 @@ export default function UploadJobsPage() {
         </DialogActions>
       </Dialog>
     </AppPageContainer>
-  );
-}
-
-// ─── 요약 통계 박스 (기본) ───
-function StatBox({ label, count, color }: { label: string; count: number; color: string }) {
-  return (
-    <Paper variant="outlined" sx={{ px: 1.5, py: 0.8, minWidth: 70, textAlign: 'center', borderRadius: 1.5 }}>
-      <Typography variant="h6" fontWeight={800} sx={{ color, lineHeight: 1.2 }}>{count}</Typography>
-      <Typography variant="caption" color="text.secondary">{label}</Typography>
-    </Paper>
   );
 }
 

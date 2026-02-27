@@ -40,9 +40,9 @@ docker-compose up -d
 
 ### 3. 접속
 
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:8000
-- **API Docs**: http://localhost:8000/docs
+- **Frontend**: http://localhost:3100
+- **Backend API**: http://localhost:8100
+- **API Docs**: http://localhost:8100/docs
 
 ## 개발 환경 설정
 
@@ -71,7 +71,7 @@ cd worker
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-rq worker --url redis://localhost:6379/0 high default low
+rq worker --url redis://localhost:6479/0 high default low
 ```
 
 ## 프로젝트 구조

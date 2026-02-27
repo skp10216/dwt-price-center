@@ -141,11 +141,11 @@ function Test-Prerequisites {
 
     # 포트 충돌 확인
     $ports = @(
-        @{ Port = 3000; Service = "Frontend" },
-        @{ Port = 5432; Service = "PostgreSQL" },
-        @{ Port = 6379; Service = "Redis" },
-        @{ Port = 8000; Service = "Backend API" },
-        @{ Port = 8080; Service = "Adminer" }
+        @{ Port = 3100; Service = "Frontend" },
+        @{ Port = 5532; Service = "PostgreSQL" },
+        @{ Port = 6479; Service = "Redis" },
+        @{ Port = 8100; Service = "Backend API" },
+        @{ Port = 8180; Service = "Adminer" }
     )
 
     $portConflict = $false
@@ -163,7 +163,7 @@ function Test-Prerequisites {
         }
     }
     if (-not $portConflict) {
-        Write-Ok "필수 포트 사용 가능 (3000, 5432, 6379, 8000, 8080)"
+        Write-Ok "필수 포트 사용 가능 (3100, 5532, 6479, 8100, 8180)"
     }
 
     return $allGood
@@ -355,7 +355,7 @@ function Test-AllHealth {
             Container = "dwt-backend"
             Test    = {
                 try {
-                    $r = Invoke-WebRequest -Uri "http://localhost:8000/docs" -TimeoutSec 10 -UseBasicParsing -ErrorAction Stop
+                    $r = Invoke-WebRequest -Uri "http://localhost:8100/docs" -TimeoutSec 10 -UseBasicParsing -ErrorAction Stop
                     $r.StatusCode -eq 200
                 } catch { $false }
             }
@@ -373,7 +373,7 @@ function Test-AllHealth {
             Container = "dwt-frontend"
             Test    = {
                 try {
-                    $r = Invoke-WebRequest -Uri "http://localhost:3000" -TimeoutSec 15 -UseBasicParsing -ErrorAction Stop
+                    $r = Invoke-WebRequest -Uri "http://localhost:3100" -TimeoutSec 15 -UseBasicParsing -ErrorAction Stop
                     $r.StatusCode -eq 200
                 } catch { $false }
             }
@@ -383,7 +383,7 @@ function Test-AllHealth {
             Container = "dwt-adminer"
             Test    = {
                 try {
-                    $r = Invoke-WebRequest -Uri "http://localhost:8080" -TimeoutSec 10 -UseBasicParsing -ErrorAction Stop
+                    $r = Invoke-WebRequest -Uri "http://localhost:8180" -TimeoutSec 10 -UseBasicParsing -ErrorAction Stop
                     $r.StatusCode -eq 200
                 } catch { $false }
             }
@@ -497,9 +497,9 @@ function Show-Report {
     }
 
     Write-Host ""
-    Write-Host "  Frontend:     http://localhost:3000" -ForegroundColor White
-    Write-Host "  Backend API:  http://localhost:8000/docs" -ForegroundColor White
-    Write-Host "  Adminer (DB): http://localhost:8080" -ForegroundColor White
+    Write-Host "  Frontend:     http://localhost:3100" -ForegroundColor White
+    Write-Host "  Backend API:  http://localhost:8100/docs" -ForegroundColor White
+    Write-Host "  Adminer (DB): http://localhost:8180" -ForegroundColor White
     Write-Host ""
     Write-Host ("  소요 시간: " + $elapsed + "초") -ForegroundColor DarkGray
     Write-Host ""

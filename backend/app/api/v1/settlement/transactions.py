@@ -6,9 +6,9 @@
 from uuid import UUID
 from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -32,6 +32,7 @@ from app.schemas.settlement import (
     TransactionDetailResponse, TransactionListResponse,
     AllocationRequest, AutoAllocateRequest, AllocationResponse,
     CounterpartyTimelineItem, CounterpartyBalanceSummary,
+    TransactionHoldRequest, TransactionHideRequest,
 )
 
 router = APIRouter()
@@ -142,12 +143,15 @@ async def list_transactions(
     source: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
+    search: Optional[str] = Query(None, description="거래처명 + 메모 통합 검색"),
+    amount_min: Optional[Decimal] = Query(None, description="최소 금액"),
+    amount_max: Optional[Decimal] = Query(None, description="최대 금액"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """입출금 이벤트 목록 조회"""
+    """입출금 이벤트 목록 조회 (검색/금액범위/복수상태 지원)"""
     query = select(CounterpartyTransaction).join(Counterparty)
     count_query = select(func.count(CounterpartyTransaction.id)).join(Counterparty)
 
@@ -156,8 +160,15 @@ async def list_transactions(
         filters.append(CounterpartyTransaction.counterparty_id == counterparty_id)
     if transaction_type:
         filters.append(CounterpartyTransaction.transaction_type == transaction_type)
+
+    # 복수 상태 지원 (쉼표 구분)
     if status_filter:
-        filters.append(CounterpartyTransaction.status == status_filter)
+        statuses = [s.strip() for s in status_filter.split(",") if s.strip()]
+        if len(statuses) == 1:
+            filters.append(CounterpartyTransaction.status == statuses[0])
+        else:
+            filters.append(CounterpartyTransaction.status.in_(statuses))
+
     if source:
         filters.append(CounterpartyTransaction.source == source)
     if date_from:
@@ -165,9 +176,26 @@ async def list_transactions(
     if date_to:
         filters.append(CounterpartyTransaction.transaction_date <= date_to)
 
-    # 취소된 건 기본 제외
+    # 금액 범위 필터
+    if amount_min is not None:
+        filters.append(CounterpartyTransaction.amount >= amount_min)
+    if amount_max is not None:
+        filters.append(CounterpartyTransaction.amount <= amount_max)
+
+    # 거래처명 + 메모 통합 검색
+    if search:
+        search_term = f"%{search}%"
+        filters.append(
+            (Counterparty.name.ilike(search_term)) |
+            (CounterpartyTransaction.memo.ilike(search_term))
+        )
+
+    # 기본 제외: cancelled, hidden (명시적 필터 시에만 포함)
     if not status_filter:
-        filters.append(CounterpartyTransaction.status != TransactionStatus.CANCELLED)
+        filters.append(CounterpartyTransaction.status.notin_([
+            TransactionStatus.CANCELLED,
+            TransactionStatus.HIDDEN,
+        ]))
 
     if filters:
         query = query.where(and_(*filters))
@@ -263,10 +291,18 @@ async def get_transaction(
 
     cp = await db.get(Counterparty, txn.counterparty_id)
 
-    # 배분 내역에 전표 정보 포함
+    # 배분 내역에 전표 정보 배치 로드
+    alloc_voucher_ids = [alloc.voucher_id for alloc in txn.allocations]
+    voucher_map = {}
+    if alloc_voucher_ids:
+        v_result = await db.execute(
+            select(Voucher).where(Voucher.id.in_(alloc_voucher_ids))
+        )
+        voucher_map = {v.id: v for v in v_result.scalars().all()}
+
     alloc_responses = []
     for alloc in txn.allocations:
-        v = await db.get(Voucher, alloc.voucher_id)
+        v = voucher_map.get(alloc.voucher_id)
         alloc_responses.append(AllocationResponse(
             id=alloc.id,
             transaction_id=alloc.transaction_id,
@@ -364,6 +400,189 @@ async def cancel_transaction(
     ))
 
 
+@router.post("/{transaction_id}/hold", response_model=TransactionResponse)
+async def hold_transaction(
+    transaction_id: UUID,
+    data: TransactionHoldRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """입출금 이벤트 보류 처리 (사유 필수)"""
+    txn = await db.get(CounterpartyTransaction, transaction_id)
+    if not txn:
+        raise HTTPException(status_code=404, detail="입출금 이벤트를 찾을 수 없습니다")
+    if txn.status in (TransactionStatus.CANCELLED, TransactionStatus.HIDDEN):
+        raise HTTPException(status_code=400, detail="취소/숨김 상태에서는 보류할 수 없습니다")
+    if txn.status == TransactionStatus.ON_HOLD:
+        raise HTTPException(status_code=400, detail="이미 보류 상태입니다")
+
+    prev_status = txn.status.value if hasattr(txn.status, 'value') else txn.status
+    txn.status = TransactionStatus.ON_HOLD
+
+    db.add(AuditLog(
+        user_id=current_user.id,
+        action=AuditAction.TRANSACTION_HOLD,
+        target_type="counterparty_transaction",
+        target_id=txn.id,
+        before_data={"status": prev_status},
+        after_data={"status": "on_hold", "reason": data.reason},
+        description=data.reason,
+    ))
+
+    cp = await db.get(Counterparty, txn.counterparty_id)
+    return _txn_to_response(txn, cp.name if cp else None)
+
+
+@router.post("/{transaction_id}/unhold", response_model=TransactionResponse)
+async def unhold_transaction(
+    transaction_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """입출금 이벤트 보류 해제 (배분 상태에 따라 자동 전이)"""
+    txn = await db.get(CounterpartyTransaction, transaction_id)
+    if not txn:
+        raise HTTPException(status_code=404, detail="입출금 이벤트를 찾을 수 없습니다")
+    if txn.status != TransactionStatus.ON_HOLD:
+        raise HTTPException(status_code=400, detail="보류 상태가 아닙니다")
+
+    # 배분 상태에 따라 자동 전이
+    await _update_transaction_status(txn, db)
+
+    db.add(AuditLog(
+        user_id=current_user.id,
+        action=AuditAction.TRANSACTION_UNHOLD,
+        target_type="counterparty_transaction",
+        target_id=txn.id,
+        before_data={"status": "on_hold"},
+        after_data={"status": txn.status.value if hasattr(txn.status, 'value') else txn.status},
+    ))
+
+    cp = await db.get(Counterparty, txn.counterparty_id)
+    return _txn_to_response(txn, cp.name if cp else None)
+
+
+@router.post("/{transaction_id}/hide", response_model=TransactionResponse)
+async def hide_transaction(
+    transaction_id: UUID,
+    data: TransactionHideRequest = TransactionHideRequest(),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """입출금 이벤트 숨김 처리 (삭제 대체)"""
+    txn = await db.get(CounterpartyTransaction, transaction_id)
+    if not txn:
+        raise HTTPException(status_code=404, detail="입출금 이벤트를 찾을 수 없습니다")
+    if txn.status == TransactionStatus.CANCELLED:
+        raise HTTPException(status_code=400, detail="취소된 이벤트는 숨길 수 없습니다")
+    if txn.status == TransactionStatus.HIDDEN:
+        raise HTTPException(status_code=400, detail="이미 숨김 상태입니다")
+
+    prev_status = txn.status.value if hasattr(txn.status, 'value') else txn.status
+    txn.status = TransactionStatus.HIDDEN
+
+    db.add(AuditLog(
+        user_id=current_user.id,
+        action=AuditAction.TRANSACTION_HIDE,
+        target_type="counterparty_transaction",
+        target_id=txn.id,
+        before_data={"status": prev_status},
+        after_data={"status": "hidden", "reason": data.reason},
+        description=data.reason,
+    ))
+
+    cp = await db.get(Counterparty, txn.counterparty_id)
+    return _txn_to_response(txn, cp.name if cp else None)
+
+
+@router.post("/{transaction_id}/unhide", response_model=TransactionResponse)
+async def unhide_transaction(
+    transaction_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """입출금 이벤트 숨김 해제 (배분 상태에 따라 자동 전이)"""
+    txn = await db.get(CounterpartyTransaction, transaction_id)
+    if not txn:
+        raise HTTPException(status_code=404, detail="입출금 이벤트를 찾을 수 없습니다")
+    if txn.status != TransactionStatus.HIDDEN:
+        raise HTTPException(status_code=400, detail="숨김 상태가 아닙니다")
+
+    # 배분 상태에 따라 자동 전이
+    await _update_transaction_status(txn, db)
+
+    db.add(AuditLog(
+        user_id=current_user.id,
+        action=AuditAction.TRANSACTION_UNHIDE,
+        target_type="counterparty_transaction",
+        target_id=txn.id,
+        before_data={"status": "hidden"},
+        after_data={"status": txn.status.value if hasattr(txn.status, 'value') else txn.status},
+    ))
+
+    cp = await db.get(Counterparty, txn.counterparty_id)
+    return _txn_to_response(txn, cp.name if cp else None)
+
+
+@router.post("/batch-cancel", status_code=200)
+async def batch_cancel_transactions(
+    transaction_ids: List[UUID] = Body(..., description="취소할 입출금 ID 목록"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """입출금 일괄 취소 (이미 취소된 건은 건너뜀)"""
+    cancelled_count = 0
+    skipped_count = 0
+    errors = []
+
+    for tid in transaction_ids:
+        txn = await db.get(CounterpartyTransaction, tid)
+        if not txn:
+            skipped_count += 1
+            errors.append(f"입출금 ID {tid}를 찾을 수 없습니다.")
+            continue
+
+        if txn.status == TransactionStatus.CANCELLED:
+            skipped_count += 1
+            continue
+
+        # 배분 해제
+        alloc_result = await db.execute(
+            select(TransactionAllocation)
+            .where(TransactionAllocation.transaction_id == txn.id)
+        )
+        allocs = alloc_result.scalars().all()
+        affected_voucher_ids = [a.voucher_id for a in allocs]
+
+        for alloc in allocs:
+            await db.delete(alloc)
+
+        prev_status = txn.status.value if hasattr(txn.status, 'value') else txn.status
+        txn.status = TransactionStatus.CANCELLED
+        txn.allocated_amount = Decimal("0")
+        await db.flush()
+
+        # 영향받은 전표 상태 재계산
+        for vid in affected_voucher_ids:
+            await _update_voucher_status(vid, db)
+
+        db.add(AuditLog(
+            user_id=current_user.id,
+            action=AuditAction.TRANSACTION_CANCEL,
+            target_type="counterparty_transaction",
+            target_id=txn.id,
+            before_data={"status": prev_status, "allocated_amount": str(txn.amount)},
+        ))
+        cancelled_count += 1
+
+    await db.flush()
+    return {
+        "cancelled_count": cancelled_count,
+        "skipped_count": skipped_count,
+        "errors": errors,
+    }
+
+
 # =============================================================================
 # 배분 엔드포인트
 # =============================================================================
@@ -379,8 +598,10 @@ async def auto_allocate(
     txn = await db.get(CounterpartyTransaction, transaction_id)
     if not txn:
         raise HTTPException(status_code=404, detail="입출금 이벤트를 찾을 수 없습니다")
-    if txn.status == TransactionStatus.CANCELLED:
-        raise HTTPException(status_code=400, detail="취소된 이벤트에는 배분할 수 없습니다")
+    if txn.status in (TransactionStatus.CANCELLED, TransactionStatus.HIDDEN):
+        raise HTTPException(status_code=400, detail="취소/숨김 이벤트에는 배분할 수 없습니다")
+    if txn.status == TransactionStatus.ON_HOLD:
+        raise HTTPException(status_code=400, detail="보류 상태에서는 배분할 수 없습니다. 먼저 보류를 해제하세요")
     if txn.status == TransactionStatus.ALLOCATED:
         raise HTTPException(status_code=400, detail="이미 전액 배분된 이벤트입니다")
 
@@ -414,27 +635,59 @@ async def auto_allocate(
         .where(TransactionAllocation.transaction_id == txn.id)
     )).scalar() or 0
 
+    # 배분액/레거시/기존 배분 배치 조회 (N+1 → 4쿼리)
+    v_ids = [v.id for v in vouchers]
+    alloc_map = {}
+    receipt_map = {}
+    payment_map = {}
+    existing_set = set()
+    if v_ids:
+        alloc_result = await db.execute(
+            select(TransactionAllocation.voucher_id, func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0))
+            .where(TransactionAllocation.voucher_id.in_(v_ids))
+            .group_by(TransactionAllocation.voucher_id)
+        )
+        alloc_map = {row[0]: row[1] for row in alloc_result.all()}
+
+        receipt_result = await db.execute(
+            select(Receipt.voucher_id, func.coalesce(func.sum(Receipt.amount), 0))
+            .where(Receipt.voucher_id.in_(v_ids))
+            .group_by(Receipt.voucher_id)
+        )
+        receipt_map = {row[0]: row[1] for row in receipt_result.all()}
+
+        payment_result = await db.execute(
+            select(Payment.voucher_id, func.coalesce(func.sum(Payment.amount), 0))
+            .where(Payment.voucher_id.in_(v_ids))
+            .group_by(Payment.voucher_id)
+        )
+        payment_map = {row[0]: row[1] for row in payment_result.all()}
+
+        # 이미 이 transaction에 배분된 전표 ID 목록
+        existing_result = await db.execute(
+            select(TransactionAllocation.voucher_id)
+            .where(
+                TransactionAllocation.transaction_id == txn.id,
+                TransactionAllocation.voucher_id.in_(v_ids),
+            )
+        )
+        existing_set = {row[0] for row in existing_result.all()}
+
     for v in vouchers:
         if remaining <= 0:
             break
 
-        # 전표 잔액 = total_amount - 기배분 - 레거시
-        already_allocated = await _get_voucher_allocated_amount(v.id, db)
-        legacy = await _get_voucher_legacy_amount(v.id, v.voucher_type, db)
+        if v.id in existing_set:
+            continue
+
+        already_allocated = alloc_map.get(v.id, Decimal("0"))
+        if v.voucher_type == VoucherType.SALES or (hasattr(v.voucher_type, 'value') and v.voucher_type.value == VoucherType.SALES.value):
+            legacy = receipt_map.get(v.id, Decimal("0"))
+        else:
+            legacy = payment_map.get(v.id, Decimal("0"))
         voucher_balance = v.total_amount - already_allocated - legacy
 
         if voucher_balance <= 0:
-            continue
-
-        # 이미 이 transaction-voucher 쌍이 있으면 건너뛰기
-        existing = await db.execute(
-            select(TransactionAllocation)
-            .where(
-                TransactionAllocation.transaction_id == txn.id,
-                TransactionAllocation.voucher_id == v.id,
-            )
-        )
-        if existing.scalar_one_or_none():
             continue
 
         alloc_amount = min(remaining, voucher_balance)
@@ -499,8 +752,10 @@ async def manual_allocate(
     txn = await db.get(CounterpartyTransaction, transaction_id)
     if not txn:
         raise HTTPException(status_code=404, detail="입출금 이벤트를 찾을 수 없습니다")
-    if txn.status in (TransactionStatus.CANCELLED, TransactionStatus.ALLOCATED):
+    if txn.status in (TransactionStatus.CANCELLED, TransactionStatus.HIDDEN, TransactionStatus.ALLOCATED):
         raise HTTPException(status_code=400, detail="배분할 수 없는 상태입니다")
+    if txn.status == TransactionStatus.ON_HOLD:
+        raise HTTPException(status_code=400, detail="보류 상태에서는 배분할 수 없습니다. 먼저 보류를 해제하세요")
 
     remaining = txn.amount - txn.allocated_amount
     request_total = sum(item.amount for item in data.allocations)
@@ -518,9 +773,45 @@ async def manual_allocate(
         .where(TransactionAllocation.transaction_id == txn.id)
     )).scalar() or 0
 
+    # 전표 배치 로드 + 배분액 배치 계산
+    req_voucher_ids = [item.voucher_id for item in data.allocations]
+    v_result = await db.execute(select(Voucher).where(Voucher.id.in_(req_voucher_ids)))
+    voucher_map = {v.id: v for v in v_result.scalars().all()}
+
+    alloc_result = await db.execute(
+        select(TransactionAllocation.voucher_id, func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0))
+        .where(TransactionAllocation.voucher_id.in_(req_voucher_ids))
+        .group_by(TransactionAllocation.voucher_id)
+    )
+    alloc_sum_map = {row[0]: row[1] for row in alloc_result.all()}
+
+    receipt_result = await db.execute(
+        select(Receipt.voucher_id, func.coalesce(func.sum(Receipt.amount), 0))
+        .where(Receipt.voucher_id.in_(req_voucher_ids))
+        .group_by(Receipt.voucher_id)
+    )
+    receipt_map = {row[0]: row[1] for row in receipt_result.all()}
+
+    payment_result = await db.execute(
+        select(Payment.voucher_id, func.coalesce(func.sum(Payment.amount), 0))
+        .where(Payment.voucher_id.in_(req_voucher_ids))
+        .group_by(Payment.voucher_id)
+    )
+    payment_map = {row[0]: row[1] for row in payment_result.all()}
+
+    # 이미 배분된 전표 ID
+    existing_result = await db.execute(
+        select(TransactionAllocation.voucher_id)
+        .where(
+            TransactionAllocation.transaction_id == txn.id,
+            TransactionAllocation.voucher_id.in_(req_voucher_ids),
+        )
+    )
+    existing_set = {row[0] for row in existing_result.all()}
+
     allocations = []
     for item in data.allocations:
-        v = await db.get(Voucher, item.voucher_id)
+        v = voucher_map.get(item.voucher_id)
         if not v:
             raise HTTPException(status_code=404, detail=f"전표 {item.voucher_id}를 찾을 수 없습니다")
         if v.counterparty_id != txn.counterparty_id:
@@ -534,8 +825,11 @@ async def manual_allocate(
             raise HTTPException(status_code=400, detail=f"마감된 전표 {v.voucher_number}에는 배분할 수 없습니다")
 
         # 전표 잔액 검증
-        already = await _get_voucher_allocated_amount(v.id, db)
-        legacy = await _get_voucher_legacy_amount(v.id, v.voucher_type, db)
+        already = alloc_sum_map.get(v.id, Decimal("0"))
+        if v.voucher_type == VoucherType.SALES or (hasattr(v.voucher_type, 'value') and v.voucher_type.value == VoucherType.SALES.value):
+            legacy = receipt_map.get(v.id, Decimal("0"))
+        else:
+            legacy = payment_map.get(v.id, Decimal("0"))
         voucher_balance = v.total_amount - already - legacy
         if item.amount > voucher_balance:
             raise HTTPException(
@@ -544,14 +838,7 @@ async def manual_allocate(
             )
 
         # 중복 검증
-        existing = await db.execute(
-            select(TransactionAllocation)
-            .where(
-                TransactionAllocation.transaction_id == txn.id,
-                TransactionAllocation.voucher_id == v.id,
-            )
-        )
-        if existing.scalar_one_or_none():
+        if v.id in existing_set:
             raise HTTPException(status_code=400, detail=f"전표 {v.voucher_number}에 이미 배분되어 있습니다")
 
         max_order += 1
@@ -662,7 +949,10 @@ async def get_counterparty_timeline(
 
     base_filters = [
         CounterpartyTransaction.counterparty_id == counterparty_id,
-        CounterpartyTransaction.status != TransactionStatus.CANCELLED,
+        CounterpartyTransaction.status.notin_([
+            TransactionStatus.CANCELLED,
+            TransactionStatus.HIDDEN,
+        ]),
     ]
     if date_from:
         base_filters.append(CounterpartyTransaction.transaction_date >= date_from)
@@ -744,7 +1034,7 @@ async def get_counterparty_balance(
         .where(
             CounterpartyTransaction.counterparty_id == counterparty_id,
             CounterpartyTransaction.transaction_type == TransactionType.DEPOSIT,
-            CounterpartyTransaction.status != TransactionStatus.CANCELLED,
+            CounterpartyTransaction.status.notin_([TransactionStatus.CANCELLED, TransactionStatus.HIDDEN]),
         )
     )
     dep_row = deposit_result.one()
@@ -760,7 +1050,7 @@ async def get_counterparty_balance(
         .where(
             CounterpartyTransaction.counterparty_id == counterparty_id,
             CounterpartyTransaction.transaction_type == TransactionType.WITHDRAWAL,
-            CounterpartyTransaction.status != TransactionStatus.CANCELLED,
+            CounterpartyTransaction.status.notin_([TransactionStatus.CANCELLED, TransactionStatus.HIDDEN]),
         )
     )
     wd_row = withdrawal_result.one()

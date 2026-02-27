@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, TextField, MenuItem, Select, InputLabel, FormControl,
-  Table, TableBody, TableCell, TableHead, TableRow,
   Chip, Tooltip, Typography, IconButton, InputAdornment,
 } from '@mui/material';
 import {
@@ -21,7 +20,8 @@ import {
   AppPageContainer,
   AppPageHeader,
   AppPageToolbar,
-  AppTableShell,
+  AppDataTable,
+  type AppColumnDef,
 } from '@/components/ui';
 import NettingWizard from '@/components/settlement/NettingWizard';
 import NettingDetailDialog from '@/components/settlement/NettingDetailDialog';
@@ -130,9 +130,72 @@ export default function NettingPage() {
     }
   };
 
-  // ─── 합계 ──────────────────────────────────────────────────────
+  // ─── 컬럼 정의 ──────────────────────────────────────────────────
 
-  const totalNettingAmount = nettings.reduce((s, n) => s + (n.netting_amount || 0), 0);
+  const columns = useMemo<AppColumnDef<NettingRow>[]>(() => [
+    {
+      field: 'netting_date',
+      headerName: '상계일',
+    },
+    {
+      field: 'counterparty_name',
+      headerName: '거래처',
+      renderCell: (row) => (
+        <Typography
+          variant="body2"
+          sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' }, fontWeight: 500 }}
+          onClick={(e) => { e.stopPropagation(); router.push(`/settlement/counterparties/${row.counterparty_id}`); }}
+        >
+          {row.counterparty_name}
+        </Typography>
+      ),
+    },
+    {
+      field: 'netting_amount',
+      headerName: '상계금액',
+      align: 'right',
+      sum: true,
+      renderCell: (row) => formatAmount(row.netting_amount),
+      renderSumCell: (v) => formatAmount(v as number),
+    },
+    {
+      field: 'voucher_count',
+      headerName: '전표수',
+      align: 'center',
+      sortable: false,
+    },
+    {
+      field: 'status',
+      headerName: '상태',
+      sortable: false,
+      renderCell: (row) => {
+        const info = STATUS_MAP[row.status] || { label: row.status, color: 'default' as const };
+        return <Chip label={info.label} color={info.color} size="small" />;
+      },
+    },
+    {
+      field: 'created_by_name',
+      headerName: '생성자',
+      sortable: false,
+    },
+    {
+      field: 'confirmed_at',
+      headerName: '확정일',
+      sortable: false,
+      renderCell: (row) =>
+        row.confirmed_at ? new Date(row.confirmed_at).toLocaleDateString('ko-KR') : '-',
+    },
+    {
+      field: 'memo',
+      headerName: '메모',
+      sortable: false,
+      renderCell: (row) => (
+        <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 150 }}>
+          {row.memo || '-'}
+        </Typography>
+      ),
+    },
+  ], [router]);
 
   // ─── 렌더 ──────────────────────────────────────────────────────
 
@@ -202,114 +265,47 @@ export default function NettingPage() {
       />
 
       {/* 테이블 */}
-      <AppTableShell
+      <AppDataTable<NettingRow>
+        columns={columns}
+        rows={nettings}
+        getRowKey={(r) => r.id}
+        defaultSortField="netting_date"
+        defaultSortOrder="desc"
         loading={loading}
-        isEmpty={nettings.length === 0}
         emptyMessage="상계 내역이 없습니다."
         page={page}
         rowsPerPage={pageSize}
         count={total}
         onPageChange={(_, p) => setPage(p)}
         onRowsPerPageChange={(e) => { setPageSize(Number(e.target.value)); setPage(0); }}
-      >
-        <Table size="small" stickyHeader>
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ fontWeight: 700 }}>상계일</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>거래처</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>상계금액</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 700 }}>전표수</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>상태</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>생성자</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>확정일</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>메모</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 700 }}>액션</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {nettings.map((row) => {
-              const statusInfo = STATUS_MAP[row.status] || { label: row.status, color: 'default' as const };
-              const isCancelled = row.status === 'cancelled';
-
-              return (
-                <TableRow key={row.id} hover sx={{ opacity: isCancelled ? 0.5 : 1 }}>
-                  <TableCell>{row.netting_date}</TableCell>
-                  <TableCell>
-                    <Typography
-                      variant="body2"
-                      sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' }, fontWeight: 500 }}
-                      onClick={() => router.push(`/settlement/counterparties/${row.counterparty_id}`)}
-                    >
-                      {row.counterparty_name}
-                    </Typography>
-                  </TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600 }}>
-                    {formatAmount(row.netting_amount)}
-                  </TableCell>
-                  <TableCell align="center">{row.voucher_count}</TableCell>
-                  <TableCell>
-                    <Chip label={statusInfo.label} color={statusInfo.color} size="small" />
-                  </TableCell>
-                  <TableCell>{row.created_by_name}</TableCell>
-                  <TableCell>
-                    {row.confirmed_at
-                      ? new Date(row.confirmed_at).toLocaleDateString('ko-KR')
-                      : '-'}
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 150 }}>
-                      {row.memo || '-'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell align="center">
-                    <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                      <Tooltip title="상세 보기">
-                        <IconButton
-                          size="small"
-                          onClick={() => { setSelectedId(row.id); setDetailOpen(true); }}
-                        >
-                          <ViewIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      {row.status === 'draft' && (
-                        <>
-                          <Tooltip title="확정">
-                            <IconButton
-                              size="small"
-                              color="success"
-                              onClick={() => handleConfirm(row.id)}
-                            >
-                              <ConfirmIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="취소">
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => handleCancel(row.id)}
-                            >
-                              <CancelIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </>
-                      )}
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-          {nettings.length > 0 && (
-            <TableRow>
-              <TableCell colSpan={2} sx={{ fontWeight: 700 }}>합계</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>
-                {formatAmount(totalNettingAmount)}
-              </TableCell>
-              <TableCell colSpan={6} />
-            </TableRow>
-          )}
-        </Table>
-      </AppTableShell>
+        getRowSx={(row) => ({ opacity: row.status === 'cancelled' ? 0.5 : 1 })}
+        renderActions={(row) => (
+          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+            <Tooltip title="상세 보기">
+              <IconButton
+                size="small"
+                onClick={() => { setSelectedId(row.id); setDetailOpen(true); }}
+              >
+                <ViewIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            {row.status === 'draft' && (
+              <>
+                <Tooltip title="확정">
+                  <IconButton size="small" color="success" onClick={() => handleConfirm(row.id)}>
+                    <ConfirmIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="취소">
+                  <IconButton size="small" color="error" onClick={() => handleCancel(row.id)}>
+                    <CancelIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </>
+            )}
+          </Box>
+        )}
+      />
 
       {/* 상계 생성 위자드 */}
       <NettingWizard

@@ -12,7 +12,7 @@ from tasks.excel_parser import parse_hq_excel, parse_partner_excel
 from tasks.voucher_parser import parse_voucher_excel
 
 # 환경 변수
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6479/0")
 
 
 def dispatch_job(job_data_str: str):

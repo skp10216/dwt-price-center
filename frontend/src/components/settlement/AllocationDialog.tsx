@@ -19,9 +19,19 @@ interface AllocationItem {
   id: string;
   voucher_id: string;
   voucher_number: string;
-  trade_date: string;
-  total_amount: number;
-  allocated_amount: number;
+  voucher_trade_date: string | null;
+  voucher_total_amount: number | string | null;
+  allocated_amount: number | string;
+}
+
+interface TransactionDetailRaw {
+  id: string;
+  transaction_type: string;
+  amount: number | string;
+  allocated_amount: number | string;
+  status: string;
+  counterparty_name?: string;
+  allocations: AllocationItem[];
 }
 
 interface TransactionDetail {
@@ -31,7 +41,16 @@ interface TransactionDetail {
   allocated_amount: number;
   status: string;
   counterparty_name?: string;
-  allocations: AllocationItem[];
+  allocations: ParsedAllocationItem[];
+}
+
+interface ParsedAllocationItem {
+  id: string;
+  voucher_id: string;
+  voucher_number: string;
+  trade_date: string;
+  total_amount: number;
+  allocated_amount: number;
 }
 
 interface VoucherCandidate {
@@ -74,7 +93,21 @@ export default function AllocationDialog({
     setLoading(true);
     try {
       const res = await settlementApi.getTransaction(transactionId);
-      const data = res.data as unknown as TransactionDetail;
+      const raw = res.data as unknown as TransactionDetailRaw;
+      // Decimal(문자열) → number 변환 + 필드명 매핑
+      const data: TransactionDetail = {
+        ...raw,
+        amount: Number(raw.amount) || 0,
+        allocated_amount: Number(raw.allocated_amount) || 0,
+        allocations: (raw.allocations || []).map((a) => ({
+          id: a.id,
+          voucher_id: a.voucher_id,
+          voucher_number: a.voucher_number || '',
+          trade_date: a.voucher_trade_date?.slice(0, 10) || '-',
+          total_amount: Number(a.voucher_total_amount) || 0,
+          allocated_amount: Number(a.allocated_amount) || 0,
+        })),
+      };
       setTransaction(data);
       setManualAmounts({});
     } catch {
@@ -230,8 +263,8 @@ export default function AllocationDialog({
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 700 }}>전표번호</TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>거래일</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>전표번호</TableCell>
                       <TableCell align="right" sx={{ fontWeight: 700 }}>전표금액</TableCell>
                       <TableCell align="right" sx={{ fontWeight: 700 }}>배분액</TableCell>
                       <TableCell align="center" sx={{ fontWeight: 700 }}>삭제</TableCell>
@@ -240,8 +273,8 @@ export default function AllocationDialog({
                   <TableBody>
                     {transaction.allocations.map((alloc) => (
                       <TableRow key={alloc.id}>
-                        <TableCell>{alloc.voucher_number}</TableCell>
                         <TableCell>{alloc.trade_date}</TableCell>
+                        <TableCell>{alloc.voucher_number}</TableCell>
                         <TableCell align="right">{formatAmount(alloc.total_amount)}</TableCell>
                         <TableCell align="right" sx={{ fontWeight: 600 }}>
                           {formatAmount(alloc.allocated_amount)}

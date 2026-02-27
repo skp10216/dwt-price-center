@@ -21,11 +21,12 @@ from app.models.receipt import Receipt
 from app.models.payment import Payment
 from app.models.enums import (
     VoucherType, SettlementStatus, PaymentStatus,
-    AuditAction, AdjustmentType,
+    AuditAction, AdjustmentType, TransactionType,
 )
 from app.models.audit_log import AuditLog
 from app.models.transaction_allocation import TransactionAllocation
 from app.models.counterparty_transaction import CounterpartyTransaction
+from app.models.netting_record import NettingVoucherLink
 from app.schemas.settlement import (
     VoucherCreate, VoucherUpdate, VoucherResponse,
     VoucherDetailResponse, VoucherListResponse,
@@ -45,85 +46,113 @@ def _compute_total_amount(voucher: Voucher) -> Decimal:
 
 
 async def _enrich_voucher(v: Voucher, db: AsyncSession) -> VoucherResponse:
-    """전표에 거래처명, 누적 입금/송금 정보 추가 (레거시 + 신규 배분 합산)"""
-    # 거래처명 (async에서는 lazy loading 불가 → 직접 조회)
+    """전표에 거래처명, 누적 입금/송금 정보 추가 (단건 조회용)"""
+    results = await _enrich_vouchers_batch([v], db)
+    return results[0]
+
+
+async def _enrich_vouchers_batch(vouchers: list[Voucher], db: AsyncSession) -> list[VoucherResponse]:
+    """전표 목록에 거래처명, 누적 입금/송금 정보 일괄 추가 (N+1 → 배치 쿼리)"""
+    if not vouchers:
+        return []
+
+    v_ids = [v.id for v in vouchers]
+    cp_ids = list({v.counterparty_id for v in vouchers})
+
+    # 1. 거래처명 일괄 조회 (1 쿼리)
     cp_result = await db.execute(
-        select(Counterparty.name).where(Counterparty.id == v.counterparty_id)
+        select(Counterparty.id, Counterparty.name).where(Counterparty.id.in_(cp_ids))
     )
-    cp_name = cp_result.scalar_one_or_none()
+    cp_map = {row.id: row.name for row in cp_result.all()}
 
-    # 레거시 누적 입금
-    legacy_receipts = (await db.execute(
-        select(func.coalesce(func.sum(Receipt.amount), 0)).where(Receipt.voucher_id == v.id)
-    )).scalar() or Decimal("0")
-
-    # 레거시 누적 송금
-    legacy_payments = (await db.execute(
-        select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.voucher_id == v.id)
-    )).scalar() or Decimal("0")
-
-    # 신규 배분: DEPOSIT(입금) 타입 배분 합계
-    alloc_deposits = (await db.execute(
-        select(func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0))
-        .where(TransactionAllocation.voucher_id == v.id)
-        .where(
-            TransactionAllocation.transaction_id.in_(
-                select(CounterpartyTransaction.id).where(
-                    CounterpartyTransaction.transaction_type == "DEPOSIT"
-                )
-            )
-        )
-    )).scalar() or Decimal("0")
-
-    # 신규 배분: WITHDRAWAL(송금) 타입 배분 합계
-    alloc_withdrawals = (await db.execute(
-        select(func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0))
-        .where(TransactionAllocation.voucher_id == v.id)
-        .where(
-            TransactionAllocation.transaction_id.in_(
-                select(CounterpartyTransaction.id).where(
-                    CounterpartyTransaction.transaction_type == "WITHDRAWAL"
-                )
-            )
-        )
-    )).scalar() or Decimal("0")
-
-    total_receipts = legacy_receipts + alloc_deposits
-    total_payments = legacy_payments + alloc_withdrawals
-    balance = v.total_amount - (total_receipts + total_payments)
-
-    return VoucherResponse(
-        id=v.id,
-        trade_date=v.trade_date,
-        counterparty_id=v.counterparty_id,
-        counterparty_name=cp_name,
-        voucher_number=v.voucher_number,
-        voucher_type=v.voucher_type.value if hasattr(v.voucher_type, 'value') else v.voucher_type,
-        quantity=v.quantity,
-        total_amount=v.total_amount,
-        purchase_cost=v.purchase_cost,
-        deduction_amount=v.deduction_amount,
-        actual_purchase_price=v.actual_purchase_price,
-        avg_unit_price=v.avg_unit_price,
-        purchase_deduction=v.purchase_deduction,
-        as_cost=v.as_cost,
-        sale_amount=v.sale_amount,
-        sale_deduction=v.sale_deduction,
-        actual_sale_price=v.actual_sale_price,
-        profit=v.profit,
-        profit_rate=v.profit_rate,
-        avg_margin=v.avg_margin,
-        upm_settlement_status=v.upm_settlement_status,
-        payment_info=v.payment_info,
-        settlement_status=v.settlement_status.value if hasattr(v.settlement_status, 'value') else v.settlement_status,
-        payment_status=v.payment_status.value if hasattr(v.payment_status, 'value') else v.payment_status,
-        memo=v.memo,
-        total_receipts=total_receipts,
-        total_payments=total_payments,
-        balance=balance,
-        created_at=v.created_at,
-        updated_at=v.updated_at,
+    # 2. 레거시 누적 입금 일괄 조회 (1 쿼리)
+    receipt_result = await db.execute(
+        select(Receipt.voucher_id, func.coalesce(func.sum(Receipt.amount), 0))
+        .where(Receipt.voucher_id.in_(v_ids))
+        .group_by(Receipt.voucher_id)
     )
+    receipt_map = {row[0]: row[1] for row in receipt_result.all()}
+
+    # 3. 레거시 누적 송금 일괄 조회 (1 쿼리)
+    payment_result = await db.execute(
+        select(Payment.voucher_id, func.coalesce(func.sum(Payment.amount), 0))
+        .where(Payment.voucher_id.in_(v_ids))
+        .group_by(Payment.voucher_id)
+    )
+    payment_map = {row[0]: row[1] for row in payment_result.all()}
+
+    # 4. 신규 배분: DEPOSIT(입금) 타입 합계 일괄 조회 (1 쿼리)
+    alloc_deposit_result = await db.execute(
+        select(
+            TransactionAllocation.voucher_id,
+            func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0),
+        )
+        .join(CounterpartyTransaction, TransactionAllocation.transaction_id == CounterpartyTransaction.id)
+        .where(TransactionAllocation.voucher_id.in_(v_ids))
+        .where(CounterpartyTransaction.transaction_type == TransactionType.DEPOSIT)
+        .group_by(TransactionAllocation.voucher_id)
+    )
+    alloc_deposit_map = {row[0]: row[1] for row in alloc_deposit_result.all()}
+
+    # 5. 신규 배분: WITHDRAWAL(송금) 타입 합계 일괄 조회 (1 쿼리)
+    alloc_withdrawal_result = await db.execute(
+        select(
+            TransactionAllocation.voucher_id,
+            func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0),
+        )
+        .join(CounterpartyTransaction, TransactionAllocation.transaction_id == CounterpartyTransaction.id)
+        .where(TransactionAllocation.voucher_id.in_(v_ids))
+        .where(CounterpartyTransaction.transaction_type == TransactionType.WITHDRAWAL)
+        .group_by(TransactionAllocation.voucher_id)
+    )
+    alloc_withdrawal_map = {row[0]: row[1] for row in alloc_withdrawal_result.all()}
+
+    # 6. 조합
+    enriched = []
+    for v in vouchers:
+        legacy_receipts = receipt_map.get(v.id, Decimal("0"))
+        legacy_payments = payment_map.get(v.id, Decimal("0"))
+        alloc_deposits = alloc_deposit_map.get(v.id, Decimal("0"))
+        alloc_withdrawals = alloc_withdrawal_map.get(v.id, Decimal("0"))
+
+        total_receipts = legacy_receipts + alloc_deposits
+        total_payments = legacy_payments + alloc_withdrawals
+        balance = v.total_amount - (total_receipts + total_payments)
+
+        enriched.append(VoucherResponse(
+            id=v.id,
+            trade_date=v.trade_date,
+            counterparty_id=v.counterparty_id,
+            counterparty_name=cp_map.get(v.counterparty_id),
+            voucher_number=v.voucher_number,
+            voucher_type=v.voucher_type.value if hasattr(v.voucher_type, 'value') else v.voucher_type,
+            quantity=v.quantity,
+            total_amount=v.total_amount,
+            purchase_cost=v.purchase_cost,
+            deduction_amount=v.deduction_amount,
+            actual_purchase_price=v.actual_purchase_price,
+            avg_unit_price=v.avg_unit_price,
+            purchase_deduction=v.purchase_deduction,
+            as_cost=v.as_cost,
+            sale_amount=v.sale_amount,
+            sale_deduction=v.sale_deduction,
+            actual_sale_price=v.actual_sale_price,
+            profit=v.profit,
+            profit_rate=v.profit_rate,
+            avg_margin=v.avg_margin,
+            upm_settlement_status=v.upm_settlement_status,
+            payment_info=v.payment_info,
+            settlement_status=v.settlement_status.value if hasattr(v.settlement_status, 'value') else v.settlement_status,
+            payment_status=v.payment_status.value if hasattr(v.payment_status, 'value') else v.payment_status,
+            memo=v.memo,
+            total_receipts=total_receipts,
+            total_payments=total_payments,
+            balance=balance,
+            created_at=v.created_at,
+            updated_at=v.updated_at,
+        ))
+
+    return enriched
 
 
 @router.get("", response_model=VoucherListResponse)
@@ -173,9 +202,7 @@ async def list_vouchers(
     result = await db.execute(query)
     vouchers = result.scalars().all()
 
-    enriched = []
-    for v in vouchers:
-        enriched.append(await _enrich_voucher(v, db))
+    enriched = await _enrich_vouchers_batch(vouchers, db)
 
     return VoucherListResponse(
         vouchers=enriched,
@@ -339,7 +366,13 @@ async def delete_voucher(
         .where(TransactionAllocation.voucher_id == voucher_id)
     )).scalar() or 0
 
-    linked_count = receipt_count + payment_count + allocation_count
+    # 상계 내역 확인
+    netting_count = (await db.execute(
+        select(func.count(NettingVoucherLink.id))
+        .where(NettingVoucherLink.voucher_id == voucher_id)
+    )).scalar() or 0
+
+    linked_count = receipt_count + payment_count + allocation_count + netting_count
     if linked_count > 0:
         parts = []
         if receipt_count > 0:
@@ -348,6 +381,8 @@ async def delete_voucher(
             parts.append(f"송금 {payment_count}건")
         if allocation_count > 0:
             parts.append(f"배분 {allocation_count}건")
+        if netting_count > 0:
+            parts.append(f"상계 {netting_count}건")
         raise HTTPException(
             status_code=400,
             detail=f"연결된 {', '.join(parts)}이 있어 삭제할 수 없습니다. 먼저 관련 내역을 삭제해주세요."
@@ -407,8 +442,12 @@ async def batch_delete_vouchers(
             select(func.count(TransactionAllocation.id))
             .where(TransactionAllocation.voucher_id == vid)
         )).scalar() or 0
+        netting_count = (await db.execute(
+            select(func.count(NettingVoucherLink.id))
+            .where(NettingVoucherLink.voucher_id == vid)
+        )).scalar() or 0
 
-        linked_count = receipt_count + payment_count + allocation_count
+        linked_count = receipt_count + payment_count + allocation_count + netting_count
         if linked_count > 0:
             parts = []
             if receipt_count > 0:
@@ -417,6 +456,8 @@ async def batch_delete_vouchers(
                 parts.append(f"송금 {payment_count}건")
             if allocation_count > 0:
                 parts.append(f"배분 {allocation_count}건")
+            if netting_count > 0:
+                parts.append(f"상계 {netting_count}건")
             skipped_count += 1
             errors.append(f"전표 '{v.voucher_number}'에 {', '.join(parts)}이 연결되어 있습니다.")
             continue
@@ -438,7 +479,7 @@ async def batch_delete_vouchers(
         await db.delete(v)
         deleted_count += 1
 
-    await db.commit()
+    await db.flush()
     return {
         "deleted_count": deleted_count,
         "skipped_count": skipped_count,
@@ -544,7 +585,4 @@ async def list_adjustment_vouchers(
     )
     adjustments = result.scalars().all()
 
-    enriched = []
-    for adj in adjustments:
-        enriched.append(await _enrich_voucher(adj, db))
-    return enriched
+    return await _enrich_vouchers_batch(adjustments, db)

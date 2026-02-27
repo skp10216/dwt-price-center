@@ -93,6 +93,8 @@ class TransactionStatus(str, enum.Enum):
     PENDING = "pending"         # 미배분
     PARTIAL = "partial"         # 부분 배분
     ALLOCATED = "allocated"     # 전액 배분 완료
+    ON_HOLD = "on_hold"         # 보류 (수동, 사유 필수)
+    HIDDEN = "hidden"           # 숨김 (삭제 대체, 기본 미표시)
     CANCELLED = "cancelled"     # 취소됨
 
 
@@ -256,6 +258,11 @@ class AuditAction(str, enum.Enum):
     TRANSACTION_CREATE = "transaction_create"
     TRANSACTION_UPDATE = "transaction_update"
     TRANSACTION_CANCEL = "transaction_cancel"
+
+    TRANSACTION_HOLD = "transaction_hold"
+    TRANSACTION_UNHOLD = "transaction_unhold"
+    TRANSACTION_HIDE = "transaction_hide"
+    TRANSACTION_UNHIDE = "transaction_unhide"
 
     # 배분
     ALLOCATION_CREATE = "allocation_create"

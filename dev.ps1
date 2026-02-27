@@ -72,7 +72,7 @@ function Test-Health {
 
     Write-Info "Backend API..."
     try {
-        $r = Invoke-WebRequest -Uri "http://localhost:8000/docs" -TimeoutSec 5 -ErrorAction Stop
+        $r = Invoke-WebRequest -Uri "http://localhost:8100/docs" -TimeoutSec 5 -ErrorAction Stop
         Write-Ok "Backend API OK"
     } catch {
         Write-Err "Backend API FAIL"
@@ -80,7 +80,7 @@ function Test-Health {
 
     Write-Info "Frontend..."
     try {
-        $r = Invoke-WebRequest -Uri "http://localhost:3000" -TimeoutSec 5 -ErrorAction Stop
+        $r = Invoke-WebRequest -Uri "http://localhost:3100" -TimeoutSec 5 -ErrorAction Stop
         Write-Ok "Frontend OK"
     } catch {
         Write-Err "Frontend FAIL"
@@ -411,8 +411,8 @@ function Start-Smart {
     Write-Host ""
     Write-Host "=======================================" -ForegroundColor Green
     Write-Host "  Ready!" -ForegroundColor Green
-    Write-Host "  Backend:  http://localhost:8000/docs" -ForegroundColor Gray
-    Write-Host "  Frontend: http://localhost:3000" -ForegroundColor Gray
+    Write-Host "  Backend:  http://localhost:8100/docs" -ForegroundColor Gray
+    Write-Host "  Frontend: http://localhost:3100" -ForegroundColor Gray
     Write-Host "=======================================" -ForegroundColor Green
 }
 

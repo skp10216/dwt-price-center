@@ -8,7 +8,7 @@ from datetime import datetime
 import uuid as uuid_lib
 
 from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy import select, func, and_, cast, String, case
+from sqlalchemy import select, func, and_, cast, String, case, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -283,3 +283,16 @@ async def get_trace_logs(
     ]
 
     return {"logs": items, "total": len(items)}
+
+
+@router.delete("/clear", response_model=dict)
+async def clear_activity_logs(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """테스트용: 정산 관련 모든 작업 내역 삭제"""
+    result = await db.execute(
+        delete(AuditLog).where(AuditLog.action.in_(SETTLEMENT_ACTIONS))
+    )
+    await db.commit()
+    return {"deleted_count": result.rowcount}

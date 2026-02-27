@@ -17,7 +17,7 @@ services:
     # ports:
     #   - "5432:5432"
     ports:
-      - "5432:5432"
+      - "5532:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dwt_user} -d ${POSTGRES_DB:-dwt_price_center}"]
       interval: 10s
@@ -33,7 +33,7 @@ services:
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
+      - "6479:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -54,7 +54,7 @@ services:
       - ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=1440
       # CORS: 세 도메인 화이트리스트 (사용자, 관리자, 정산)
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,https://dwt.price,https://admin.dwt.price,https://settlement.dwt.price}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3100,https://dwt.price,https://admin.dwt.price,https://settlement.dwt.price}
       - USER_DOMAIN=${USER_DOMAIN:-dwt.price}
       - ADMIN_DOMAIN=${ADMIN_DOMAIN:-admin.dwt.price}
       - SETTLEMENT_DOMAIN=${SETTLEMENT_DOMAIN:-settlement.dwt.price}
@@ -64,7 +64,7 @@ services:
       - ./backend:/app
       - upload_files:/app/uploads
     ports:
-      - "8000:8000"
+      - "8100:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -98,7 +98,7 @@ services:
     container_name: dwt-adminer
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "8180:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -114,7 +114,7 @@ services:
     container_name: dwt-frontend
     restart: unless-stopped
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8100
       # Windows Docker에서 HMR 파일 감지를 위한 Polling 설정
       - CHOKIDAR_USEPOLLING=true
       - WATCHPACK_POLLING=true
@@ -131,7 +131,7 @@ services:
       - /app/node_modules
       - /app/.next
     ports:
-      - "3000:3000"
+      - "3100:3100"
     depends_on:
       - backend
     command: npm run dev

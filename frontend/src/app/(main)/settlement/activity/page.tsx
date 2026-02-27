@@ -40,6 +40,7 @@ import {
   RestoreFromTrash,
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
+import { useSnackbar } from 'notistack';
 import { AppPageContainer, AppPageHeader } from '@/components/ui';
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
@@ -225,6 +226,7 @@ function JsonBlock({ label, data, color }: { label: string; data: Record<string,
 
 export default function ActivityPage() {
   const theme = useTheme();
+  const { enqueueSnackbar } = useSnackbar();
 
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [total, setTotal] = useState(0);
@@ -239,6 +241,26 @@ export default function ActivityPage() {
 
   // 단건 상세 다이얼로그
   const [detailLog, setDetailLog] = useState<ActivityLog | null>(null);
+
+  // 전체 삭제 (테스트)
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
+
+  const handleClearAll = async () => {
+    setClearing(true);
+    try {
+      const res = await settlementApi.clearActivityLogs();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = (res.data as any)?.data ?? res.data;
+      enqueueSnackbar(`작업 내역 ${result.deleted_count}건 삭제 완료`, { variant: 'success' });
+      setClearDialogOpen(false);
+      loadLogs();
+    } catch {
+      enqueueSnackbar('작업 내역 삭제에 실패했습니다', { variant: 'error' });
+    } finally {
+      setClearing(false);
+    }
+  };
 
   // 일괄 처리 상세 다이얼로그
   const [traceLog, setTraceLog] = useState<ActivityLog | null>(null);
@@ -455,6 +477,13 @@ export default function ActivityPage() {
         count={loading ? null : total}
         onRefresh={loadLogs}
         loading={loading}
+        actions={[{
+          label: '전체 삭제 (테스트)',
+          onClick: () => setClearDialogOpen(true),
+          variant: 'outlined' as const,
+          color: 'error' as const,
+          icon: <DeleteIcon />,
+        }]}
       />
 
       {/* 필터 */}
@@ -730,6 +759,25 @@ export default function ActivityPage() {
             </>
           );
         })()}
+      </Dialog>
+
+      {/* ── 전체 삭제 확인 다이얼로그 ─────────────────────────────────────── */}
+      <Dialog open={clearDialogOpen} onClose={() => setClearDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ErrorIcon color="error" />
+          테스트용 작업 내역 전체 삭제
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            정산 관련 모든 작업 내역 <strong>{total}건</strong>을 삭제합니다. 이 작업은 되돌릴 수 없습니다.
+          </Alert>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setClearDialogOpen(false)} disabled={clearing}>취소</Button>
+          <Button variant="contained" color="error" onClick={handleClearAll} disabled={clearing}>
+            {clearing ? '삭제 중...' : '전체 삭제'}
+          </Button>
+        </DialogActions>
       </Dialog>
     </AppPageContainer>
   );

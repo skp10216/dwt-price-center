@@ -15,7 +15,7 @@ from PIL import Image
 # 환경 변수
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+psycopg2://dwt_user:dwt_password@localhost:5432/dwt_price_center"
+    "postgresql+psycopg2://dwt_user:dwt_password@localhost:5532/dwt_price_center"
 )
 
 

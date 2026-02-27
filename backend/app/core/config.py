@@ -18,10 +18,10 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     
     # 데이터베이스 설정
-    DATABASE_URL: str = "postgresql+asyncpg://dwt_user:dwt_password@localhost:5432/dwt_price_center"
+    DATABASE_URL: str = "postgresql+asyncpg://dwt_user:dwt_password@localhost:5532/dwt_price_center"
     
     # Redis 설정
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str = "redis://localhost:6479/0"
     
     # JWT 인증 설정
     SECRET_KEY: str = "your-super-secret-key-change-in-production"
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     
     # CORS 설정 - 두 도메인 화이트리스트
     # 사용자 도메인: dwt.price, 관리자 도메인: admin.dwt.price
-    CORS_ORIGINS: str = "http://localhost:3000,https://dwt.price,https://admin.dwt.price"
+    CORS_ORIGINS: str = "http://localhost:3100,https://dwt.price,https://admin.dwt.price"
     
     # 도메인 설정
     USER_DOMAIN: str = "dwt.price"
@@ -52,10 +52,10 @@ class Settings(BaseSettings):
         origins = [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
         # 개발 환경 추가
         dev_origins = [
-            "http://localhost:3000",
-            "http://admin.localhost:3000",
-            "http://settlement.localhost:3000",
-            "http://127.0.0.1:3000",
+            "http://localhost:3100",
+            "http://admin.localhost:3100",
+            "http://settlement.localhost:3100",
+            "http://127.0.0.1:3100",
         ]
         return list(set(origins + dev_origins))
     

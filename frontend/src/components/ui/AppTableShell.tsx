@@ -114,6 +114,8 @@ export default function AppTableShell({
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
+        flex: 1,
+        minHeight: 0,
         ...sx,
       }}
     >
@@ -167,6 +169,8 @@ export default function AppTableShell({
             position: 'relative',
             maxHeight: maxHeight,
             overflow: 'auto',
+            flex: 1,
+            minHeight: 0,
             // sticky header 스타일
             ...(stickyHeader && {
               '& thead th': {

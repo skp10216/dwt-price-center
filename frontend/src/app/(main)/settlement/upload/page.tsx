@@ -276,7 +276,7 @@ export default function UploadWizardPage() {
   const [previewSearch, setPreviewSearch] = useState('');
   const [previewStatusFilter, setPreviewStatusFilter] = useState('all');
   const [previewPage, setPreviewPage] = useState(0);
-  const [previewRowsPerPage, setPreviewRowsPerPage] = useState(25);
+  const [previewRowsPerPage, setPreviewRowsPerPage] = useState(100);
 
   // Step 4: 확정
   const [confirming, setConfirming] = useState(false);
@@ -340,6 +340,22 @@ export default function UploadWizardPage() {
   const paginatedPreviewRows = useMemo(() => {
     return filteredPreviewRows.slice(previewPage * previewRowsPerPage, (previewPage + 1) * previewRowsPerPage);
   }, [filteredPreviewRows, previewPage, previewRowsPerPage]);
+
+  // 미리보기 합계 (현재 필터 기준)
+  const previewSums = useMemo(() => {
+    let mainAmtSum = 0;
+    let actualAmtSum = 0;
+    let qtySum = 0;
+    for (const row of filteredPreviewRows) {
+      const mainAmt = voucherType === 'sales' ? row.data?.sale_amount : row.data?.purchase_cost;
+      const actualAmt = voucherType === 'sales' ? row.data?.actual_sale_price : row.data?.actual_purchase_price;
+      const qty = row.data?.quantity;
+      if (mainAmt != null) mainAmtSum += Number(mainAmt);
+      if (actualAmt != null) actualAmtSum += Number(actualAmt);
+      if (qty != null) qtySum += Number(qty);
+    }
+    return { mainAmtSum, actualAmtSum, qtySum };
+  }, [filteredPreviewRows, voucherType]);
 
   // ─── 파일 핸들러 ───
   const validateAndSetFile = useCallback((selectedFile: File) => {
@@ -1323,7 +1339,8 @@ export default function UploadWizardPage() {
                     />
                   </Stack>
 
-                  <TableContainer sx={{ maxHeight: 'calc(100vh - 600px)', minHeight: 200, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+                  <Box sx={{ maxHeight: 'calc(100vh - 600px)', minHeight: 200, overflow: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 2, position: 'relative' }}>
+                  <TableContainer>
                     <Table size="small" stickyHeader>
                       <TableHead>
                         <TableRow>
@@ -1383,6 +1400,9 @@ export default function UploadWizardPage() {
                       </TableBody>
                     </Table>
                   </TableContainer>
+
+                  </Box>
+
                   <TablePagination
                     component="div"
                     count={filteredPreviewRows.length}
@@ -1396,14 +1416,45 @@ export default function UploadWizardPage() {
                   />
                 </Paper>
 
-                {/* 액션 버튼 — sticky bottom */}
+                {/* 액션 바 + 합계 — sticky bottom */}
                 <Box sx={{
                   position: 'sticky', bottom: 0, zIndex: 10,
-                  bgcolor: 'background.default',
-                  borderTop: '1px solid', borderColor: 'divider',
+                  bgcolor: 'background.paper',
+                  borderTop: '2px solid', borderColor: 'primary.main',
                   py: 1.5, mt: 2,
+                  boxShadow: '0 -4px 12px rgba(0,0,0,0.06)',
                 }}>
-                  <Stack direction="row" spacing={2} justifyContent="flex-end">
+                  {/* 합계 */}
+                  {filteredPreviewRows.length > 0 && (
+                    <Stack direction="row" spacing={3} alignItems="center" sx={{
+                      px: 2, pb: 1.5, mb: 1.5,
+                      borderBottom: '1px solid', borderColor: 'divider',
+                    }}>
+                      <Typography variant="body2" fontWeight={700} color="primary.main" sx={{ mr: 'auto' }}>
+                        합계 ({filteredPreviewRows.length}건)
+                      </Typography>
+                      <Box sx={{ textAlign: 'right' }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2, display: 'block' }}>
+                          {voucherType === 'sales' ? '판매금액' : '매입원가'}
+                        </Typography>
+                        <Typography variant="body2" fontWeight={800} color="primary.main"
+                          sx={{ fontFeatureSettings: '"tnum"', fontVariantNumeric: 'tabular-nums', lineHeight: 1.2 }}>
+                          {fmtNum(previewSums.mainAmtSum)}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ textAlign: 'right' }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2, display: 'block' }}>
+                          {voucherType === 'sales' ? '실판매가' : '실매입가'}
+                        </Typography>
+                        <Typography variant="body2" fontWeight={800} color="primary.main"
+                          sx={{ fontFeatureSettings: '"tnum"', fontVariantNumeric: 'tabular-nums', lineHeight: 1.2 }}>
+                          {fmtNum(previewSums.actualAmtSum)}
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  )}
+                  {/* 버튼 */}
+                  <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ px: filteredPreviewRows.length > 0 ? 2 : 0 }}>
                     <Button variant="outlined" onClick={() => setActiveStep((stats?.conflict ?? 0) > 0 ? 2 : 1)}>이전</Button>
                     <Button
                       variant="contained"

@@ -294,6 +294,47 @@ export default function CounterpartyTab() {
     }
   };
 
+  // ─── 전체 삭제 (테스트) ────────────────────────────────────────────────────
+  const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
+
+  const handleDeleteAll = async () => {
+    setDeletingAll(true);
+    try {
+      const batchSize = 200;
+      let totalDeleted = 0;
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const res = await settlementApi.listCounterparties({ page: 1, page_size: batchSize });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = res.data as any;
+        const ids = (data.counterparties || []).map((c: CounterpartyRow) => c.id);
+        if (ids.length === 0) break;
+
+        const delRes = await settlementApi.batchDeleteCounterparties(ids);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = (delRes.data as any)?.data ?? delRes.data;
+        totalDeleted += result.deleted_count ?? 0;
+
+        if ((result.deleted_count ?? 0) === 0) break;
+      }
+
+      enqueueSnackbar(
+        totalDeleted > 0 ? `전체 ${totalDeleted}건 삭제 완료` : '삭제할 거래처가 없습니다',
+        { variant: totalDeleted > 0 ? 'success' : 'info' },
+      );
+      setDeleteAllDialogOpen(false);
+      setSelected(new Set());
+      loadCounterparties();
+      loadFavoriteCount();
+    } catch {
+      enqueueSnackbar('전체 삭제에 실패했습니다', { variant: 'error' });
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
   const selectedCounterparties = counterparties.filter((cp) => selected.has(cp.id));
 
   const sums = useMemo(() => ({
@@ -309,6 +350,13 @@ export default function CounterpartyTab() {
       color: 'error' as const,
       icon: <DeleteIcon />,
     }] : []),
+    {
+      label: '전체 삭제 (테스트)',
+      onClick: () => setDeleteAllDialogOpen(true),
+      variant: 'outlined' as const,
+      color: 'error' as const,
+      icon: <DeleteIcon />,
+    },
     {
       label: '거래처 등록',
       onClick: openCreate,
@@ -555,7 +603,7 @@ export default function CounterpartyTab() {
                     <TableCell align="center">
                       <Stack direction="row" spacing={0.25} justifyContent="center">
                         <AppIconActionButton icon={<ViewIcon />} tooltip="상세/요약" color="primary"
-                          onClick={() => router.push(`/settlement/counterparties/${cp.id}`)} />
+                          onClick={() => router.push(`/settlement/counterparties/${cp.id}?from=counterparties`)} />
                         <AppIconActionButton icon={<EditIcon />} tooltip="수정"
                           onClick={() => openEdit(cp)} />
                         <AppIconActionButton icon={<AliasIcon />} tooltip="별칭 관리" color="info"
@@ -774,6 +822,27 @@ export default function CounterpartyTab() {
               {deleting ? '삭제 중...' : `${selected.size}건 삭제`}
             </Button>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* ═══ 전체 삭제 확인 다이얼로그 ═══ */}
+      <Dialog open={deleteAllDialogOpen} onClose={() => setDeleteAllDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WarningIcon color="error" />
+          테스트용 전체 삭제
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            <AlertTitle>경고</AlertTitle>
+            모든 거래처 <strong>{total}건</strong>을 삭제합니다. 이 작업은 되돌릴 수 없습니다.
+          </Alert>
+          <Typography variant="body2" color="text.secondary">• 전표가 연결된 거래처는 건너뛰어질 수 있습니다.</Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setDeleteAllDialogOpen(false)} disabled={deletingAll}>취소</Button>
+          <Button variant="contained" color="error" onClick={handleDeleteAll} disabled={deletingAll}>
+            {deletingAll ? '삭제 중...' : '전체 삭제'}
+          </Button>
         </DialogActions>
       </Dialog>
     </>

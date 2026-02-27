@@ -474,6 +474,18 @@ class TransactionResponse(BaseModel):
 class TransactionDetailResponse(TransactionResponse):
     """상세 (배분 내역 포함)"""
     allocations: List["AllocationResponse"] = []
+    hold_reason: Optional[str] = None
+    hide_reason: Optional[str] = None
+
+
+class TransactionHoldRequest(BaseModel):
+    """보류 처리 요청"""
+    reason: str = Field(..., min_length=1, max_length=500, description="보류 사유 (필수)")
+
+
+class TransactionHideRequest(BaseModel):
+    """숨김 처리 요청"""
+    reason: Optional[str] = Field(None, max_length=500, description="숨김 사유 (선택)")
 
 
 class TransactionListResponse(BaseModel):

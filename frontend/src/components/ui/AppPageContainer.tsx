@@ -42,6 +42,9 @@ export default function AppPageContainer({
         display: 'flex',
         flexDirection: 'column',
         gap: 1.5,
+        flex: 1,
+        minHeight: 0,
+        overflow: 'hidden',
         ...sx,
       }}
     >

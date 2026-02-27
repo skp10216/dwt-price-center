@@ -6,7 +6,7 @@ import axios, { AxiosError, AxiosInstance } from 'axios';
 import { useAuthStore } from '@/lib/store';
 
 // API 기본 URL
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8100';
 
 // Axios 인스턴스 생성
 const api: AxiosInstance = axios.create({
@@ -811,6 +811,8 @@ export const settlementApi = {
     api.get<ApiResponse<{ logs: unknown[]; total: number; page: number; page_size: number }>>('/settlement/activity', { params }),
   listTraceActivityLogs: (traceId: string) =>
     api.get<ApiResponse<{ logs: unknown[]; total: number }>>(`/settlement/activity/trace/${traceId}`),
+  clearActivityLogs: () =>
+    api.delete<ApiResponse<{ deleted_count: number }>>('/settlement/activity/clear'),
 
   // ── 입출금 이벤트 (Transactions) ──────────────────────────────────
   listTransactions: (params?: Record<string, unknown>) =>
@@ -828,6 +830,12 @@ export const settlementApi = {
   cancelTransaction: (id: string) =>
     api.delete<ApiResponse<unknown>>(`/settlement/transactions/${id}`),
 
+  batchCancelTransactions: (transactionIds: string[]) =>
+    api.post<ApiResponse<{ cancelled_count: number; skipped_count: number; errors: string[] }>>(
+      '/settlement/transactions/batch-cancel',
+      transactionIds,
+    ),
+
   autoAllocate: (id: string, strategy?: string) =>
     api.post<ApiResponse<unknown>>(`/settlement/transactions/${id}/auto-allocate`, { strategy }),
 
@@ -836,6 +844,18 @@ export const settlementApi = {
 
   deleteAllocation: (txnId: string, allocId: string) =>
     api.delete<ApiResponse<unknown>>(`/settlement/transactions/${txnId}/allocations/${allocId}`),
+
+  holdTransaction: (id: string, reason: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/transactions/${id}/hold`, { reason }),
+
+  unholdTransaction: (id: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/transactions/${id}/unhold`),
+
+  hideTransaction: (id: string, reason?: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/transactions/${id}/hide`, { reason }),
+
+  unhideTransaction: (id: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/transactions/${id}/unhide`),
 
   getCounterpartyTimeline: (counterpartyId: string, params?: Record<string, unknown>) =>
     api.get<ApiResponse<unknown>>(`/settlement/transactions/counterparty/${counterpartyId}/timeline`, { params }),

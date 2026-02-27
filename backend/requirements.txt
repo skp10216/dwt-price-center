@@ -18,7 +18,7 @@ rq==1.16.0
 # 인증/보안
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
-bcrypt==4.1.2
+bcrypt==4.0.1  # passlib 1.7.4와 호환 (4.1+은 __about__ 속성 제거로 비호환)
 
 # 데이터 검증 및 설정
 pydantic==2.6.1
