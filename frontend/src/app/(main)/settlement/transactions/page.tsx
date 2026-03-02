@@ -10,11 +10,13 @@ import {
   Add as AddIcon,
   Delete as DeleteIcon,
   Warning as WarningIcon,
+  FileUpload as FileUploadIcon,
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import { settlementApi } from '@/lib/api';
 import { AppPageContainer, AppPageHeader } from '@/components/ui';
 import TransactionCreateDialog from '@/components/settlement/TransactionCreateDialog';
+import TransactionUploadDialog from '@/components/settlement/TransactionUploadDialog';
 import AllocationDialog from '@/components/settlement/AllocationDialog';
 
 import CashEventProvider, { useCashEvent } from './_components/CashEventProvider';
@@ -36,6 +38,7 @@ function TransactionsPageContent() {
 
   // 다이얼로그
   const [createOpen, setCreateOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [allocDialogOpen, setAllocDialogOpen] = useState(false);
   const [selectedTxnId, setSelectedTxnId] = useState('');
 
@@ -148,6 +151,12 @@ function TransactionsPageContent() {
       icon: <DeleteIcon />,
     }] : []),
     {
+      label: '엑셀 업로드',
+      onClick: () => setUploadOpen(true),
+      variant: 'outlined' as const,
+      icon: <FileUploadIcon />,
+    },
+    {
       label: '입출금 등록',
       onClick: () => setCreateOpen(true),
       variant: 'contained' as const,
@@ -190,6 +199,8 @@ function TransactionsPageContent() {
               onCancel={handleCancel}
               onHold={handleHold}
               onHide={handleHide}
+              onCreateOpen={() => setCreateOpen(true)}
+              onUploadOpen={() => setUploadOpen(true)}
             />
           ) : (
             <CashEventTimelineView />
@@ -277,6 +288,13 @@ function TransactionsPageContent() {
       <TransactionCreateDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}
+        onCreated={loadData}
+      />
+
+      {/* 엑셀 업로드 다이얼로그 */}
+      <TransactionUploadDialog
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
         onCreated={loadData}
       />
 

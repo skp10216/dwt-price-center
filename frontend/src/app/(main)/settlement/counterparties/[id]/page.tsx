@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
+import { useAppRouter } from '@/lib/navigation';
 import {
-  Box, Typography, Paper, Grid, Card, CardContent, Chip, Divider,
+  Box, Typography, Paper, Grid, Chip, Divider,
   Button, Stack, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, TablePagination, IconButton, Tooltip,
+  TableHead, TableRow, TableFooter, TablePagination, IconButton, Tooltip,
   TextField, Dialog, DialogTitle, DialogContent, DialogActions,
   alpha, useTheme, Skeleton, Alert, LinearProgress, Tabs, Tab,
 } from '@mui/material';
@@ -15,16 +16,17 @@ import {
   TrendingUp as TrendingUpIcon,
   TrendingDown as TrendingDownIcon,
   Receipt as ReceiptIcon,
-  ShoppingCart as ShoppingCartIcon,
   Visibility as ViewIcon,
   LocalOffer as AliasIcon,
   Add as AddIcon,
   Delete as DeleteIcon,
-  SwapHoriz as SwapHorizIcon,
   NavigateNext as NavigateNextIcon,
   Timeline as TimelineIcon,
   Info as InfoIcon,
-  AccountBalanceWallet as WalletIcon,
+  CallReceived as CallReceivedIcon,
+  CallMade as CallMadeIcon,
+  ArrowForward as ArrowForwardIcon,
+  ReceiptLong as ReceiptLongIcon,
 } from '@mui/icons-material';
 import { subMonths, format } from 'date-fns';
 import { settlementApi } from '@/lib/api';
@@ -117,7 +119,7 @@ const DEFAULT_FILTERS: TimelineFilters = {
 
 export default function CounterpartyDetailPage() {
   const theme = useTheme();
-  const router = useRouter();
+  const router = useAppRouter();
   const params = useParams();
   const searchParams = useSearchParams();
   const { enqueueSnackbar } = useSnackbar();
@@ -150,7 +152,7 @@ export default function CounterpartyDetailPage() {
   const [vouchers, setVouchers] = useState<VoucherRow[]>([]);
   const [voucherTotal, setVoucherTotal] = useState(0);
   const [vPage, setVPage] = useState(0);
-  const [vPageSize, setVPageSize] = useState(10);
+  const [vPageSize, setVPageSize] = useState(50);
 
   // ─── Alias state ───────────────────────────────────────────────
   const [aliasDialogOpen, setAliasDialogOpen] = useState(false);
@@ -192,7 +194,14 @@ export default function CounterpartyDetailPage() {
 
       const res = await settlementApi.listTransactions(apiParams);
       const data = res.data as unknown as { transactions: TransactionItem[]; total: number };
-      setTransactions((prev) => append ? [...prev, ...(data.transactions || [])] : (data.transactions || []));
+      // API가 금액 필드를 문자열로 반환하므로 숫자 변환
+      const parsed = (data.transactions || []).map((t) => ({
+        ...t,
+        amount: Number(t.amount) || 0,
+        allocated_amount: Number(t.allocated_amount) || 0,
+        unallocated_amount: Number(t.unallocated_amount) || 0,
+      }));
+      setTransactions((prev) => append ? [...prev, ...parsed] : parsed);
       setTimelineTotal(data.total || 0);
     } catch {
       if (!append) setTransactions([]);
@@ -260,6 +269,17 @@ export default function CounterpartyDetailPage() {
     return { totalDeposits, totalWithdrawals, depositCount, withdrawalCount, unallocatedDeposits, unallocatedWithdrawals };
   }, [transactions, timelineLoading]);
 
+  // ─── Voucher summary 계산 ──────────────────────────────────────
+  const voucherSummary = useMemo(() => {
+    let totalQty = 0, totalAmt = 0, totalBal = 0;
+    for (const v of vouchers) {
+      totalQty += Number(v.quantity) || 0;
+      totalAmt += Number(v.total_amount) || 0;
+      totalBal += Number(v.balance) || 0;
+    }
+    return { totalQty, totalAmt, totalBal };
+  }, [vouchers]);
+
   // ─── Alias handlers ────────────────────────────────────────────
   const handleAddAlias = async () => {
     if (!newAlias.trim()) return;
@@ -311,10 +331,46 @@ export default function CounterpartyDetailPage() {
     );
   }
 
-  const receivableRate = summary && summary.total_sales_amount > 0
-    ? ((summary.total_receivable / summary.total_sales_amount) * 100) : 0;
-  const payableRate = summary && summary.total_purchase_amount > 0
-    ? ((summary.total_payable / summary.total_purchase_amount) * 100) : 0;
+  const totalSales = Number(summary?.total_sales_amount) || 0;
+  const totalDeposit = totalSales - (Number(summary?.total_receivable) || 0);
+  const totalReceivable = Number(summary?.total_receivable) || 0;
+  const totalPurchase = Number(summary?.total_purchase_amount) || 0;
+  const totalWithdrawal = totalPurchase - (Number(summary?.total_payable) || 0);
+  const totalPayable = Number(summary?.total_payable) || 0;
+
+  const salesRate = totalSales > 0 ? Math.round((totalDeposit / totalSales) * 100) : 0;
+  const purchaseRate = totalPurchase > 0 ? Math.round((totalWithdrawal / totalPurchase) * 100) : 0;
+
+  const TABULAR_NUMS_SX = { fontFeatureSettings: '"tnum"', fontVariantNumeric: 'tabular-nums' };
+
+  const renderKpiBlock = (
+    label: string,
+    amount: number,
+    icon: React.ReactNode,
+    color: string,
+    bold?: boolean,
+  ) => (
+    <Box sx={{ textAlign: 'center', minWidth: 0, flex: 1 }}>
+      <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center" sx={{ mb: 0.25 }}>
+        {icon}
+        <Typography variant="caption" color="text.secondary" fontWeight={600} noWrap>
+          {label}
+        </Typography>
+      </Stack>
+      <Typography
+        variant="subtitle1"
+        fontWeight={bold ? 800 : 600}
+        noWrap
+        sx={{ ...TABULAR_NUMS_SX, color, lineHeight: 1.3 }}
+      >
+        {formatAmount(amount)}
+      </Typography>
+    </Box>
+  );
+
+  const renderArrow = () => (
+    <ArrowForwardIcon sx={{ fontSize: 16, color: 'text.disabled', flexShrink: 0, mx: 0.5 }} />
+  );
 
   return (
     <Box>
@@ -369,119 +425,80 @@ export default function CounterpartyDetailPage() {
         </Stack>
       </Box>
 
-      {/* ─── 요약 카드 (6열: 미수/미지급/총매출/총매입/미배분입금/미배분출금) ─── */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={6} md={2}>
-          <Card elevation={0} sx={{
-            borderRadius: 2, border: '1px solid',
-            borderColor: alpha(theme.palette.error.main, 0.2),
-            bgcolor: alpha(theme.palette.error.main, 0.04), height: '100%',
-          }}>
-            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-              <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 0.5 }}>
-                <TrendingUpIcon sx={{ color: 'error.main', fontSize: 16 }} />
-                <Typography variant="caption" color="text.secondary" fontWeight={500}>미수 잔액</Typography>
-              </Stack>
-              <Typography variant="subtitle1" fontWeight={700} color="error.main">
-                {formatAmount(summary?.total_receivable ?? 0)}
-              </Typography>
-              <LinearProgress
-                variant="determinate" value={Math.min(receivableRate, 100)}
-                color="error" sx={{ height: 4, borderRadius: 2, mt: 1 }}
-              />
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={2}>
-          <Card elevation={0} sx={{
-            borderRadius: 2, border: '1px solid',
-            borderColor: alpha(theme.palette.warning.main, 0.2),
-            bgcolor: alpha(theme.palette.warning.main, 0.04), height: '100%',
-          }}>
-            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-              <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 0.5 }}>
-                <TrendingDownIcon sx={{ color: 'warning.main', fontSize: 16 }} />
-                <Typography variant="caption" color="text.secondary" fontWeight={500}>미지급 잔액</Typography>
-              </Stack>
-              <Typography variant="subtitle1" fontWeight={700} color="warning.main">
-                {formatAmount(summary?.total_payable ?? 0)}
-              </Typography>
-              <LinearProgress
-                variant="determinate" value={Math.min(payableRate, 100)}
-                color="warning" sx={{ height: 4, borderRadius: 2, mt: 1 }}
-              />
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={2}>
-          <Card elevation={0} sx={{
-            borderRadius: 2, border: '1px solid',
-            borderColor: alpha(theme.palette.info.main, 0.15),
-            bgcolor: alpha(theme.palette.info.main, 0.03), height: '100%',
-          }}>
-            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-              <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 0.5 }}>
-                <ReceiptIcon sx={{ color: 'info.main', fontSize: 16 }} />
-                <Typography variant="caption" color="text.secondary" fontWeight={500}>총 매출액</Typography>
-              </Stack>
-              <Typography variant="subtitle1" fontWeight={700} color="info.main">
-                {formatAmount(summary?.total_sales_amount ?? 0)}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={2}>
-          <Card elevation={0} sx={{
-            borderRadius: 2, border: '1px solid',
-            borderColor: alpha(theme.palette.success.main, 0.15),
-            bgcolor: alpha(theme.palette.success.main, 0.03), height: '100%',
-          }}>
-            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-              <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 0.5 }}>
-                <ShoppingCartIcon sx={{ color: 'success.main', fontSize: 16 }} />
-                <Typography variant="caption" color="text.secondary" fontWeight={500}>총 매입액</Typography>
-              </Stack>
-              <Typography variant="subtitle1" fontWeight={700} color="success.main">
-                {formatAmount(summary?.total_purchase_amount ?? 0)}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={2}>
-          <Card elevation={0} sx={{
-            borderRadius: 2, border: '1px solid',
-            borderColor: alpha(theme.palette.info.main, 0.12),
-            bgcolor: alpha(theme.palette.info.main, 0.02), height: '100%',
-          }}>
-            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-              <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 0.5 }}>
-                <WalletIcon sx={{ color: 'info.main', fontSize: 16 }} />
-                <Typography variant="caption" color="text.secondary" fontWeight={500}>미배분 입금</Typography>
-              </Stack>
-              <Typography variant="subtitle1" fontWeight={700} color="info.main">
-                {formatAmount(balance?.unallocated_deposits ?? 0)}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={2}>
-          <Card elevation={0} sx={{
-            borderRadius: 2, border: '1px solid',
-            borderColor: alpha(theme.palette.error.main, 0.12),
-            bgcolor: alpha(theme.palette.error.main, 0.02), height: '100%',
-          }}>
-            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-              <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 0.5 }}>
-                <WalletIcon sx={{ color: 'error.main', fontSize: 16 }} />
-                <Typography variant="caption" color="text.secondary" fontWeight={500}>미배분 출금</Typography>
-              </Stack>
-              <Typography variant="subtitle1" fontWeight={700} color="error.main">
-                {formatAmount(balance?.unallocated_withdrawals ?? 0)}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+      {/* ─── KPI 요약: 총매출→입금→미수 | 총매입→출금→미지급 ─── */}
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ mb: 3 }}>
+        {/* 미수 현황 */}
+        <Paper variant="outlined" sx={{
+          flex: 1, p: 2,
+          borderColor: alpha(theme.palette.success.main, 0.3),
+          background: `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.06)} 0%, transparent 100%)`,
+        }}>
+          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: 1.5 }}>
+            <TrendingUpIcon sx={{ fontSize: 18, color: 'success.main' }} />
+            <Typography variant="body2" fontWeight={700} color="success.main">미수 현황</Typography>
+            <Chip
+              label={`수금률 ${salesRate}%`}
+              size="small"
+              color={salesRate >= 80 ? 'success' : salesRate >= 50 ? 'warning' : 'error'}
+              sx={{ height: 20, fontSize: '0.65rem', fontWeight: 700, ml: 'auto' }}
+            />
+          </Stack>
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            {renderKpiBlock('총 매출', totalSales,
+              <ReceiptLongIcon sx={{ fontSize: 14, color: 'text.secondary' }} />, theme.palette.text.primary)}
+            {renderArrow()}
+            {renderKpiBlock('입금 완료', totalDeposit,
+              <CallReceivedIcon sx={{ fontSize: 14, color: 'info.main' }} />, theme.palette.info.main)}
+            {renderArrow()}
+            {renderKpiBlock('미수 잔액', totalReceivable,
+              <TrendingUpIcon sx={{ fontSize: 14, color: 'success.main' }} />, theme.palette.success.main, true)}
+          </Stack>
+          {totalSales > 0 && (
+            <LinearProgress
+              variant="determinate"
+              value={salesRate}
+              color="success"
+              sx={{ mt: 1.5, height: 4, borderRadius: 2, bgcolor: alpha(theme.palette.success.main, 0.1) }}
+            />
+          )}
+        </Paper>
+
+        {/* 미지급 현황 */}
+        <Paper variant="outlined" sx={{
+          flex: 1, p: 2,
+          borderColor: alpha(theme.palette.error.main, 0.3),
+          background: `linear-gradient(135deg, ${alpha(theme.palette.error.main, 0.06)} 0%, transparent 100%)`,
+        }}>
+          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: 1.5 }}>
+            <TrendingDownIcon sx={{ fontSize: 18, color: 'error.main' }} />
+            <Typography variant="body2" fontWeight={700} color="error.main">미지급 현황</Typography>
+            <Chip
+              label={`지급률 ${purchaseRate}%`}
+              size="small"
+              color={purchaseRate >= 80 ? 'success' : purchaseRate >= 50 ? 'warning' : 'error'}
+              sx={{ height: 20, fontSize: '0.65rem', fontWeight: 700, ml: 'auto' }}
+            />
+          </Stack>
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            {renderKpiBlock('총 매입', totalPurchase,
+              <ReceiptLongIcon sx={{ fontSize: 14, color: 'text.secondary' }} />, theme.palette.text.primary)}
+            {renderArrow()}
+            {renderKpiBlock('출금 완료', totalWithdrawal,
+              <CallMadeIcon sx={{ fontSize: 14, color: 'warning.main' }} />, theme.palette.warning.main)}
+            {renderArrow()}
+            {renderKpiBlock('미지급 잔액', totalPayable,
+              <TrendingDownIcon sx={{ fontSize: 14, color: 'error.main' }} />, theme.palette.error.main, true)}
+          </Stack>
+          {totalPurchase > 0 && (
+            <LinearProgress
+              variant="determinate"
+              value={purchaseRate}
+              color="error"
+              sx={{ mt: 1.5, height: 4, borderRadius: 2, bgcolor: alpha(theme.palette.error.main, 0.1) }}
+            />
+          )}
+        </Paper>
+      </Stack>
 
       {/* ─── 탭: 입출금 타임라인 / 전표 이력 / 기본 정보 ──── */}
       <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
@@ -516,21 +533,29 @@ export default function CounterpartyDetailPage() {
 
             <Divider />
 
-            {/* MUI Timeline */}
-            <CounterpartyTimeline
-              transactions={transactions}
-              total={timelineTotal}
-              loading={timelineLoading}
-              onLoadMore={handleLoadMore}
-              onItemClick={(id) => setSelectedTxnId(id)}
-            />
+            {/* MUI Timeline (스크롤 영역) */}
+            <Box sx={{
+              maxHeight: 'calc(100vh - 380px)',
+              minHeight: 300,
+              overflow: 'auto',
+              '&::-webkit-scrollbar': { width: 6 },
+              '&::-webkit-scrollbar-thumb': { borderRadius: 3, bgcolor: 'action.disabled' },
+            }}>
+              <CounterpartyTimeline
+                transactions={transactions}
+                total={timelineTotal}
+                loading={timelineLoading}
+                onLoadMore={handleLoadMore}
+                onItemClick={(id) => setSelectedTxnId(id)}
+              />
+            </Box>
           </Box>
         )}
 
         {/* ── 탭 1: 전표 이력 ─────────────────────────────── */}
         {activeTab === 1 && (
           <>
-            <TableContainer sx={{ maxHeight: 500 }}>
+            <TableContainer sx={{ maxHeight: 'calc(100vh - 420px)', minHeight: 300 }}>
               <Table size="small" stickyHeader>
                 <TableHead>
                   <TableRow>
@@ -597,6 +622,41 @@ export default function CounterpartyDetailPage() {
                     })
                   )}
                 </TableBody>
+                {/* ── 합계 행 (하단 고정) ──────────────────────── */}
+                {vouchers.length > 0 && (
+                  <TableFooter sx={{
+                    position: 'sticky',
+                    bottom: 0,
+                    zIndex: 2,
+                    '& td': {
+                      bgcolor: (t) => t.palette.mode === 'light' ? 'grey.100' : 'grey.900',
+                      borderTop: 2,
+                      borderColor: 'divider',
+                      fontSize: '0.8125rem',
+                    },
+                  }}>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700 }}>합계</TableCell>
+                      <TableCell />
+                      <TableCell />
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>
+                        {new Intl.NumberFormat('ko-KR').format(voucherSummary.totalQty)}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>
+                        {new Intl.NumberFormat('ko-KR').format(voucherSummary.totalAmt)}
+                      </TableCell>
+                      <TableCell align="right" sx={{
+                        fontWeight: 700,
+                        color: voucherSummary.totalBal > 0 ? 'error.main' : 'success.main',
+                      }}>
+                        {new Intl.NumberFormat('ko-KR').format(voucherSummary.totalBal)}
+                      </TableCell>
+                      <TableCell />
+                      <TableCell />
+                      <TableCell />
+                    </TableRow>
+                  </TableFooter>
+                )}
               </Table>
             </TableContainer>
             {voucherTotal > 0 && (
@@ -605,7 +665,7 @@ export default function CounterpartyDetailPage() {
                 onPageChange={(_, p) => setVPage(p)}
                 rowsPerPage={vPageSize}
                 onRowsPerPageChange={(e) => { setVPageSize(parseInt(e.target.value, 10)); setVPage(0); }}
-                rowsPerPageOptions={[5, 10, 25]}
+                rowsPerPageOptions={[25, 50, 100]}
                 labelRowsPerPage="페이지당 행:"
               />
             )}

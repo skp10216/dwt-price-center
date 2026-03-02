@@ -19,6 +19,7 @@ from app.api.v1.settlement import (
     transactions,
     netting,
     bank_import,
+    statistics,
 )
 
 settlement_router = APIRouter()
@@ -86,4 +87,9 @@ settlement_router.include_router(
 # 은행 파일 임포트
 settlement_router.include_router(
     bank_import.router, prefix="/bank-import", tags=["정산-은행임포트"]
+)
+
+# 통계
+settlement_router.include_router(
+    statistics.router, prefix="/statistics", tags=["정산-통계"]
 )

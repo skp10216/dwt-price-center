@@ -92,7 +92,19 @@ export default function TransactionDetailDrawer({ transactionId, onClose }: Tran
     setLoading(true);
     try {
       const res = await settlementApi.getTransaction(transactionId);
-      setDetail(res.data as unknown as TransactionDetail);
+      // API가 금액 필드를 문자열("100000.00")로 반환하므로 숫자 변환
+      const raw = res.data as unknown as TransactionDetail;
+      setDetail({
+        ...raw,
+        amount: Number(raw.amount) || 0,
+        allocated_amount: Number(raw.allocated_amount) || 0,
+        unallocated_amount: Number(raw.unallocated_amount) || 0,
+        allocations: (raw.allocations || []).map((a) => ({
+          ...a,
+          allocated_amount: Number(a.allocated_amount) || 0,
+          voucher_total_amount: a.voucher_total_amount != null ? Number(a.voucher_total_amount) : null,
+        })),
+      });
     } catch {
       enqueueSnackbar('거래 상세 정보를 불러오지 못했습니다', { variant: 'error' });
     } finally {
@@ -263,14 +275,14 @@ export default function TransactionDetailDrawer({ transactionId, onClose }: Tran
                       </TableCell>
                       <TableCell>{a.voucher_trade_date || '-'}</TableCell>
                       <TableCell align="right" sx={{ fontWeight: 600 }}>
-                        {fmt(a.allocated_amount)}
+                        {fmt(a.allocated_amount ?? 0)}
                       </TableCell>
                     </TableRow>
                   ))}
                   <TableRow>
                     <TableCell colSpan={2} sx={{ fontWeight: 700 }}>합계</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 700 }}>
-                      {fmt(detail.allocations.reduce((s, a) => s + a.allocated_amount, 0))}
+                      {fmt(detail.allocations.reduce((s, a) => s + (a.allocated_amount ?? 0), 0))}
                     </TableCell>
                   </TableRow>
                 </TableBody>

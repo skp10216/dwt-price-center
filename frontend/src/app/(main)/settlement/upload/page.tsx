@@ -69,7 +69,7 @@ import Avatar from '@mui/material/Avatar';
 import Skeleton from '@mui/material/Skeleton';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
-import { useRouter } from 'next/navigation';
+import { useAppRouter } from '@/lib/navigation';
 import { AppPageContainer, AppPageHeader } from '@/components/ui';
 
 // ─── 애니메이션 ───
@@ -240,7 +240,7 @@ function getInitials(name: string | null | undefined): string {
 export default function UploadWizardPage() {
   const theme = useTheme();
   const { enqueueSnackbar } = useSnackbar();
-  const router = useRouter();
+  const router = useAppRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ─── 위자드 상태 ───
@@ -441,7 +441,7 @@ export default function UploadWizardPage() {
   // ─── Step 2: 거래처 매핑 ───
   const loadCounterparties = async () => {
     try {
-      const res = await settlementApi.listCounterparties({ page: 1, page_size: 1000 });
+      const res = await settlementApi.listCounterparties({ page: 1, page_size: 200 });
       setExistingCounterparties((res.data as unknown as { counterparties: Counterparty[] }).counterparties || []);
     } catch { /* ignore */ }
   };

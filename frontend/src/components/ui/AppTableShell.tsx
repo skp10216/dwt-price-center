@@ -58,6 +58,10 @@ export interface AppTableShellProps {
   emptyMessage?: string;
   /** 빈 상태 아이콘 */
   emptyIcon?: React.ReactNode;
+  /** 빈 상태 부가 설명 */
+  emptyDescription?: string;
+  /** 빈 상태 액션 버튼 */
+  emptyAction?: React.ReactNode;
   /** 전체 데이터 건수 (pagination) */
   count?: number;
   /** 현재 페이지 (0-based) */
@@ -89,6 +93,8 @@ export default function AppTableShell({
   isEmpty = false,
   emptyMessage = '데이터가 없습니다',
   emptyIcon,
+  emptyDescription,
+  emptyAction,
   count = 0,
   page = 0,
   rowsPerPage = 20,
@@ -159,6 +165,14 @@ export default function AppTableShell({
           <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
             {emptyMessage}
           </Typography>
+          {emptyDescription && (
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+              {emptyDescription}
+            </Typography>
+          )}
+          {emptyAction && (
+            <Box sx={{ mt: 1.5 }}>{emptyAction}</Box>
+          )}
         </Box>
       )}
 

@@ -149,6 +149,8 @@ export interface AppDataTableProps<T> {
   error?: string | null;
   emptyMessage?: string;
   emptyIcon?: React.ReactNode;
+  emptyDescription?: string;
+  emptyAction?: React.ReactNode;
   count?: number;
   page?: number;
   rowsPerPage?: number;
@@ -191,6 +193,8 @@ export default function AppDataTable<T>({
   error,
   emptyMessage,
   emptyIcon,
+  emptyDescription,
+  emptyAction,
   count,
   page,
   rowsPerPage,
@@ -305,6 +309,8 @@ export default function AppDataTable<T>({
     isEmpty: !loading && sortedRows.length === 0,
     emptyMessage,
     emptyIcon,
+    emptyDescription,
+    emptyAction,
     count,
     page,
     rowsPerPage,

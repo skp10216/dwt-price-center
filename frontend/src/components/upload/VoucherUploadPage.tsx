@@ -73,7 +73,7 @@ const PremiumConnector = styled(StepConnector)(({ theme }) => ({
 }));
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
-import { useRouter } from 'next/navigation';
+import { useAppRouter } from '@/lib/navigation';
 
 // ─── 타입 ───
 interface PreviewRow {
@@ -148,7 +148,7 @@ function PremiumStepIcon(props: StepIconProps) {
 export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProps) {
   const theme = useTheme();
   const { enqueueSnackbar } = useSnackbar();
-  const router = useRouter();
+  const router = useAppRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const config = VOUCHER_CONFIG[voucherType];
 

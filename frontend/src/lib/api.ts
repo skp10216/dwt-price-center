@@ -836,6 +836,23 @@ export const settlementApi = {
       transactionIds,
     ),
 
+  previewTransactionUpload: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post<ApiResponse<unknown>>('/settlement/transactions/upload/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  confirmTransactionUpload: (transactions: Array<{
+    transaction_date: string;
+    counterparty_id: string;
+    transaction_type: string;
+    amount: number;
+    memo?: string;
+  }>) =>
+    api.post<ApiResponse<unknown>>('/settlement/transactions/upload/confirm', { transactions }),
+
   autoAllocate: (id: string, strategy?: string) =>
     api.post<ApiResponse<unknown>>(`/settlement/transactions/${id}/auto-allocate`, { strategy }),
 
@@ -913,6 +930,44 @@ export const settlementApi = {
 
   listAdjustmentVouchers: (voucherId: string) =>
     api.get<ApiResponse<unknown>>(`/settlement/vouchers/${voucherId}/adjustments`),
+
+  // ── 통계 (Statistics) ────────────────────────────────────────────
+  statsMonthlyBalance: (months?: number) =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/monthly-balance', { params: { months } }),
+  statsTransactionFlow: (months?: number) =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/transaction-flow', { params: { months } }),
+  statsVoucherStatus: () =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/voucher-status'),
+  statsNettingMonthly: (months?: number) =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/netting-monthly', { params: { months } }),
+  statsAdjustmentSummary: () =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/adjustment-summary'),
+  statsByBranch: () =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/by-branch'),
+  statsTopBalance: (limit?: number) =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/top-balance', { params: { limit } }),
+  statsCounterpartyType: () =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/counterparty-type'),
+  statsCounterpartyProgress: (limit?: number) =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/counterparty-progress', { params: { limit } }),
+  statsProfitSummary: (months?: number) =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/profit-summary', { params: { months } }),
+  statsProfitMonthly: (months?: number) =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/profit-monthly', { params: { months } }),
+  statsProfitByCounterparty: (limit?: number, months?: number) =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/profit-by-counterparty', { params: { limit, months } }),
+  statsProfitDistribution: (months?: number) =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/profit-distribution', { params: { months } }),
+
+  // ── 신규 통계 ────────────────────────────────────────────────
+  statsSettlementAging: () =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/settlement-aging'),
+  statsTransactionSource: () =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/transaction-source'),
+  statsCompletionRate: (months?: number) =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/completion-rate', { params: { months } }),
+  statsCashLag: (limit?: number) =>
+    api.get<ApiResponse<unknown>>('/settlement/statistics/cash-lag', { params: { limit } }),
 };
 
 export default api;

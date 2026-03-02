@@ -5,6 +5,7 @@
 from typing import Optional
 from uuid import UUID
 from decimal import Decimal
+from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func, case, and_
@@ -293,12 +294,24 @@ async def get_top_payables(
 async def list_receivables(
     search: Optional[str] = Query(None),
     include_zero_balance: bool = Query(False, description="잔액 0인 거래처도 포함"),
+    date_from: Optional[date] = Query(None, description="전표 거래일 시작"),
+    date_to: Optional[date] = Query(None, description="전표 거래일 종료"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """미수 현황 (거래처별) - 단일 쿼리"""
+    """미수 현황 (거래처별) - 전표 거래일 기준 필터, 수금액은 해당 전표에 대한 누적"""
+    # 전표 날짜 필터 조건
+    voucher_date_filters = [Voucher.voucher_type == VoucherType.SALES]
+    if date_from:
+        voucher_date_filters.append(Voucher.trade_date >= date_from)
+    if date_to:
+        voucher_date_filters.append(Voucher.trade_date <= date_to)
+
+    # 기간 내 전표 ID 목록 (입금 서브쿼리에서 재사용)
+    voucher_id_filter = select(Voucher.id).where(*voucher_date_filters)
+
     # 거래처별 판매전표 합계 서브쿼리
     voucher_sub = (
         select(
@@ -306,22 +319,22 @@ async def list_receivables(
             func.coalesce(func.sum(Voucher.total_amount), 0).label("total_amount"),
             func.count(Voucher.id).label("voucher_count"),
         )
-        .where(Voucher.voucher_type == VoucherType.SALES)
+        .where(*voucher_date_filters)
         .group_by(Voucher.counterparty_id)
     ).subquery()
 
-    # 거래처별 누적 입금 서브쿼리 (레거시)
+    # 거래처별 누적 입금 서브쿼리 (레거시) — 기간 내 전표에 연결된 입금만
     receipt_sub = (
         select(
             Voucher.counterparty_id,
             func.coalesce(func.sum(Receipt.amount), 0).label("received"),
         )
         .join(Voucher, Receipt.voucher_id == Voucher.id)
-        .where(Voucher.voucher_type == VoucherType.SALES)
+        .where(Receipt.voucher_id.in_(voucher_id_filter))
         .group_by(Voucher.counterparty_id)
     ).subquery()
 
-    # 거래처별 누적 입금 서브쿼리 (신규 배분)
+    # 거래처별 누적 입금 서브쿼리 (신규 배분) — 기간 내 전표에 연결된 배분만
     alloc_deposit_sub = (
         select(
             Voucher.counterparty_id,
@@ -330,11 +343,18 @@ async def list_receivables(
         .join(Voucher, TransactionAllocation.voucher_id == Voucher.id)
         .join(CounterpartyTransaction, TransactionAllocation.transaction_id == CounterpartyTransaction.id)
         .where(
-            Voucher.voucher_type == VoucherType.SALES,
+            TransactionAllocation.voucher_id.in_(voucher_id_filter),
             CounterpartyTransaction.transaction_type == TransactionType.DEPOSIT,
         )
         .group_by(Voucher.counterparty_id)
     ).subquery()
+
+    # balance를 SQL에서 계산
+    total_received_expr = (
+        func.coalesce(receipt_sub.c.received, 0) +
+        func.coalesce(alloc_deposit_sub.c.alloc_received, 0)
+    )
+    balance_expr = voucher_sub.c.total_amount - total_received_expr
 
     query = (
         select(
@@ -342,8 +362,8 @@ async def list_receivables(
             Counterparty.name.label("counterparty_name"),
             voucher_sub.c.total_amount,
             voucher_sub.c.voucher_count,
-            func.coalesce(receipt_sub.c.received, 0).label("received"),
-            func.coalesce(alloc_deposit_sub.c.alloc_received, 0).label("alloc_received"),
+            total_received_expr.label("total_received"),
+            balance_expr.label("balance"),
         )
         .join(voucher_sub, Counterparty.id == voucher_sub.c.counterparty_id)
         .outerjoin(receipt_sub, Counterparty.id == receipt_sub.c.counterparty_id)
@@ -353,29 +373,33 @@ async def list_receivables(
     if search:
         query = query.where(Counterparty.name.ilike(f"%{search}%"))
 
-    result = await db.execute(query.order_by(Counterparty.name))
+    if not include_zero_balance:
+        query = query.where(balance_expr > 0)
+
+    # 전체 건수 (DB 레벨)
+    count_query = select(func.count()).select_from(query.subquery())
+    total = (await db.execute(count_query)).scalar() or 0
+
+    # 페이징 (DB 레벨)
+    offset = (page - 1) * page_size
+    query = query.order_by(Counterparty.name).offset(offset).limit(page_size)
+    result = await db.execute(query)
     rows = result.all()
 
-    items = []
-    for row in rows:
-        total_received = row.received + row.alloc_received
-        balance = row.total_amount - total_received
-        if balance > 0 or include_zero_balance:
-            items.append(ReceivableItem(
-                counterparty_id=row.counterparty_id,
-                counterparty_name=row.counterparty_name,
-                total_amount=row.total_amount,
-                total_received=total_received,
-                balance=balance,
-                voucher_count=row.voucher_count,
-            ))
-
-    total = len(items)
-    start = (page - 1) * page_size
-    end = start + page_size
+    items = [
+        ReceivableItem(
+            counterparty_id=row.counterparty_id,
+            counterparty_name=row.counterparty_name,
+            total_amount=row.total_amount,
+            total_received=row.total_received,
+            balance=row.balance,
+            voucher_count=row.voucher_count,
+        )
+        for row in rows
+    ]
 
     return {
-        "receivables": items[start:end],
+        "receivables": items,
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -386,12 +410,24 @@ async def list_receivables(
 async def list_payables(
     search: Optional[str] = Query(None),
     include_zero_balance: bool = Query(False, description="잔액 0인 거래처도 포함"),
+    date_from: Optional[date] = Query(None, description="전표 거래일 시작"),
+    date_to: Optional[date] = Query(None, description="전표 거래일 종료"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """미지급 현황 (거래처별) - 단일 쿼리"""
+    """미지급 현황 (거래처별) - 전표 거래일 기준 필터, 지급액은 해당 전표에 대한 누적"""
+    # 전표 날짜 필터 조건
+    voucher_date_filters = [Voucher.voucher_type == VoucherType.PURCHASE]
+    if date_from:
+        voucher_date_filters.append(Voucher.trade_date >= date_from)
+    if date_to:
+        voucher_date_filters.append(Voucher.trade_date <= date_to)
+
+    # 기간 내 전표 ID 목록
+    voucher_id_filter = select(Voucher.id).where(*voucher_date_filters)
+
     # 거래처별 매입전표 합계 서브쿼리
     voucher_sub = (
         select(
@@ -399,22 +435,22 @@ async def list_payables(
             func.coalesce(func.sum(Voucher.total_amount), 0).label("total_amount"),
             func.count(Voucher.id).label("voucher_count"),
         )
-        .where(Voucher.voucher_type == VoucherType.PURCHASE)
+        .where(*voucher_date_filters)
         .group_by(Voucher.counterparty_id)
     ).subquery()
 
-    # 거래처별 누적 지급 서브쿼리 (레거시)
+    # 거래처별 누적 지급 서브쿼리 (레거시) — 기간 내 전표에 연결된 지급만
     payment_sub = (
         select(
             Voucher.counterparty_id,
             func.coalesce(func.sum(Payment.amount), 0).label("paid"),
         )
         .join(Voucher, Payment.voucher_id == Voucher.id)
-        .where(Voucher.voucher_type == VoucherType.PURCHASE)
+        .where(Payment.voucher_id.in_(voucher_id_filter))
         .group_by(Voucher.counterparty_id)
     ).subquery()
 
-    # 거래처별 누적 지급 서브쿼리 (신규 배분)
+    # 거래처별 누적 지급 서브쿼리 (신규 배분) — 기간 내 전표에 연결된 배분만
     alloc_withdrawal_sub = (
         select(
             Voucher.counterparty_id,
@@ -423,11 +459,18 @@ async def list_payables(
         .join(Voucher, TransactionAllocation.voucher_id == Voucher.id)
         .join(CounterpartyTransaction, TransactionAllocation.transaction_id == CounterpartyTransaction.id)
         .where(
-            Voucher.voucher_type == VoucherType.PURCHASE,
+            TransactionAllocation.voucher_id.in_(voucher_id_filter),
             CounterpartyTransaction.transaction_type == TransactionType.WITHDRAWAL,
         )
         .group_by(Voucher.counterparty_id)
     ).subquery()
+
+    # balance를 SQL에서 계산
+    total_paid_expr = (
+        func.coalesce(payment_sub.c.paid, 0) +
+        func.coalesce(alloc_withdrawal_sub.c.alloc_paid, 0)
+    )
+    balance_expr = voucher_sub.c.total_amount - total_paid_expr
 
     query = (
         select(
@@ -435,8 +478,8 @@ async def list_payables(
             Counterparty.name.label("counterparty_name"),
             voucher_sub.c.total_amount,
             voucher_sub.c.voucher_count,
-            func.coalesce(payment_sub.c.paid, 0).label("paid"),
-            func.coalesce(alloc_withdrawal_sub.c.alloc_paid, 0).label("alloc_paid"),
+            total_paid_expr.label("total_paid"),
+            balance_expr.label("balance"),
         )
         .join(voucher_sub, Counterparty.id == voucher_sub.c.counterparty_id)
         .outerjoin(payment_sub, Counterparty.id == payment_sub.c.counterparty_id)
@@ -446,29 +489,33 @@ async def list_payables(
     if search:
         query = query.where(Counterparty.name.ilike(f"%{search}%"))
 
-    result = await db.execute(query.order_by(Counterparty.name))
+    if not include_zero_balance:
+        query = query.where(balance_expr > 0)
+
+    # 전체 건수 (DB 레벨)
+    count_query = select(func.count()).select_from(query.subquery())
+    total = (await db.execute(count_query)).scalar() or 0
+
+    # 페이징 (DB 레벨)
+    offset = (page - 1) * page_size
+    query = query.order_by(Counterparty.name).offset(offset).limit(page_size)
+    result = await db.execute(query)
     rows = result.all()
 
-    items = []
-    for row in rows:
-        total_paid = row.paid + row.alloc_paid
-        balance = row.total_amount - total_paid
-        if balance > 0 or include_zero_balance:
-            items.append(PayableItem(
-                counterparty_id=row.counterparty_id,
-                counterparty_name=row.counterparty_name,
-                total_amount=row.total_amount,
-                total_paid=total_paid,
-                balance=balance,
-                voucher_count=row.voucher_count,
-            ))
-
-    total = len(items)
-    start = (page - 1) * page_size
-    end = start + page_size
+    items = [
+        PayableItem(
+            counterparty_id=row.counterparty_id,
+            counterparty_name=row.counterparty_name,
+            total_amount=row.total_amount,
+            total_paid=row.total_paid,
+            balance=row.balance,
+            voucher_count=row.voucher_count,
+        )
+        for row in rows
+    ]
 
     return {
-        "payables": items[start:end],
+        "payables": items,
         "total": total,
         "page": page,
         "page_size": page_size,

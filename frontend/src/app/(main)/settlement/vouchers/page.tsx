@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box, TextField, MenuItem, Select, InputLabel, FormControl,
-  Chip, Button, InputAdornment,
+  Chip, Button, InputAdornment, ToggleButton, ToggleButtonGroup,
   Dialog, DialogTitle, DialogContent, DialogActions, Alert, AlertTitle,
-  Typography,
+  Typography, IconButton,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -13,8 +13,11 @@ import {
   Receipt as ReceiptIcon,
   Delete as DeleteIcon,
   Warning as WarningIcon,
+  ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
+  CalendarMonth as CalendarIcon,
 } from '@mui/icons-material';
-import { useRouter } from 'next/navigation';
+import { useAppRouter } from '@/lib/navigation';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
 import {
@@ -50,21 +53,131 @@ const formatAmount = (amount: number) => new Intl.NumberFormat('ko-KR').format(a
 
 const TABULAR_NUMS_SX = { fontFeatureSettings: '"tnum"', fontVariantNumeric: 'tabular-nums' };
 
+const DATE_PRESETS = [
+  { value: 'all', label: '전체' },
+  { value: 'today', label: '오늘' },
+  { value: 'week', label: '7일' },
+  { value: 'thisMonth', label: '이번달' },
+  { value: 'lastMonth', label: '지난달' },
+  { value: 'custom', label: '커스텀' },
+] as const;
+
+function getDateRange(preset: string): { from: string; to: string } | null {
+  const now = new Date();
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  switch (preset) {
+    case 'today': return { from: fmt(now), to: fmt(now) };
+    case 'week': {
+      const s = new Date(now); s.setDate(s.getDate() - 6);
+      return { from: fmt(s), to: fmt(now) };
+    }
+    case 'thisMonth': {
+      const s = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { from: fmt(s), to: fmt(now) };
+    }
+    case 'lastMonth': {
+      const s = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const e = new Date(now.getFullYear(), now.getMonth(), 0);
+      return { from: fmt(s), to: fmt(e) };
+    }
+    default: return null;
+  }
+}
+
+// ─── 필터 상태 sessionStorage 유지 ─────────────────────────────────────────────
+
+const FILTER_STORAGE_KEY = 'vouchers-filter';
+
+interface FilterState {
+  search: string;
+  voucherType: string;
+  settlementStatus: string;
+  paymentStatus: string;
+  datePreset: string;
+  dateFrom: string;
+  dateTo: string;
+  page: number;
+  pageSize: number;
+}
+
+const DEFAULT_FILTER: FilterState = {
+  search: '',
+  voucherType: '',
+  settlementStatus: '',
+  paymentStatus: '',
+  datePreset: 'all',
+  dateFrom: '',
+  dateTo: '',
+  page: 0,
+  pageSize: 100,
+};
+
+function loadFilter(): FilterState {
+  if (typeof window === 'undefined') return DEFAULT_FILTER;
+  try {
+    const raw = sessionStorage.getItem(FILTER_STORAGE_KEY);
+    if (!raw) return DEFAULT_FILTER;
+    return { ...DEFAULT_FILTER, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_FILTER;
+  }
+}
+
+function saveFilter(f: FilterState) {
+  if (typeof window === 'undefined') return;
+  sessionStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(f));
+}
+
 /**
  * 전표 원장 - 전표 목록
  * 필터/검색/페이징/정렬/다중선택/일괄삭제
+ * 필터 상태를 sessionStorage로 유지하여 뒤로가기 시 복원
  */
 export default function VouchersPage() {
-  const router = useRouter();
+  const router = useAppRouter();
   const { enqueueSnackbar } = useSnackbar();
 
   const [vouchers, setVouchers] = useState<VoucherRow[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(100);
-  const [search, setSearch] = useState('');
-  const [voucherType, setVoucherType] = useState('');
   const [loading, setLoading] = useState(true);
+
+  // ─── sessionStorage에서 필터 초기값 복원 ──────────────────────────────────────
+  const [initialized] = useState(() => loadFilter());
+
+  const [page, setPage] = useState(initialized.page);
+  const [pageSize, setPageSize] = useState(initialized.pageSize);
+  const [searchInput, setSearchInput] = useState(initialized.search);
+  const [searchQuery, setSearchQuery] = useState(initialized.search);
+  const [voucherType, setVoucherType] = useState(initialized.voucherType);
+  const [settlementStatus, setSettlementStatus] = useState(initialized.settlementStatus);
+  const [paymentStatus, setPaymentStatus] = useState(initialized.paymentStatus);
+  const [datePreset, setDatePreset] = useState(initialized.datePreset);
+  const [dateFrom, setDateFrom] = useState(initialized.dateFrom);
+  const [dateTo, setDateTo] = useState(initialized.dateTo);
+
+  // ─── 필터 변경 시 sessionStorage 동기화 ───────────────────────────────────────
+  useEffect(() => {
+    saveFilter({
+      search: searchQuery,
+      voucherType,
+      settlementStatus,
+      paymentStatus,
+      datePreset,
+      dateFrom,
+      dateTo,
+      page,
+      pageSize,
+    });
+  }, [searchQuery, voucherType, settlementStatus, paymentStatus, datePreset, dateFrom, dateTo, page, pageSize]);
+
+  // 검색어 디바운스 (400ms)
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(searchTimer.current), []);
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value);
+    clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => { setSearchQuery(value); setPage(0); }, 400);
+  };
 
   // 다중 선택 상태
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -73,14 +186,53 @@ export default function VouchersPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // ─── 날짜 프리셋 핸들러 ────────────────────────────────────────────────────
+  const handlePreset = (preset: string) => {
+    setDatePreset(preset);
+    if (preset === 'all') {
+      setDateFrom(''); setDateTo('');
+    } else if (preset !== 'custom') {
+      const range = getDateRange(preset);
+      if (range) { setDateFrom(range.from); setDateTo(range.to); }
+    }
+    setPage(0);
+  };
+
+  const handleMonthNav = (delta: number) => {
+    const baseDate = dateFrom ? new Date(dateFrom) : new Date();
+    const newMonth = new Date(baseDate.getFullYear(), baseDate.getMonth() + delta, 1);
+    const endOfMonth = new Date(newMonth.getFullYear(), newMonth.getMonth() + 1, 0);
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    setDatePreset('custom');
+    setDateFrom(fmt(newMonth));
+    setDateTo(fmt(endOfMonth));
+    setPage(0);
+  };
+
+  const periodLabel = useMemo(() => {
+    if (dateFrom && dateTo) {
+      const from = new Date(dateFrom);
+      const to = new Date(dateTo);
+      if (from.getMonth() === to.getMonth() && from.getFullYear() === to.getFullYear()) {
+        return `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}`;
+      }
+      return `${dateFrom} ~ ${dateTo}`;
+    }
+    return null;
+  }, [dateFrom, dateTo]);
+
   // ─── 데이터 로드 ────────────────────────────────────────────────────────────
 
   const loadVouchers = useCallback(async () => {
     try {
       setLoading(true);
       const params: Record<string, unknown> = { page: page + 1, page_size: pageSize };
-      if (search) params.search = search;
+      if (searchQuery) params.search = searchQuery;
       if (voucherType) params.voucher_type = voucherType;
+      if (settlementStatus) params.settlement_status = settlementStatus;
+      if (paymentStatus) params.payment_status = paymentStatus;
+      if (dateFrom) params.date_from = dateFrom;
+      if (dateTo) params.date_to = dateTo;
 
       const res = await settlementApi.listVouchers(params);
       const data = res.data as unknown as { vouchers: VoucherRow[]; total: number };
@@ -92,7 +244,7 @@ export default function VouchersPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, voucherType, enqueueSnackbar]);
+  }, [page, pageSize, searchQuery, voucherType, settlementStatus, paymentStatus, dateFrom, dateTo, enqueueSnackbar]);
 
   useEffect(() => { loadVouchers(); }, [loadVouchers]);
 
@@ -223,7 +375,6 @@ export default function VouchersPage() {
       const batchSize = 200;
       let totalDeleted = 0;
 
-      // 반복: 항상 page 1 조회 → 삭제 → 남은 게 없거나 더 못 지우면 종료
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const res = await settlementApi.listVouchers({ page: 1, page_size: batchSize });
@@ -236,7 +387,6 @@ export default function VouchersPage() {
         const result = (delRes.data as any)?.data ?? delRes.data;
         totalDeleted += result.deleted_count ?? 0;
 
-        // 하나도 삭제 못했으면 (전부 마감/연결) 무한루프 방지
         if ((result.deleted_count ?? 0) === 0) break;
       }
 
@@ -287,15 +437,79 @@ export default function VouchersPage() {
         actions={headerActions}
       />
 
+      {/* 기간 프리셋 바 */}
       <AppPageToolbar
         left={
-          <>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <ToggleButtonGroup
+              value={datePreset}
+              exclusive
+              onChange={(_, v) => v && handlePreset(v)}
+              size="small"
+            >
+              {DATE_PRESETS.map((p) => (
+                <ToggleButton
+                  key={p.value}
+                  value={p.value}
+                  sx={{ px: 1.5, py: 0.5, textTransform: 'none', fontSize: '0.8125rem' }}
+                >
+                  {p.label}
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+
+            {/* 월 네비게이션 */}
+            {dateFrom && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <IconButton size="small" onClick={() => handleMonthNav(-1)}>
+                  <ChevronLeftIcon fontSize="small" />
+                </IconButton>
+                <Typography variant="body2" sx={{ minWidth: 80, textAlign: 'center', fontWeight: 500 }}>
+                  {periodLabel}
+                </Typography>
+                <IconButton size="small" onClick={() => handleMonthNav(1)}>
+                  <ChevronRightIcon fontSize="small" />
+                </IconButton>
+                <CalendarIcon fontSize="small" color="action" />
+              </Box>
+            )}
+
+            {/* 커스텀 날짜 입력 */}
+            {datePreset === 'custom' && (
+              <>
+                <TextField
+                  size="small"
+                  type="date"
+                  label="시작일"
+                  value={dateFrom}
+                  onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
+                  InputLabelProps={{ shrink: true }}
+                  sx={{ width: 150 }}
+                />
+                <TextField
+                  size="small"
+                  type="date"
+                  label="종료일"
+                  value={dateTo}
+                  onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
+                  InputLabelProps={{ shrink: true }}
+                  sx={{ width: 150 }}
+                />
+              </>
+            )}
+          </Box>
+        }
+      />
+
+      {/* 검색/필터 바 */}
+      <AppPageToolbar
+        left={
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
             <TextField
               size="small"
               placeholder="전표번호/거래처명 검색"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && loadVouchers()}
+              value={searchInput}
+              onChange={(e) => handleSearchChange(e.target.value)}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -303,27 +517,49 @@ export default function VouchersPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ width: 240 }}
+              sx={{ minWidth: 200 }}
             />
-            <FormControl size="small" sx={{ minWidth: 130 }}>
-              <InputLabel shrink>전표 타입</InputLabel>
+            <FormControl size="small" sx={{ minWidth: 100 }}>
+              <InputLabel>타입</InputLabel>
               <Select
-                label="전표 타입"
+                label="타입"
                 value={voucherType}
                 onChange={(e) => { setVoucherType(e.target.value); setPage(0); }}
-                displayEmpty
               >
                 <MenuItem value="">전체</MenuItem>
                 <MenuItem value="sales">판매</MenuItem>
                 <MenuItem value="purchase">매입</MenuItem>
               </Select>
             </FormControl>
-          </>
-        }
-        right={
-          <Button variant="outlined" size="small" onClick={loadVouchers}>
-            조회
-          </Button>
+            <FormControl size="small" sx={{ minWidth: 110 }}>
+              <InputLabel>정산상태</InputLabel>
+              <Select
+                label="정산상태"
+                value={settlementStatus}
+                onChange={(e) => { setSettlementStatus(e.target.value); setPage(0); }}
+              >
+                <MenuItem value="">전체</MenuItem>
+                <MenuItem value="open">미정산</MenuItem>
+                <MenuItem value="settling">정산중</MenuItem>
+                <MenuItem value="settled">정산완료</MenuItem>
+                <MenuItem value="locked">마감</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 110 }}>
+              <InputLabel>지급상태</InputLabel>
+              <Select
+                label="지급상태"
+                value={paymentStatus}
+                onChange={(e) => { setPaymentStatus(e.target.value); setPage(0); }}
+              >
+                <MenuItem value="">전체</MenuItem>
+                <MenuItem value="unpaid">미지급</MenuItem>
+                <MenuItem value="partial">부분지급</MenuItem>
+                <MenuItem value="paid">지급완료</MenuItem>
+                <MenuItem value="locked">마감</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
         }
       />
 
@@ -334,8 +570,10 @@ export default function VouchersPage() {
         defaultSortField="trade_date"
         defaultSortOrder="desc"
         loading={loading}
-        emptyMessage="전표가 없습니다. UPM 전표를 업로드하여 시작하세요."
+        emptyMessage="전표가 없습니다"
         emptyIcon={<ReceiptIcon sx={{ fontSize: 40, opacity: 0.4 }} />}
+        emptyDescription="UPM 업로드로 매출/매입 전표를 등록하세요."
+        emptyAction={<Button variant="contained" size="small" onClick={() => router.push('/settlement/upm-upload')}>UPM 업로드로 이동</Button>}
         count={total}
         page={page}
         rowsPerPage={pageSize}

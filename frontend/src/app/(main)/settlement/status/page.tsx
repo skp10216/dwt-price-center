@@ -9,25 +9,31 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box, Typography, Stack, Tab, Tabs, TableCell,
   TextField, InputAdornment, Chip, IconButton, Tooltip, LinearProgress,
-  alpha, useTheme, Avatar, Fade, ToggleButtonGroup, ToggleButton,
-  Divider,
+  alpha, useTheme, Avatar, ToggleButtonGroup, ToggleButton,
+  Divider, Button,
 } from '@mui/material';
+import {
+  ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
+  CalendarMonth as CalendarIcon,
+} from '@mui/icons-material';
 import {
   Search as SearchIcon,
   TrendingUp as TrendingUpIcon,
   TrendingDown as TrendingDownIcon,
-  AccountBalance as AccountBalanceIcon,
   Business as BusinessIcon,
   Visibility as VisibilityIcon,
-  AttachMoney as AttachMoneyIcon,
-  MoneyOff as MoneyOffIcon,
   Star as StarIcon,
   StarBorder as StarBorderIcon,
   FilterList as FilterListIcon,
+  ReceiptLong as ReceiptLongIcon,
+  CallReceived as CallReceivedIcon,
+  CallMade as CallMadeIcon,
+  ArrowForward as ArrowForwardIcon,
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
-import { useRouter } from 'next/navigation';
+import { useAppRouter } from '@/lib/navigation';
 import {
   AppPageContainer,
   AppPageHeader,
@@ -48,6 +54,15 @@ interface CounterpartyStatus {
   balance: number;
   last_transaction_date: string | null;
   is_favorite: boolean;
+}
+
+interface OverviewSummary {
+  totalSales: number;
+  totalDeposit: number;
+  totalReceivable: number;
+  totalPurchase: number;
+  totalWithdrawal: number;
+  totalPayable: number;
 }
 
 type TabValue = 'receivables' | 'payables';
@@ -72,9 +87,44 @@ function getInitials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
+const TABULAR_NUMS_SX = { fontFeatureSettings: '"tnum"', fontVariantNumeric: 'tabular-nums' };
+
+// ─── 날짜 프리셋 ───
+const DATE_PRESETS = [
+  { value: 'all', label: '전체' },
+  { value: 'today', label: '오늘' },
+  { value: 'week', label: '7일' },
+  { value: 'thisMonth', label: '이번달' },
+  { value: 'lastMonth', label: '지난달' },
+  { value: 'custom', label: '커스텀' },
+] as const;
+
+function getDateRange(preset: string): { from: string; to: string } | null {
+  const now = new Date();
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  switch (preset) {
+    case 'today': return { from: fmt(now), to: fmt(now) };
+    case 'week': {
+      const s = new Date(now); s.setDate(s.getDate() - 6);
+      return { from: fmt(s), to: fmt(now) };
+    }
+    case 'thisMonth': {
+      const s = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { from: fmt(s), to: fmt(now) };
+    }
+    case 'lastMonth': {
+      const s = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const e = new Date(now.getFullYear(), now.getMonth(), 0);
+      return { from: fmt(s), to: fmt(e) };
+    }
+    default: return null;
+  }
+}
+
+
 export default function CounterpartyStatusPage() {
   const theme = useTheme();
-  const router = useRouter();
+  const router = useAppRouter();
   const { enqueueSnackbar } = useSnackbar();
 
   const [tab, setTab] = useState<TabValue>('receivables');
@@ -86,6 +136,51 @@ export default function CounterpartyStatusPage() {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
 
+  // 날짜 필터
+  const [datePreset, setDatePreset] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  const handlePreset = (preset: string) => {
+    setDatePreset(preset);
+    if (preset === 'all') {
+      setDateFrom(''); setDateTo('');
+    } else if (preset !== 'custom') {
+      const range = getDateRange(preset);
+      if (range) { setDateFrom(range.from); setDateTo(range.to); }
+    }
+    setPage(0);
+  };
+
+  const handleMonthNav = (delta: number) => {
+    const baseDate = dateFrom ? new Date(dateFrom) : new Date();
+    const newMonth = new Date(baseDate.getFullYear(), baseDate.getMonth() + delta, 1);
+    const endOfMonth = new Date(newMonth.getFullYear(), newMonth.getMonth() + 1, 0);
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    setDatePreset('custom');
+    setDateFrom(fmt(newMonth));
+    setDateTo(fmt(endOfMonth));
+    setPage(0);
+  };
+
+  const periodLabel = useMemo(() => {
+    if (dateFrom && dateTo) {
+      const from = new Date(dateFrom);
+      const to = new Date(dateTo);
+      if (from.getMonth() === to.getMonth() && from.getFullYear() === to.getFullYear()) {
+        return `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}`;
+      }
+      return `${dateFrom} ~ ${dateTo}`;
+    }
+    return null;
+  }, [dateFrom, dateTo]);
+
+  // 전체 요약 (양쪽 탭 합산)
+  const [overview, setOverview] = useState<OverviewSummary>({
+    totalSales: 0, totalDeposit: 0, totalReceivable: 0,
+    totalPurchase: 0, totalWithdrawal: 0, totalPayable: 0,
+  });
+
   // ─── 즐겨찾기 목록 로드 ───
   const loadFavorites = useCallback(async () => {
     try {
@@ -96,12 +191,40 @@ export default function CounterpartyStatusPage() {
     } catch { /* silent */ }
   }, []);
 
-  // ─── 거래처 현황 로드 ───
+  // ─── 전체 요약 로드 (양쪽 동시) ───
+  const loadOverview = useCallback(async () => {
+    try {
+      const dateParams: Record<string, unknown> = {};
+      if (dateFrom) dateParams.date_from = dateFrom;
+      if (dateTo) dateParams.date_to = dateTo;
+
+      const [recRes, payRes] = await Promise.all([
+        settlementApi.getReceivables({ page: 1, page_size: 200, include_zero_balance: true, ...dateParams }),
+        settlementApi.getPayables({ page: 1, page_size: 200, include_zero_balance: true, ...dateParams }),
+      ]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rec = (recRes.data as any).receivables || [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pay = (payRes.data as any).payables || [];
+
+      setOverview({
+        totalSales: rec.reduce((s: number, r: { total_amount: number }) => s + Number(r.total_amount), 0),
+        totalDeposit: rec.reduce((s: number, r: { total_received: number }) => s + Number(r.total_received), 0),
+        totalReceivable: rec.reduce((s: number, r: { balance: number }) => s + Number(r.balance), 0),
+        totalPurchase: pay.reduce((s: number, r: { total_amount: number }) => s + Number(r.total_amount), 0),
+        totalWithdrawal: pay.reduce((s: number, r: { total_paid: number }) => s + Number(r.total_paid), 0),
+        totalPayable: pay.reduce((s: number, r: { balance: number }) => s + Number(r.balance), 0),
+      });
+    } catch { /* silent */ }
+  }, [dateFrom, dateTo]);
+
+  // ─── 거래처 현황 로드 (현재 탭) ───
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      // 즐겨찾기 필터 사용을 위해 잔액 0인 거래처도 포함
-      const params = { page: 1, page_size: 200, include_zero_balance: true };
+      const params: Record<string, unknown> = { page: 1, page_size: 200, include_zero_balance: true };
+      if (dateFrom) params.date_from = dateFrom;
+      if (dateTo) params.date_to = dateTo;
       if (tab === 'receivables') {
         const res = await settlementApi.getReceivables(params);
         const result = res.data as unknown as {
@@ -154,9 +277,9 @@ export default function CounterpartyStatusPage() {
     } finally {
       setLoading(false);
     }
-  }, [tab, enqueueSnackbar]);
+  }, [tab, dateFrom, dateTo, enqueueSnackbar]);
 
-  useEffect(() => { loadFavorites(); }, [loadFavorites]);
+  useEffect(() => { loadFavorites(); loadOverview(); }, [loadFavorites, loadOverview]);
   useEffect(() => { loadData(); }, [loadData]);
 
   // ─── 즐겨찾기 토글 ───
@@ -184,21 +307,13 @@ export default function CounterpartyStatusPage() {
     }
   };
 
-  const handleRefresh = () => { loadData(); loadFavorites(); };
+  const handleRefresh = () => { loadData(); loadFavorites(); loadOverview(); };
 
   // ─── 데이터 가공 ───
   const baseData = useMemo(() => {
     const enriched = data.map((d) => ({ ...d, is_favorite: favoriteIds.has(d.id) }));
     return favoritesOnly ? enriched.filter((d) => d.is_favorite) : enriched;
   }, [data, favoriteIds, favoritesOnly]);
-
-  const summary = useMemo(() => ({
-    totalAmount: baseData.reduce((s, d) => s + d.total_amount, 0),
-    paidAmount: baseData.reduce((s, d) => s + d.paid_amount, 0),
-    balance: baseData.reduce((s, d) => s + d.balance, 0),
-    totalCounterparties: baseData.length,
-    withBalance: baseData.filter((d) => d.balance > 0).length,
-  }), [baseData]);
 
   const filteredData = useMemo(() => {
     if (!searchQuery) return baseData;
@@ -213,6 +328,46 @@ export default function CounterpartyStatusPage() {
 
   const isReceivables = tab === 'receivables';
   const accentColor = isReceivables ? theme.palette.success.main : theme.palette.error.main;
+
+  // ─── 빈 상태 안내 ───
+  const emptyStateProps = useMemo(() => {
+    if (data.length === 0) {
+      return {
+        emptyIcon: <ReceiptLongIcon sx={{ fontSize: 48, mb: 1, opacity: 0.35 }} />,
+        emptyMessage: '등록된 전표가 없습니다',
+        emptyDescription: '전표를 업로드하면 거래처별 미수·미지급 현황을 확인할 수 있습니다.',
+        emptyAction: (
+          <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+            <Button variant="contained" size="small" onClick={() => router.push('/settlement/upload')}>
+              전표 업로드
+            </Button>
+            <Button variant="outlined" size="small" onClick={() => router.push('/settlement/vouchers')}>
+              전표 목록 보기
+            </Button>
+          </Stack>
+        ),
+      };
+    }
+    if (favoritesOnly && baseData.length === 0) {
+      return {
+        emptyIcon: <StarBorderIcon sx={{ fontSize: 48, mb: 1, opacity: 0.35 }} />,
+        emptyMessage: '즐겨찾기한 거래처가 없습니다',
+        emptyDescription: '거래처 목록에서 ★을 클릭하여 즐겨찾기를 추가하세요.',
+        emptyAction: (
+          <Button variant="outlined" size="small" onClick={() => { setFavoritesOnly(false); setPage(0); }}>
+            전체 거래처 보기
+          </Button>
+        ),
+      };
+    }
+    if (searchQuery && filteredData.length === 0) {
+      return {
+        emptyMessage: `"${searchQuery}" 검색 결과가 없습니다`,
+        emptyDescription: '다른 검색어를 입력하거나 필터를 변경해보세요.',
+      };
+    }
+    return {};
+  }, [data, baseData, filteredData, favoritesOnly, searchQuery, router]);
 
   // ─── 컬럼 정의 ───
   const columns = useMemo<AppColumnDef<CounterpartyStatus>[]>(() => [
@@ -250,25 +405,25 @@ export default function CounterpartyStatusPage() {
     },
     {
       field: 'total_amount',
-      headerName: '총 금액',
+      headerName: isReceivables ? '총 매출' : '총 매입',
       align: 'right',
       sum: true,
-      cellSx: { fontWeight: 500 },
+      cellSx: { fontWeight: 500, ...TABULAR_NUMS_SX },
       renderCell: (row) => formatCurrency(row.total_amount),
       renderSumCell: (v) => formatCurrency(v as number),
     },
     {
       field: 'paid_amount',
-      headerName: '정산 완료',
+      headerName: isReceivables ? '입금 완료' : '출금 완료',
       align: 'right',
       sum: true,
-      cellSx: { color: 'success.main', fontWeight: 500 },
+      cellSx: { color: 'success.main', fontWeight: 500, ...TABULAR_NUMS_SX },
       renderCell: (row) => formatCurrency(row.paid_amount),
       renderSumCell: (v) => formatCurrency(v as number),
     },
     {
       field: 'balance',
-      headerName: '잔액',
+      headerName: isReceivables ? '미수 잔액' : '미지급 잔액',
       align: 'right',
       sum: true,
       renderCell: (row) => (
@@ -276,6 +431,7 @@ export default function CounterpartyStatusPage() {
           <Typography
             variant="body2"
             fontWeight={700}
+            sx={{ ...TABULAR_NUMS_SX }}
             color={row.balance > 0 ? (isReceivables ? 'success.main' : 'error.main') : 'text.secondary'}
           >
             {formatCurrency(row.balance)}
@@ -308,14 +464,47 @@ export default function CounterpartyStatusPage() {
     },
   ], [theme, isReceivables, accentColor]);
 
+  // ─── KPI 카드 렌더링 헬퍼 ───
+  const renderKpiBlock = (
+    label: string,
+    amount: number,
+    icon: React.ReactNode,
+    color: string,
+    bold?: boolean,
+  ) => (
+    <Box sx={{ textAlign: 'center', minWidth: 0, flex: 1 }}>
+      <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center" sx={{ mb: 0.25 }}>
+        {icon}
+        <Typography variant="caption" color="text.secondary" fontWeight={600} noWrap>
+          {label}
+        </Typography>
+      </Stack>
+      <Typography
+        variant="subtitle1"
+        fontWeight={bold ? 800 : 600}
+        noWrap
+        sx={{ ...TABULAR_NUMS_SX, color: color, lineHeight: 1.3 }}
+      >
+        {formatCurrency(amount)}
+      </Typography>
+    </Box>
+  );
+
+  const renderArrow = () => (
+    <ArrowForwardIcon sx={{ fontSize: 16, color: 'text.disabled', flexShrink: 0, mx: 0.5 }} />
+  );
+
+  const salesRate = overview.totalSales > 0 ? Math.round((overview.totalDeposit / overview.totalSales) * 100) : 0;
+  const purchaseRate = overview.totalPurchase > 0 ? Math.round((overview.totalWithdrawal / overview.totalPurchase) * 100) : 0;
+
   return (
     <AppPageContainer sx={{ maxWidth: 1600, mx: 'auto' }}>
       {/* ─── 헤더 ─── */}
       <AppPageHeader
         icon={<BusinessIcon />}
         title="거래처 현황"
-        description={isReceivables ? '판매 거래처의 미수금 현황' : '매입 거래처의 미지급금 현황'}
-        color={isReceivables ? 'success' : 'error'}
+        description="매출/매입 미수·미지급 현황 종합"
+        color="info"
         loading={loading}
         onRefresh={handleRefresh}
         chips={favoritesOnly ? [
@@ -331,61 +520,79 @@ export default function CounterpartyStatusPage() {
         ] : []}
       />
 
-      {/* ─── 요약 카드 ─── */}
-      <Stack direction="row" spacing={1.5} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
-        {[
-          {
-            icon: <BusinessIcon sx={{ color: 'primary.main', fontSize: 22 }} />,
-            bg: theme.palette.primary.main,
-            value: formatNumber(summary.totalCounterparties),
-            label: favoritesOnly ? '즐겨찾기 거래처' : '전체 거래처',
-            sub: summary.withBalance > 0 ? `잔액 ${formatNumber(summary.withBalance)}개` : '',
-          },
-          {
-            icon: <AccountBalanceIcon sx={{ color: 'info.main', fontSize: 22 }} />,
-            bg: theme.palette.info.main,
-            value: formatCurrency(summary.totalAmount),
-            label: '총 거래액',
-          },
-          {
-            icon: <AttachMoneyIcon sx={{ color: 'success.main', fontSize: 22 }} />,
-            bg: theme.palette.success.main,
-            value: formatCurrency(summary.paidAmount),
-            label: '정산 완료',
-          },
-          {
-            icon: <MoneyOffIcon sx={{ color: isReceivables ? 'success.main' : 'error.main', fontSize: 22 }} />,
-            bg: accentColor,
-            value: formatCurrency(summary.balance),
-            label: isReceivables ? '미수금 잔액' : '미지급금 잔액',
-            highlight: true,
-          },
-        ].map((card, i) => (
-          <AppSectionCard key={i} noPadding sx={{
-            minWidth: 180, flex: 1, p: 2, mb: 0,
-            borderColor: card.highlight ? alpha(accentColor, 0.35) : 'divider',
-            background: `linear-gradient(135deg, ${alpha(card.bg, card.highlight ? 0.09 : 0.04)} 0%, transparent 100%)`,
-          }}>
-            <Stack direction="row" spacing={1.5} alignItems="center">
-              <Box sx={{
-                width: 36, height: 36, borderRadius: 1.5, flexShrink: 0,
-                bgcolor: alpha(card.bg, 0.12),
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                {card.icon}
-              </Box>
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant={i === 0 ? 'h5' : 'subtitle1'} fontWeight={800} noWrap sx={{ lineHeight: 1.2 }}>
-                  {card.value}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">{card.label}</Typography>
-                {card.sub && (
-                  <Typography variant="caption" color="warning.main" fontWeight={600} sx={{ display: 'block', lineHeight: 1 }}>{card.sub}</Typography>
-                )}
-              </Box>
-            </Stack>
-          </AppSectionCard>
-        ))}
+      {/* ─── KPI 요약: 매출→입금→미수 | 매입→출금→미지급 ─── */}
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ mb: 2 }}>
+        {/* 미수 현황 */}
+        <AppSectionCard noPadding sx={{
+          flex: 1, p: 2, mb: 0,
+          borderColor: alpha(theme.palette.success.main, 0.3),
+          background: `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.06)} 0%, transparent 100%)`,
+        }}>
+          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: 1.5 }}>
+            <TrendingUpIcon sx={{ fontSize: 18, color: 'success.main' }} />
+            <Typography variant="body2" fontWeight={700} color="success.main">미수 현황</Typography>
+            <Chip
+              label={`수금률 ${salesRate}%`}
+              size="small"
+              color={salesRate >= 80 ? 'success' : salesRate >= 50 ? 'warning' : 'error'}
+              sx={{ height: 20, fontSize: '0.65rem', fontWeight: 700, ml: 'auto' }}
+            />
+          </Stack>
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            {renderKpiBlock('총 매출', overview.totalSales,
+              <ReceiptLongIcon sx={{ fontSize: 14, color: 'text.secondary' }} />, 'text.primary')}
+            {renderArrow()}
+            {renderKpiBlock('입금 완료', overview.totalDeposit,
+              <CallReceivedIcon sx={{ fontSize: 14, color: 'info.main' }} />, theme.palette.info.main)}
+            {renderArrow()}
+            {renderKpiBlock('미수 잔액', overview.totalReceivable,
+              <TrendingUpIcon sx={{ fontSize: 14, color: 'success.main' }} />, theme.palette.success.main, true)}
+          </Stack>
+          {overview.totalSales > 0 && (
+            <LinearProgress
+              variant="determinate"
+              value={salesRate}
+              color="success"
+              sx={{ mt: 1.5, height: 4, borderRadius: 2, bgcolor: alpha(theme.palette.success.main, 0.1) }}
+            />
+          )}
+        </AppSectionCard>
+
+        {/* 미지급 현황 */}
+        <AppSectionCard noPadding sx={{
+          flex: 1, p: 2, mb: 0,
+          borderColor: alpha(theme.palette.error.main, 0.3),
+          background: `linear-gradient(135deg, ${alpha(theme.palette.error.main, 0.06)} 0%, transparent 100%)`,
+        }}>
+          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: 1.5 }}>
+            <TrendingDownIcon sx={{ fontSize: 18, color: 'error.main' }} />
+            <Typography variant="body2" fontWeight={700} color="error.main">미지급 현황</Typography>
+            <Chip
+              label={`지급률 ${purchaseRate}%`}
+              size="small"
+              color={purchaseRate >= 80 ? 'success' : purchaseRate >= 50 ? 'warning' : 'error'}
+              sx={{ height: 20, fontSize: '0.65rem', fontWeight: 700, ml: 'auto' }}
+            />
+          </Stack>
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            {renderKpiBlock('총 매입', overview.totalPurchase,
+              <ReceiptLongIcon sx={{ fontSize: 14, color: 'text.secondary' }} />, 'text.primary')}
+            {renderArrow()}
+            {renderKpiBlock('출금 완료', overview.totalWithdrawal,
+              <CallMadeIcon sx={{ fontSize: 14, color: 'warning.main' }} />, theme.palette.warning.main)}
+            {renderArrow()}
+            {renderKpiBlock('미지급 잔액', overview.totalPayable,
+              <TrendingDownIcon sx={{ fontSize: 14, color: 'error.main' }} />, theme.palette.error.main, true)}
+          </Stack>
+          {overview.totalPurchase > 0 && (
+            <LinearProgress
+              variant="determinate"
+              value={purchaseRate}
+              color="error"
+              sx={{ mt: 1.5, height: 4, borderRadius: 2, bgcolor: alpha(theme.palette.error.main, 0.1) }}
+            />
+          )}
+        </AppSectionCard>
       </Stack>
 
       {/* ─── 탭 ─── */}
@@ -399,6 +606,74 @@ export default function CounterpartyStatusPage() {
           <Tab value="payables" icon={<TrendingDownIcon />} iconPosition="start" label="미지급 현황 (매입)" />
         </Tabs>
       </AppSectionCard>
+
+      {/* ─── 기간 필터 ─── */}
+      <AppPageToolbar
+        left={
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <ToggleButtonGroup
+              value={datePreset}
+              exclusive
+              onChange={(_, v) => v && handlePreset(v)}
+              size="small"
+            >
+              {DATE_PRESETS.map((p) => (
+                <ToggleButton
+                  key={p.value}
+                  value={p.value}
+                  sx={{ px: 1.5, py: 0.5, textTransform: 'none', fontSize: '0.8125rem' }}
+                >
+                  {p.label}
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+
+            {dateFrom && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <IconButton size="small" onClick={() => handleMonthNav(-1)}>
+                  <ChevronLeftIcon fontSize="small" />
+                </IconButton>
+                <Typography variant="body2" sx={{ minWidth: 80, textAlign: 'center', fontWeight: 500 }}>
+                  {periodLabel}
+                </Typography>
+                <IconButton size="small" onClick={() => handleMonthNav(1)}>
+                  <ChevronRightIcon fontSize="small" />
+                </IconButton>
+                <CalendarIcon fontSize="small" color="action" />
+              </Box>
+            )}
+
+            {datePreset === 'custom' && (
+              <>
+                <TextField
+                  size="small" type="date" label="시작일"
+                  value={dateFrom}
+                  onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
+                  InputLabelProps={{ shrink: true }}
+                  sx={{ width: 150 }}
+                />
+                <TextField
+                  size="small" type="date" label="종료일"
+                  value={dateTo}
+                  onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
+                  InputLabelProps={{ shrink: true }}
+                  sx={{ width: 150 }}
+                />
+              </>
+            )}
+
+            {datePreset !== 'all' && (
+              <Chip
+                label="전표 거래일 기준"
+                size="small"
+                variant="outlined"
+                color="info"
+                sx={{ height: 24, fontSize: '0.75rem', fontWeight: 600 }}
+              />
+            )}
+          </Box>
+        }
+      />
 
       {/* ─── 검색 + 즐겨찾기 필터 ─── */}
       <AppPageToolbar
@@ -466,15 +741,16 @@ export default function CounterpartyStatusPage() {
         defaultSortField="balance"
         defaultSortOrder="desc"
         loading={loading}
+        {...emptyStateProps}
         count={filteredData.length}
         page={page}
         rowsPerPage={rowsPerPage}
         onPageChange={(_, p) => setPage(p)}
         onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
         rowsPerPageOptions={[25, 50, 100]}
-        maxHeight={580}
+        maxHeight="calc(100vh - 340px)"
         onRowClick={(row) => router.push(`/settlement/counterparties/${row.id}?from=status`)}
-        getRowSx={(row) => ({
+        getRowSx={() => ({
           cursor: 'pointer',
           transition: 'background 0.15s',
           '&:hover': { bgcolor: alpha(accentColor, 0.04) },

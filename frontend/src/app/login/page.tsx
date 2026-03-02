@@ -47,7 +47,7 @@ import {
   getRememberMe,
   saveEmailPreference,
 } from '@/lib/store';
-import { getDomainType, getAfterLoginPath, requiresAdminRole } from '@/lib/domain';
+import { getDomainType, getAfterLoginPath, requiresAdminRole, requiresSettlementRole } from '@/lib/domain';
 import { userGreenTheme, settlementBlueTheme, shadows, transitions } from '@/theme/tokens';
 
 // 로고 색상 기반 관리자 테마
@@ -108,7 +108,9 @@ function LoginPageInner() {
     if (typeof window !== 'undefined') {
       const host = window.location.host;
       const urlSearchParams = new URLSearchParams(window.location.search);
-      const detected = getDomainType(host, urlSearchParams);
+      // redirect 파라미터의 경로도 전달하여 localhost에서도 정확한 도메인 타입 감지
+      const redirect = urlSearchParams.get('redirect');
+      const detected = getDomainType(host, urlSearchParams, redirect || undefined);
       setDomainType(detected);
 
       // 저장된 이메일 및 아이디 저장 상태 복원
@@ -143,6 +145,13 @@ function LoginPageInner() {
       // 관리자 도메인에서 admin 권한 체크
       if (requiresAdminRole(domainType) && (user as User).role !== 'admin') {
         setError('관리자 권한이 필요합니다. 관리자 계정으로 로그인해주세요.');
+        setLoading(false);
+        return;
+      }
+
+      // 정산 도메인에서 settlement 또는 admin 권한 체크
+      if (requiresSettlementRole(domainType) && (user as User).role !== 'settlement' && (user as User).role !== 'admin') {
+        setError('경영지원 권한이 필요합니다. 권한이 있는 계정으로 로그인해주세요.');
         setLoading(false);
         return;
       }

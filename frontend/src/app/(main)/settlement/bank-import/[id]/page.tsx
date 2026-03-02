@@ -15,7 +15,8 @@ import {
   Warning as DuplicateIcon,
   Block as ExcludeIcon,
 } from '@mui/icons-material';
-import { useRouter, useParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
+import { useAppRouter } from '@/lib/navigation';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
 import {
@@ -90,7 +91,7 @@ const LINE_STATUS_MAP: Record<string, { label: string; color: 'default' | 'info'
  * 라인별 거래처 매칭 + 확정
  */
 export default function BankImportDetailPage() {
-  const router = useRouter();
+  const router = useAppRouter();
   const params = useParams();
   const jobId = params.id as string;
   const { enqueueSnackbar } = useSnackbar();

@@ -12,7 +12,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useAppRouter } from '@/lib/navigation';
 import {
   Box,
   Grid,
@@ -224,7 +224,7 @@ function StatCard({
 }
 
 export function ModelsDashboard() {
-  const router = useRouter();
+  const router = useAppRouter();
   const theme = useTheme();
   const { enqueueSnackbar } = useSnackbar();
 

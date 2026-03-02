@@ -6,6 +6,7 @@ UPSERT 기반: (counterparty_id, trade_date, voucher_number)
 from typing import Optional, List
 from uuid import UUID
 from decimal import Decimal
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Body, status
 from sqlalchemy import select, func, or_, and_
@@ -31,7 +32,7 @@ from app.schemas.settlement import (
     VoucherCreate, VoucherUpdate, VoucherResponse,
     VoucherDetailResponse, VoucherListResponse,
     ReceiptResponse, PaymentResponse,
-    AdjustmentVoucherCreate,
+    AdjustmentVoucherCreate, AllocationDetailItem,
 )
 
 router = APIRouter()
@@ -162,8 +163,8 @@ async def list_vouchers(
     settlement_status: Optional[str] = Query(None),
     payment_status: Optional[str] = Query(None),
     search: Optional[str] = Query(None, description="전표번호/거래처명 검색"),
-    date_from: Optional[str] = Query(None, description="조회 시작일 (YYYY-MM-DD)"),
-    date_to: Optional[str] = Query(None, description="조회 종료일 (YYYY-MM-DD)"),
+    date_from: Optional[date] = Query(None, description="조회 시작일 (YYYY-MM-DD)"),
+    date_to: Optional[date] = Query(None, description="조회 종료일 (YYYY-MM-DD)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -283,10 +284,14 @@ async def get_voucher(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """전표 상세 (입금/송금 이력 포함)"""
+    """전표 상세 (입금/송금/배분 이력 포함)"""
     result = await db.execute(
         select(Voucher)
-        .options(selectinload(Voucher.receipts), selectinload(Voucher.payments))
+        .options(
+            selectinload(Voucher.receipts),
+            selectinload(Voucher.payments),
+            selectinload(Voucher.allocations),
+        )
         .where(Voucher.id == voucher_id)
     )
     v = result.scalar_one_or_none()
@@ -294,10 +299,46 @@ async def get_voucher(
         raise HTTPException(status_code=404, detail="전표를 찾을 수 없습니다")
 
     base = await _enrich_voucher(v, db)
+
+    # 배분 내역 + 입출금 정보 조인
+    alloc_items: list = []
+    if v.allocations:
+        txn_ids = [a.transaction_id for a in v.allocations]
+        txn_result = await db.execute(
+            select(CounterpartyTransaction.id, CounterpartyTransaction.transaction_date, CounterpartyTransaction.transaction_type)
+            .where(CounterpartyTransaction.id.in_(txn_ids))
+        )
+        txn_map = {row.id: row for row in txn_result.all()}
+        for a in v.allocations:
+            txn = txn_map.get(a.transaction_id)
+            alloc_items.append(AllocationDetailItem(
+                id=a.id,
+                transaction_id=a.transaction_id,
+                transaction_date=txn.transaction_date if txn else None,
+                transaction_type=txn.transaction_type.value if txn and txn.transaction_type else None,
+                allocated_amount=a.allocated_amount,
+                memo=a.memo,
+                created_at=a.created_at,
+            ))
+
+    # 원본 전표번호 (조정전표인 경우)
+    original_voucher_number = None
+    if v.original_voucher_id:
+        orig = await db.get(Voucher, v.original_voucher_id)
+        if orig:
+            original_voucher_number = orig.voucher_number
+
     return VoucherDetailResponse(
         **base.model_dump(),
         receipts=[ReceiptResponse.model_validate(r) for r in v.receipts],
         payments=[PaymentResponse.model_validate(p) for p in v.payments],
+        allocations=alloc_items,
+        is_adjustment=v.is_adjustment or False,
+        adjustment_type=v.adjustment_type.value if v.adjustment_type else None,
+        adjustment_reason=v.adjustment_reason,
+        original_voucher_id=v.original_voucher_id,
+        original_voucher_number=original_voucher_number,
+        upload_job_id=v.upload_job_id,
     )
 
 

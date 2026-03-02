@@ -64,7 +64,7 @@ export default function AppDetailDrawer({
       anchor="right"
       open={open}
       onClose={onClose}
-      variant={isMobile ? 'temporary' : 'persistent'}
+      variant="temporary"
       sx={{
         '& .MuiDrawer-paper': {
           width: isMobile ? '100%' : width,
@@ -87,8 +87,8 @@ export default function AppDetailDrawer({
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <IconButton size="small" onClick={onClose} edge="start">
-            <CloseIcon />
+          <IconButton size="small" onClick={onClose} edge="start" sx={{ color: 'text.primary' }}>
+            <CloseIcon fontSize="small" />
           </IconButton>
           {title && (
             <Typography variant="subtitle1" fontWeight={600}>

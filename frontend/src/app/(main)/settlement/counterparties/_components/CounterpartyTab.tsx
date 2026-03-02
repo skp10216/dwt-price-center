@@ -23,7 +23,7 @@ import {
   Star as StarIcon,
   StarBorder as StarBorderIcon,
 } from '@mui/icons-material';
-import { useRouter } from 'next/navigation';
+import { useAppRouter } from '@/lib/navigation';
 import { settlementApi, branchesApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
 import {
@@ -64,7 +64,7 @@ const formatAmount = (amount: number | null | undefined) =>
 
 export default function CounterpartyTab() {
   const theme = useTheme();
-  const router = useRouter();
+  const router = useAppRouter();
   const { enqueueSnackbar } = useSnackbar();
 
   const [counterparties, setCounterparties] = useState<CounterpartyRow[]>([]);
@@ -461,6 +461,8 @@ export default function CounterpartyTab() {
         loading={loading}
         isEmpty={!loading && counterparties.length === 0}
         emptyMessage={favoritesOnly ? '즐겨찾기한 거래처가 없습니다' : '등록된 거래처가 없습니다'}
+        emptyDescription={favoritesOnly ? undefined : '거래처를 등록하면 전표 업로드, 입출금 관리를 시작할 수 있습니다.'}
+        emptyAction={!favoritesOnly ? <Button variant="contained" size="small" onClick={openCreate}>거래처 등록</Button> : undefined}
         count={total}
         page={page}
         rowsPerPage={pageSize}

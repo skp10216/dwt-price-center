@@ -4,11 +4,13 @@
 """
 
 from uuid import UUID
-from datetime import date
-from decimal import Decimal
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from typing import List, Optional
+import io
+import re
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -16,7 +18,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
-from app.models.counterparty import Counterparty
+from app.models.counterparty import Counterparty, CounterpartyAlias
 from app.models.voucher import Voucher
 from app.models.counterparty_transaction import CounterpartyTransaction
 from app.models.transaction_allocation import TransactionAllocation
@@ -1088,3 +1090,307 @@ async def get_counterparty_balance(
         total_receivable=receivable,
         total_payable=payable,
     )
+
+
+# =============================================================================
+# 엑셀 업로드 (다량 등록)
+# =============================================================================
+
+def _parse_korean_date(raw: str, year: int) -> Optional[date]:
+    """'10월 17일' 또는 '10/17' 형식을 date로 변환"""
+    if not raw:
+        return None
+    raw = str(raw).strip()
+    # 10월 17일
+    m = re.match(r"(\d{1,2})월\s*(\d{1,2})일?", raw)
+    if m:
+        return date(year, int(m.group(1)), int(m.group(2)))
+    # 10/17 or 10-17
+    m = re.match(r"(\d{1,2})[/\-](\d{1,2})", raw)
+    if m:
+        return date(year, int(m.group(1)), int(m.group(2)))
+    # 2025-10-17 full date
+    m = re.match(r"(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})", raw)
+    if m:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    return None
+
+
+def _parse_amount(raw) -> Optional[Decimal]:
+    """금액 파싱: 쉼표/공백 제거, 숫자 변환"""
+    if raw is None:
+        return None
+    if isinstance(raw, (int, float)):
+        if raw == 0:
+            return None
+        return Decimal(str(raw))
+    s = str(raw).strip().replace(",", "").replace(" ", "").replace("-", "")
+    if not s:
+        return None
+    try:
+        val = Decimal(s)
+        return val if val > 0 else None
+    except InvalidOperation:
+        return None
+
+
+def _find_header_row(ws) -> Optional[int]:
+    """날짜/거래처 컬럼이 있는 헤더 행 탐색"""
+    for row_idx in range(1, min(ws.max_row + 1, 20)):
+        cells = [str(ws.cell(row=row_idx, column=c).value or "").strip() for c in range(1, min(ws.max_column + 1, 15))]
+        joined = " ".join(cells).lower()
+        if "날짜" in joined and ("거래처" in joined or "업체" in joined):
+            return row_idx
+    return None
+
+
+def _detect_columns(ws, header_row: int) -> dict:
+    """헤더 행에서 컬럼 인덱스 매핑"""
+    cols = {}
+    for c in range(1, ws.max_column + 1):
+        val = str(ws.cell(row=header_row, column=c).value or "").strip()
+        lower = val.lower().replace(" ", "")
+        if "날짜" in lower and "date" not in cols:
+            cols["date"] = c
+        elif ("거래처" in lower or "업체" in lower) and "counterparty" not in cols:
+            cols["counterparty"] = c
+        elif "속성" in lower and "attribute" not in cols:
+            cols["attribute"] = c
+        elif ("입금" in lower or "반입" in lower) and "deposit" not in cols:
+            cols["deposit"] = c
+        elif ("출금" in lower or "판매" in lower) and "withdrawal" not in cols:
+            cols["withdrawal"] = c
+        elif "잔액" in lower and "balance" not in cols:
+            cols["balance"] = c
+    return cols
+
+
+def _is_summary_row(cells: dict) -> bool:
+    """합계/소계 행 감지"""
+    cp = str(cells.get("counterparty", "") or "").strip()
+    if not cp:
+        return True
+    keywords = ["합계", "소계", "total", "sum", "계"]
+    return any(k in cp.lower() for k in keywords)
+
+
+async def _match_counterparty(name: str, db: AsyncSession) -> Optional[UUID]:
+    """거래처 이름 → ID 매칭 (alias 우선, 표준명 fallback)"""
+    # 1) alias
+    result = await db.execute(
+        select(CounterpartyAlias.counterparty_id).where(
+            CounterpartyAlias.alias_name == name
+        ).limit(1)
+    )
+    cp_id = result.scalar_one_or_none()
+    if cp_id:
+        return cp_id
+    # 2) standard name
+    result = await db.execute(
+        select(Counterparty.id).where(
+            Counterparty.name == name,
+            Counterparty.is_active == True,
+        ).limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+@router.post("/upload/preview")
+async def preview_transaction_upload(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """엑셀 파일을 파싱하여 미리보기 반환"""
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="엑셀 파일(.xlsx, .xls)만 업로드 가능합니다.")
+
+    import openpyxl
+    content = await file.read()
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="엑셀 파일을 읽을 수 없습니다.")
+
+    ws = wb.active
+    header_row = _find_header_row(ws)
+    if not header_row:
+        raise HTTPException(status_code=400, detail="헤더 행을 찾을 수 없습니다. '날짜', '거래처' 컬럼이 필요합니다.")
+
+    cols = _detect_columns(ws, header_row)
+    if "date" not in cols or "counterparty" not in cols:
+        raise HTTPException(status_code=400, detail="필수 컬럼(날짜, 거래처)을 찾을 수 없습니다.")
+    if "deposit" not in cols and "withdrawal" not in cols:
+        raise HTTPException(status_code=400, detail="입금 또는 출금 컬럼을 찾을 수 없습니다.")
+
+    current_year = datetime.now().year
+    rows = []
+    unmatched_set = set()
+    total_deposit = Decimal("0")
+    total_withdrawal = Decimal("0")
+    valid_count = 0
+    error_count = 0
+    unmatched_count = 0
+    last_date_val = None
+
+    for row_idx in range(header_row + 1, ws.max_row + 1):
+        date_raw = ws.cell(row=row_idx, column=cols["date"]).value
+        cp_raw = ws.cell(row=row_idx, column=cols["counterparty"]).value
+        attr_raw = ws.cell(row=row_idx, column=cols.get("attribute", 0)).value if cols.get("attribute") else None
+        dep_raw = ws.cell(row=row_idx, column=cols["deposit"]).value if cols.get("deposit") else None
+        wth_raw = ws.cell(row=row_idx, column=cols["withdrawal"]).value if cols.get("withdrawal") else None
+        bal_raw = ws.cell(row=row_idx, column=cols["balance"]).value if cols.get("balance") else None
+
+        cell_data = {"counterparty": cp_raw}
+        if _is_summary_row(cell_data):
+            continue
+
+        # 날짜 파싱 (빈 날짜 → 이전 행 날짜 유지)
+        if date_raw is not None:
+            if isinstance(date_raw, datetime):
+                parsed_date = date_raw.date()
+            elif isinstance(date_raw, date):
+                parsed_date = date_raw
+            else:
+                parsed_date = _parse_korean_date(str(date_raw), current_year)
+            if parsed_date:
+                last_date_val = parsed_date
+        parsed_date = last_date_val
+
+        cp_name = str(cp_raw).strip() if cp_raw else ""
+        attribute = str(attr_raw).strip() if attr_raw else ""
+        deposit_amount = _parse_amount(dep_raw)
+        withdrawal_amount = _parse_amount(wth_raw)
+        balance = _parse_amount(bal_raw)
+
+        # 입금도 출금도 없으면 건너뜀
+        if not deposit_amount and not withdrawal_amount:
+            continue
+
+        # transaction_type 결정
+        if deposit_amount:
+            txn_type = "deposit"
+            amount = deposit_amount
+        else:
+            txn_type = "withdrawal"
+            amount = withdrawal_amount
+
+        # 검증
+        row_status = "ok"
+        message = None
+        cp_id = None
+
+        if not parsed_date:
+            row_status = "error"
+            message = "날짜를 파싱할 수 없습니다"
+            error_count += 1
+        elif not cp_name:
+            row_status = "error"
+            message = "거래처명이 비어있습니다"
+            error_count += 1
+        else:
+            cp_id = await _match_counterparty(cp_name, db)
+            if not cp_id:
+                row_status = "unmatched"
+                message = "거래처를 찾을 수 없습니다"
+                unmatched_set.add(cp_name)
+                unmatched_count += 1
+            else:
+                valid_count += 1
+                if txn_type == "deposit":
+                    total_deposit += amount
+                else:
+                    total_withdrawal += amount
+
+        rows.append({
+            "row_number": row_idx - header_row,
+            "transaction_date": parsed_date.isoformat() if parsed_date else None,
+            "counterparty_name": cp_name,
+            "counterparty_id": str(cp_id) if cp_id else None,
+            "attribute": attribute,
+            "transaction_type": txn_type,
+            "amount": float(amount),
+            "balance": float(balance) if balance else None,
+            "status": row_status,
+            "message": message,
+        })
+
+    wb.close()
+
+    return {
+        "rows": rows,
+        "summary": {
+            "total": len(rows),
+            "valid": valid_count,
+            "error": error_count,
+            "unmatched": unmatched_count,
+            "total_deposit": float(total_deposit),
+            "total_withdrawal": float(total_withdrawal),
+        },
+        "unmatched_counterparties": sorted(unmatched_set),
+    }
+
+
+@router.post("/upload/confirm")
+async def confirm_transaction_upload(
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """미리보기에서 확인된 입출금 건을 일괄 등록"""
+    transactions = payload.get("transactions", [])
+    if not transactions:
+        raise HTTPException(status_code=400, detail="등록할 거래가 없습니다.")
+
+    created_count = 0
+    skipped_count = 0
+    errors = []
+
+    for idx, txn in enumerate(transactions):
+        try:
+            cp_id = UUID(txn["counterparty_id"])
+            txn_date = date.fromisoformat(txn["transaction_date"])
+            txn_type = txn["transaction_type"]
+            amount = Decimal(str(txn["amount"]))
+            memo = txn.get("memo", "")
+
+            # 중복 체크
+            dup_check = await db.execute(
+                select(CounterpartyTransaction.id).where(
+                    CounterpartyTransaction.counterparty_id == cp_id,
+                    CounterpartyTransaction.transaction_date == txn_date,
+                    CounterpartyTransaction.transaction_type == (
+                        TransactionType.DEPOSIT if txn_type == "deposit" else TransactionType.WITHDRAWAL
+                    ),
+                    CounterpartyTransaction.amount == amount,
+                    CounterpartyTransaction.status != TransactionStatus.CANCELLED,
+                ).limit(1)
+            )
+            if dup_check.scalar_one_or_none():
+                skipped_count += 1
+                continue
+
+            new_txn = CounterpartyTransaction(
+                counterparty_id=cp_id,
+                transaction_type=TransactionType.DEPOSIT if txn_type == "deposit" else TransactionType.WITHDRAWAL,
+                transaction_date=txn_date,
+                amount=amount,
+                allocated_amount=Decimal("0"),
+                memo=memo or None,
+                source=TransactionSource.MANUAL,
+                status=TransactionStatus.PENDING,
+                created_by=current_user.id,
+            )
+            db.add(new_txn)
+            created_count += 1
+
+        except Exception as e:
+            errors.append({"row": idx + 1, "error": str(e)})
+
+    await db.commit()
+
+    return {
+        "created_count": created_count,
+        "skipped_count": skipped_count,
+        "errors": errors,
+    }

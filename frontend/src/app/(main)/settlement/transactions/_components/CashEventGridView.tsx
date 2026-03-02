@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import {
-  Box, Chip, Tooltip, Typography, IconButton, Menu, MenuItem, ListItemIcon, ListItemText,
+  Box, Button, Chip, Tooltip, Typography, IconButton, Menu, MenuItem, ListItemIcon, ListItemText, Stack,
 } from '@mui/material';
 import {
   AccountTree as AllocIcon,
@@ -11,7 +11,7 @@ import {
   VisibilityOff as HideIcon,
   Cancel as CancelIcon,
 } from '@mui/icons-material';
-import { useRouter } from 'next/navigation';
+import { useAppRouter } from '@/lib/navigation';
 import { AppDataTable, type AppColumnDef } from '@/components/ui';
 import { useCashEvent, type TransactionRow } from './CashEventProvider';
 import { useState } from 'react';
@@ -22,6 +22,8 @@ interface CashEventGridViewProps {
   onCancel: (id: string) => void;
   onHold: (id: string) => void;
   onHide: (id: string) => void;
+  onCreateOpen?: () => void;
+  onUploadOpen?: () => void;
 }
 
 export default function CashEventGridView({
@@ -29,8 +31,10 @@ export default function CashEventGridView({
   onCancel,
   onHold,
   onHide,
+  onCreateOpen,
+  onUploadOpen,
 }: CashEventGridViewProps) {
-  const router = useRouter();
+  const router = useAppRouter();
   const {
     transactions, total, loading, page, pageSize,
     selected, setPage, setPageSize, setSelected, setDetailId,
@@ -149,6 +153,13 @@ export default function CashEventGridView({
         defaultSortOrder="desc"
         loading={loading}
         emptyMessage="입출금 내역이 없습니다."
+        emptyDescription="입출금을 등록하면 전표에 배분할 수 있습니다."
+        emptyAction={
+          <Stack direction="row" spacing={1}>
+            {onCreateOpen && <Button variant="contained" size="small" onClick={onCreateOpen}>입출금 등록</Button>}
+            {onUploadOpen && <Button variant="outlined" size="small" onClick={onUploadOpen}>엑셀 업로드</Button>}
+          </Stack>
+        }
         page={page}
         rowsPerPage={pageSize}
         count={total}

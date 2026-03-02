@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Box, TextField, MenuItem, Select, InputLabel, FormControl,
+  Box, Button, TextField, MenuItem, Select, InputLabel, FormControl,
   Chip, Tooltip, Typography, IconButton, InputAdornment,
 } from '@mui/material';
 import {
@@ -13,7 +13,7 @@ import {
   CheckCircle as ConfirmIcon,
   Cancel as CancelIcon,
 } from '@mui/icons-material';
-import { useRouter } from 'next/navigation';
+import { useAppRouter } from '@/lib/navigation';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
 import {
@@ -58,7 +58,7 @@ const STATUS_MAP: Record<string, { label: string; color: 'warning' | 'success' |
  * AR/AP 상계 목록 + 위자드를 통한 상계 생성
  */
 export default function NettingPage() {
-  const router = useRouter();
+  const router = useAppRouter();
   const { enqueueSnackbar } = useSnackbar();
 
   // 데이터
@@ -273,6 +273,8 @@ export default function NettingPage() {
         defaultSortOrder="desc"
         loading={loading}
         emptyMessage="상계 내역이 없습니다."
+        emptyDescription="같은 거래처의 매출과 매입 잔액을 상계하여 정산할 수 있습니다."
+        emptyAction={<Button variant="contained" size="small" onClick={() => setWizardOpen(true)}>상계 생성</Button>}
         page={page}
         rowsPerPage={pageSize}
         count={total}

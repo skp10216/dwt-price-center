@@ -306,12 +306,52 @@ async def delete_counterparty(
             detail=f"해당 거래처에 연결된 전표가 {voucher_count}건 있어 삭제할 수 없습니다. 먼저 전표를 다른 거래처로 이전하거나 삭제해주세요."
         )
 
-    # 별칭 먼저 삭제
+    # 연결 입출금 건수 확인 (취소/숨김 제외)
+    from app.models.enums import TransactionStatus
+    active_statuses = [TransactionStatus.PENDING, TransactionStatus.PARTIAL, TransactionStatus.ALLOCATED, TransactionStatus.ON_HOLD]
+    txn_count = (await db.execute(
+        select(func.count(CounterpartyTransaction.id)).where(
+            CounterpartyTransaction.counterparty_id == counterparty_id,
+            CounterpartyTransaction.status.in_(active_statuses),
+        )
+    )).scalar() or 0
+
+    if txn_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"해당 거래처에 연결된 입출금이 {txn_count}건 있어 삭제할 수 없습니다. 먼저 입출금을 삭제해주세요."
+        )
+
+    # 취소/숨김 상태 입출금 및 연결 배분 삭제
+    inactive_statuses = [TransactionStatus.CANCELLED, TransactionStatus.HIDDEN]
+    inactive_txns = (await db.execute(
+        select(CounterpartyTransaction).where(
+            CounterpartyTransaction.counterparty_id == counterparty_id,
+            CounterpartyTransaction.status.in_(inactive_statuses),
+        )
+    )).scalars().all()
+    for txn in inactive_txns:
+        # 배분 레코드 삭제
+        allocs = (await db.execute(
+            select(TransactionAllocation).where(TransactionAllocation.transaction_id == txn.id)
+        )).scalars().all()
+        for alloc in allocs:
+            await db.delete(alloc)
+        await db.delete(txn)
+
+    # 별칭 삭제
     aliases_result = await db.execute(
         select(CounterpartyAlias).where(CounterpartyAlias.counterparty_id == counterparty_id)
     )
     for alias in aliases_result.scalars().all():
         await db.delete(alias)
+
+    # 즐겨찾기 삭제
+    fav_result = await db.execute(
+        select(UserCounterpartyFavorite).where(UserCounterpartyFavorite.counterparty_id == counterparty_id)
+    )
+    for fav in fav_result.scalars().all():
+        await db.delete(fav)
 
     db.add(AuditLog(
         user_id=current_user.id,
@@ -416,12 +456,48 @@ async def batch_delete_counterparties(
             skipped.append({"id": cid_str, "name": cp.name, "reason": f"전표 {voucher_count}건 연결"})
             continue
 
+        from app.models.enums import TransactionStatus
+        active_statuses = [TransactionStatus.PENDING, TransactionStatus.PARTIAL, TransactionStatus.ALLOCATED, TransactionStatus.ON_HOLD]
+        txn_count = (await db.execute(
+            select(func.count(CounterpartyTransaction.id)).where(
+                CounterpartyTransaction.counterparty_id == cid,
+                CounterpartyTransaction.status.in_(active_statuses),
+            )
+        )).scalar() or 0
+
+        if txn_count > 0:
+            skipped.append({"id": cid_str, "name": cp.name, "reason": f"입출금 {txn_count}건 연결"})
+            continue
+
+        # 취소/숨김 상태 입출금 및 연결 배분 삭제
+        inactive_statuses = [TransactionStatus.CANCELLED, TransactionStatus.HIDDEN]
+        inactive_txns = (await db.execute(
+            select(CounterpartyTransaction).where(
+                CounterpartyTransaction.counterparty_id == cid,
+                CounterpartyTransaction.status.in_(inactive_statuses),
+            )
+        )).scalars().all()
+        for txn in inactive_txns:
+            allocs = (await db.execute(
+                select(TransactionAllocation).where(TransactionAllocation.transaction_id == txn.id)
+            )).scalars().all()
+            for alloc in allocs:
+                await db.delete(alloc)
+            await db.delete(txn)
+
         # 별칭 삭제
         aliases_result = await db.execute(
             select(CounterpartyAlias).where(CounterpartyAlias.counterparty_id == cid)
         )
         for alias in aliases_result.scalars().all():
             await db.delete(alias)
+
+        # 즐겨찾기 삭제
+        fav_result = await db.execute(
+            select(UserCounterpartyFavorite).where(UserCounterpartyFavorite.counterparty_id == cid)
+        )
+        for fav in fav_result.scalars().all():
+            await db.delete(fav)
 
         db.add(AuditLog(
             user_id=current_user.id,

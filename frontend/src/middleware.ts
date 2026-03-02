@@ -26,8 +26,10 @@ export function middleware(request: NextRequest) {
   // 정적 파일 및 API 경로 제외
   if (PUBLIC_PATHS.some(path => pathname.startsWith(path))) {
     // 로그인 페이지는 도메인 컨텍스트를 헤더로 전달
+    // redirect 파라미터의 경로도 전달하여 localhost에서도 정확한 도메인 타입 감지
     if (pathname === '/login') {
-      const domainType = getDomainType(host);
+      const redirect = request.nextUrl.searchParams.get('redirect');
+      const domainType = getDomainType(host, undefined, redirect || undefined);
       const response = NextResponse.next();
       response.headers.set('x-domain-type', domainType);
       return response;

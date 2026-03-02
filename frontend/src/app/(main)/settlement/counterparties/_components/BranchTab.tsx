@@ -3,9 +3,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Button, Stack, Table, TableBody, TableCell, TableFooter,
-  TableHead, TableRow, Tooltip, IconButton, Chip, useTheme,
+  TableHead, TableRow, Tooltip, Chip, useTheme, Grid, Paper,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
-  InputAdornment, FormControlLabel, Switch, Grid,
+  InputAdornment, FormControlLabel, Switch, CircularProgress,
+  List, ListItemButton, ListItemIcon, ListItemText, Divider,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -16,17 +17,20 @@ import {
   AccountBalance as BranchIcon,
   Lock as LockIcon,
   AssignmentInd as AssignIcon,
+  Star as StarIcon,
+  Business as BusinessIcon,
+  TouchApp as TouchAppIcon,
 } from '@mui/icons-material';
-import { branchesApi } from '@/lib/api';
+import { branchesApi, settlementApi } from '@/lib/api';
 import BranchAssignDialog from './BranchAssignDialog';
 import { useSnackbar } from 'notistack';
 import {
   AppPageHeader,
   AppPageToolbar,
-  AppTableShell,
   AppIconActionButton,
 } from '@/components/ui';
 import ConfirmDeleteDialog from '@/components/ui/ConfirmDeleteDialog';
+import { useRouter } from 'next/navigation';
 
 interface Branch {
   id: string;
@@ -43,8 +47,24 @@ interface Branch {
   updated_at: string;
 }
 
+interface Counterparty {
+  id: string;
+  name: string;
+  counterparty_type: string | null;
+  is_favorite?: boolean;
+  branch_name?: string | null;
+}
+
+const CP_TYPE_LABELS: Record<string, string> = {
+  buyer: '매입처',
+  seller: '매출처',
+  both: '매입/매출',
+};
+
 export default function BranchTab() {
   const { enqueueSnackbar } = useSnackbar();
+  const router = useRouter();
+  const theme = useTheme();
 
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,6 +93,11 @@ export default function BranchTab() {
     affected_counterparties: { id: string; name: string }[];
   } | null>(null);
 
+  // 마스터-디테일: 선택된 지사 & 소속 거래처
+  const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
+  const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
+  const [cpLoading, setCpLoading] = useState(false);
+
   const fetchBranches = useCallback(async () => {
     setLoading(true);
     try {
@@ -93,6 +118,31 @@ export default function BranchTab() {
   useEffect(() => {
     fetchBranches();
   }, [fetchBranches]);
+
+  // 지사 선택 시 소속 거래처 로드
+  const fetchCounterparties = useCallback(async (branchId: string) => {
+    setCpLoading(true);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const res = await settlementApi.listCounterparties({ branch_id: branchId, page_size: 100 }) as any;
+      const data = res.data?.data || res.data;
+      setCounterparties((data.counterparties || []) as Counterparty[]);
+    } catch {
+      enqueueSnackbar('소속 거래처를 불러오는데 실패했습니다', { variant: 'error' });
+      setCounterparties([]);
+    } finally {
+      setCpLoading(false);
+    }
+  }, [enqueueSnackbar]);
+
+  const handleSelectBranch = (branch: Branch) => {
+    setSelectedBranch(branch);
+    if (!branch.deleted_at) {
+      fetchCounterparties(branch.id);
+    } else {
+      setCounterparties([]);
+    }
+  };
 
   const openDialog = (branch?: Branch) => {
     if (branch) {
@@ -171,6 +221,10 @@ export default function BranchTab() {
       enqueueSnackbar('지사가 삭제되었습니다', { variant: 'success' });
       setDeleteDialogOpen(false);
       setDeletingBranch(null);
+      if (selectedBranch?.id === deletingBranch.id) {
+        setSelectedBranch(null);
+        setCounterparties([]);
+      }
       fetchBranches();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
@@ -199,9 +253,16 @@ export default function BranchTab() {
     setAssignDialogOpen(true);
   };
 
+  const handleAssignSaved = () => {
+    fetchBranches();
+    // 현재 선택된 지사의 거래처 목록도 갱신
+    if (selectedBranch) {
+      fetchCounterparties(selectedBranch.id);
+    }
+  };
+
   const activeBranches = branches.filter((b) => !b.deleted_at);
 
-  const theme = useTheme();
   const branchSums = useMemo(() => ({
     counterparty_count: branches.reduce((s, b) => s + (b.counterparty_count ?? 0), 0),
   }), [branches]);
@@ -211,7 +272,7 @@ export default function BranchTab() {
       <AppPageHeader
         icon={<BranchIcon />}
         title="지사 관리"
-        description="지사를 등록하고 관리합니다"
+        description="지사를 등록하고 소속 거래처를 관리합니다"
         color="info"
         count={loading ? null : activeBranches.length}
         onRefresh={fetchBranches}
@@ -225,179 +286,233 @@ export default function BranchTab() {
         }]}
       />
 
-      <AppPageToolbar
-        left={
-          <>
-            <TextField
-              size="small"
-              placeholder="지사명/지역 검색"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && fetchBranches()}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-                  </InputAdornment>
-                ),
-              }}
-              sx={{ width: 250 }}
-            />
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={includeDeleted}
-                  onChange={(e) => setIncludeDeleted(e.target.checked)}
+      <Grid container spacing={2} sx={{ mt: 0 }}>
+        {/* ── 왼쪽: 지사 목록 ── */}
+        <Grid item xs={12} md={4}>
+          <Paper variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            {/* 검색 바 */}
+            <Box sx={{ p: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <TextField
                   size="small"
-                />
-              }
-              label={<Typography variant="body2">삭제된 지사 포함</Typography>}
-            />
-          </>
-        }
-        right={
-          <Button variant="outlined" size="small" onClick={fetchBranches}>
-            조회
-          </Button>
-        }
-      />
-
-      <AppTableShell
-        loading={loading}
-        isEmpty={!loading && branches.length === 0}
-        emptyMessage="등록된 지사가 없습니다"
-        count={branches.length}
-        page={0}
-        rowsPerPage={branches.length || 25}
-        onPageChange={() => {}}
-        onRowsPerPageChange={() => {}}
-        rowsPerPageOptions={[]}
-        stickyHeader
-        hidePagination
-      >
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              {['상태', '지사명', '지역', '연락처', '소속 거래처', '관리'].map((label, i) => (
-                <TableCell
-                  key={label}
-                  align={label === '소속 거래처' ? 'center' : label === '관리' ? 'center' : 'left'}
-                  sx={i === 0 ? { width: 90 } : label === '관리' ? { width: 150 } : label === '소속 거래처' ? { width: 100 } : {}}
-                >
-                  {label}
-                </TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading ? (
-              [...Array(4)].map((_, i) => (
-                <TableRow key={`skeleton-${i}`}>
-                  {[90, '25%', 100, 150, 100, 120].map((w, j) => (
-                    <TableCell key={j} sx={{ py: 1.5, px: 1.5 }}>
-                      <Box sx={{ width: w, height: 16, bgcolor: 'action.hover', borderRadius: 0.5 }} />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : branches.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 8 }}>
-                  <BranchIcon sx={{ fontSize: 44, color: 'text.disabled', mb: 1 }} />
-                  <Typography variant="h6" fontWeight={600} color="text.secondary" gutterBottom>
-                    등록된 지사가 없습니다
-                  </Typography>
-                  <Typography variant="body2" color="text.disabled" sx={{ mb: 2 }}>
-                    새 지사를 등록하여 거래처를 조직별로 관리하세요
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            ) : (
-              branches.map((branch) => (
-                <TableRow
-                  key={branch.id}
-                  hover
-                  sx={{
-                    transition: 'background 0.15s',
-                    ...(branch.deleted_at ? { opacity: 0.6, bgcolor: 'action.hover' } : {}),
+                  placeholder="지사명/지역 검색"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && fetchBranches()}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                      </InputAdornment>
+                    ),
                   }}
-                >
-                  <TableCell>
-                    {branch.deleted_at ? (
-                      <Chip icon={<LockIcon sx={{ fontSize: 14 }} />} label="삭제됨" size="small" color="default" />
-                    ) : (
-                      <Chip
-                        label={branch.is_active ? '활성' : '비활성'}
-                        color={branch.is_active ? 'success' : 'default'}
-                        size="small"
-                      />
-                    )}
-                  </TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>
-                    <Stack direction="row" alignItems="center" spacing={0.75}>
-                      <BranchIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
-                      <span>{branch.name}</span>
+                  sx={{ flex: 1 }}
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={includeDeleted}
+                      onChange={(e) => setIncludeDeleted(e.target.checked)}
+                      size="small"
+                    />
+                  }
+                  label={<Typography variant="caption">삭제 포함</Typography>}
+                  sx={{ mr: 0 }}
+                />
+              </Stack>
+            </Box>
+
+            {/* 지사 리스트 */}
+            <Box sx={{ flex: 1, overflow: 'auto' }}>
+              {loading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+                  <CircularProgress size={28} />
+                </Box>
+              ) : branches.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 6 }}>
+                  <BranchIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
+                  <Typography variant="body2" color="text.disabled">등록된 지사가 없습니다</Typography>
+                </Box>
+              ) : (
+                <List disablePadding dense>
+                  {branches.map((branch, idx) => (
+                    <Box key={branch.id}>
+                      {idx > 0 && <Divider />}
+                      <ListItemButton
+                        selected={selectedBranch?.id === branch.id}
+                        onClick={() => handleSelectBranch(branch)}
+                        sx={{
+                          py: 1,
+                          ...(branch.deleted_at ? { opacity: 0.5 } : {}),
+                        }}
+                      >
+                        <ListItemIcon sx={{ minWidth: 32 }}>
+                          <BranchIcon sx={{ fontSize: 18, color: branch.deleted_at ? 'text.disabled' : 'primary.main' }} />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={
+                            <Stack direction="row" alignItems="center" spacing={0.5}>
+                              <Typography variant="body2" fontWeight={600} noWrap>
+                                {branch.name}
+                              </Typography>
+                              {branch.deleted_at && (
+                                <Chip icon={<LockIcon sx={{ fontSize: 12 }} />} label="삭제" size="small" color="default" sx={{ height: 18, '& .MuiChip-label': { px: 0.5, fontSize: '0.65rem' } }} />
+                              )}
+                            </Stack>
+                          }
+                          secondary={branch.region || undefined}
+                          secondaryTypographyProps={{ variant: 'caption', noWrap: true }}
+                        />
+                        <Chip
+                          label={branch.counterparty_count}
+                          size="small"
+                          variant={selectedBranch?.id === branch.id ? 'filled' : 'outlined'}
+                          color={branch.counterparty_count > 0 ? 'info' : 'default'}
+                          sx={{ height: 22, minWidth: 28, '& .MuiChip-label': { px: 0.75 } }}
+                        />
+                        {/* 관리 버튼 */}
+                        <Stack direction="row" spacing={0} sx={{ ml: 0.5 }}>
+                          {branch.deleted_at ? (
+                            <AppIconActionButton icon={<RestoreIcon sx={{ fontSize: 16 }} />} tooltip="복구" color="success"
+                              onClick={(e) => { e.stopPropagation(); handleRestore(branch); }} size="small" />
+                          ) : (
+                            <>
+                              <AppIconActionButton icon={<EditIcon sx={{ fontSize: 16 }} />} tooltip="수정"
+                                onClick={(e) => { e.stopPropagation(); openDialog(branch); }} size="small" />
+                              <AppIconActionButton icon={<DeleteIcon sx={{ fontSize: 16 }} />} tooltip="삭제" color="error"
+                                onClick={(e) => { e.stopPropagation(); handleDeleteClick(branch); }} size="small" />
+                            </>
+                          )}
+                        </Stack>
+                      </ListItemButton>
+                    </Box>
+                  ))}
+                </List>
+              )}
+            </Box>
+
+            {/* 합계 */}
+            {branches.length > 0 && (
+              <Box sx={{
+                p: 1.5, borderTop: '2px solid', borderColor: 'divider',
+                bgcolor: theme.palette.mode === 'light' ? 'grey.50' : 'grey.900',
+              }}>
+                <Typography variant="caption" fontWeight={700}>
+                  합계: 지사 {activeBranches.length}개 · 거래처 {branchSums.counterparty_count}개
+                </Typography>
+              </Box>
+            )}
+          </Paper>
+        </Grid>
+
+        {/* ── 오른쪽: 소속 거래처 디테일 ── */}
+        <Grid item xs={12} md={8}>
+          <Paper variant="outlined" sx={{ height: '100%', minHeight: 400, display: 'flex', flexDirection: 'column' }}>
+            {!selectedBranch ? (
+              /* 미선택 상태 */
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, py: 8 }}>
+                <TouchAppIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1.5 }} />
+                <Typography variant="h6" fontWeight={600} color="text.secondary" gutterBottom>
+                  지사를 선택하세요
+                </Typography>
+                <Typography variant="body2" color="text.disabled">
+                  왼쪽 목록에서 지사를 클릭하면 소속 거래처가 표시됩니다
+                </Typography>
+              </Box>
+            ) : (
+              <>
+                {/* 헤더 */}
+                <Box sx={{ p: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+                  <Stack direction="row" alignItems="center" justifyContent="space-between">
+                    <Stack direction="row" alignItems="center" spacing={1}>
+                      <BranchIcon sx={{ fontSize: 20, color: 'primary.main' }} />
+                      <Typography variant="subtitle1" fontWeight={700}>
+                        {selectedBranch.name}
+                      </Typography>
+                      {selectedBranch.region && (
+                        <Typography variant="body2" color="text.secondary">· {selectedBranch.region}</Typography>
+                      )}
+                      <Chip label={`${counterparties.length}건`} size="small" color="info" variant="outlined" />
                     </Stack>
-                  </TableCell>
-                  <TableCell sx={{ color: 'text.secondary' }}>
-                    {branch.region || '—'}
-                  </TableCell>
-                  <TableCell sx={{ color: 'text.secondary' }}>
-                    {branch.contact_info || '—'}
-                  </TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 600 }}>
-                    {branch.counterparty_count > 0 ? (
-                      <Chip
-                        label={`${branch.counterparty_count}개`}
+                    {!selectedBranch.deleted_at && (
+                      <Button
                         size="small"
                         variant="outlined"
-                        color="info"
-                        onClick={() => !branch.deleted_at && openAssignDialog(branch)}
-                        sx={{ cursor: branch.deleted_at ? 'default' : 'pointer' }}
-                      />
-                    ) : (
-                      <Typography variant="caption" color="text.disabled">0</Typography>
+                        startIcon={<AssignIcon />}
+                        onClick={() => openAssignDialog(selectedBranch)}
+                      >
+                        거래처 배정
+                      </Button>
                     )}
-                  </TableCell>
-                  <TableCell align="center">
-                    {branch.deleted_at ? (
-                      <AppIconActionButton icon={<RestoreIcon />} tooltip="복구" color="success"
-                        onClick={() => handleRestore(branch)} />
-                    ) : (
-                      <Stack direction="row" spacing={0.25} justifyContent="center">
-                        <AppIconActionButton icon={<AssignIcon />} tooltip="거래처 배정" color="primary"
-                          onClick={() => openAssignDialog(branch)} />
-                        <AppIconActionButton icon={<EditIcon />} tooltip="수정"
-                          onClick={() => openDialog(branch)} />
-                        <AppIconActionButton icon={<DeleteIcon />} tooltip="삭제" color="error"
-                          onClick={() => handleDeleteClick(branch)} />
-                      </Stack>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))
+                  </Stack>
+                </Box>
+
+                {/* 거래처 테이블 */}
+                <Box sx={{ flex: 1, overflow: 'auto' }}>
+                  {cpLoading ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+                      <CircularProgress size={28} />
+                    </Box>
+                  ) : selectedBranch.deleted_at ? (
+                    <Box sx={{ textAlign: 'center', py: 6 }}>
+                      <LockIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
+                      <Typography variant="body2" color="text.disabled">삭제된 지사입니다</Typography>
+                    </Box>
+                  ) : counterparties.length === 0 ? (
+                    <Box sx={{ textAlign: 'center', py: 6 }}>
+                      <BusinessIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
+                      <Typography variant="body2" color="text.disabled">소속 거래처가 없습니다</Typography>
+                      <Button
+                        size="small"
+                        variant="text"
+                        startIcon={<AssignIcon />}
+                        onClick={() => openAssignDialog(selectedBranch)}
+                        sx={{ mt: 1 }}
+                      >
+                        거래처 배정하기
+                      </Button>
+                    </Box>
+                  ) : (
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ width: 36 }} />
+                          <TableCell>거래처명</TableCell>
+                          <TableCell sx={{ width: 90 }}>유형</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {counterparties.map((cp) => (
+                          <TableRow
+                            key={cp.id}
+                            hover
+                            sx={{ cursor: 'pointer' }}
+                            onClick={() => router.push(`/settlement/counterparties/${cp.id}`)}
+                          >
+                            <TableCell sx={{ pr: 0 }}>
+                              {cp.is_favorite && (
+                                <StarIcon sx={{ fontSize: 16, color: 'warning.main' }} />
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight={500}>{cp.name}</Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="caption" color="text.secondary">
+                                {CP_TYPE_LABELS[cp.counterparty_type || ''] || cp.counterparty_type || '—'}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </Box>
+              </>
             )}
-          </TableBody>
-          {branches.length > 0 && (
-            <TableFooter>
-              <TableRow sx={{
-                '& td': {
-                  borderBottom: 'none',
-                  fontWeight: 700,
-                  fontSize: '0.8125rem',
-                  bgcolor: theme.palette.mode === 'light' ? 'grey.50' : 'grey.900',
-                  borderTop: '2px solid',
-                  borderColor: 'divider',
-                },
-              }}>
-                <TableCell colSpan={4} sx={{ fontWeight: 700 }}>합계</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 700 }}>{branchSums.counterparty_count}개</TableCell>
-                <TableCell />
-              </TableRow>
-            </TableFooter>
-          )}
-        </Table>
-      </AppTableShell>
+          </Paper>
+        </Grid>
+      </Grid>
 
       {/* 생성/수정 Dialog */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
@@ -465,7 +580,7 @@ export default function BranchTab() {
         open={assignDialogOpen}
         branch={assigningBranch}
         onClose={() => { setAssignDialogOpen(false); setAssigningBranch(null); }}
-        onSaved={fetchBranches}
+        onSaved={handleAssignSaved}
       />
     </>
   );

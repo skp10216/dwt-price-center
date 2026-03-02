@@ -5,7 +5,7 @@ import {
   Box, Grid, Typography, Skeleton, Alert,
   Paper, Chip, alpha, useTheme, Stack, LinearProgress,
   Table, TableBody, TableCell, TableContainer, TableFooter, TableHead, TableRow,
-  IconButton, Tooltip, Button, Avatar, Divider, Badge,
+  IconButton, Tooltip, Button, Avatar, Divider, Badge, TextField,
 } from '@mui/material';
 import {
   TrendingUp as TrendingUpIcon,
@@ -26,8 +26,16 @@ import {
   Balance as BalanceIcon,
   AccountBalanceWallet as BankImportIcon,
   CallMade as DepositIcon,
+  CheckCircle as CheckCircleIcon,
+  RadioButtonUnchecked as UncheckedIcon,
+  RocketLaunch as RocketLaunchIcon,
+  Close as CloseIcon,
+  Timeline as TimelineIcon,
+  CloudUpload as UploadIcon,
+  AttachMoney as PaymentIcon,
+  Business as BusinessIcon,
 } from '@mui/icons-material';
-import { useRouter } from 'next/navigation';
+import { useAppRouter } from '@/lib/navigation';
 import { settlementApi } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
 import {
@@ -122,15 +130,111 @@ function getInitials(name: string): string {
   return p.length >= 2 ? (p[0][0] + p[p.length - 1][0]).toUpperCase() : name.slice(0, 2).toUpperCase();
 }
 
-const today = new Date();
-const todayStr = today.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+function useToday() {
+  const [value, setValue] = useState({ date: new Date(), str: '' });
+  useEffect(() => {
+    const d = new Date();
+    setValue({
+      date: d,
+      str: d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }),
+    });
+  }, []);
+  return value;
+}
+
+// ─── 오늘의 작업 관련 ──────────────────────────────────────────────────────
+
+interface ActivityLog {
+  id: string;
+  trace_id: string | null;
+  user_name: string | null;
+  action: string;
+  description: string | null;
+  created_at: string;
+  item_count: number;
+}
+
+interface DailySummary {
+  voucher: number;
+  upload: number;
+  payment: number;
+  netting: number;
+  counterparty: number;
+  total: number;
+  recentLogs: ActivityLog[];
+}
+
+const DAILY_CATEGORIES = [
+  { key: 'voucher' as const, label: '전표', prefixes: ['VOUCHER_'], color: '#6a1b9a', icon: <ReceiptIcon sx={{ fontSize: 18 }} />, path: '/settlement/vouchers' },
+  { key: 'upload' as const, label: '업로드', prefixes: ['UPLOAD_'], color: '#1565c0', icon: <UploadIcon sx={{ fontSize: 18 }} />, path: '/settlement/upload' },
+  { key: 'payment' as const, label: '입출금', prefixes: ['RECEIPT_', 'PAYMENT_', 'TRANSACTION_', 'ALLOCATION_'], color: '#1b5e20', icon: <PaymentIcon sx={{ fontSize: 18 }} />, path: '/settlement/transactions' },
+  { key: 'netting' as const, label: '상계', prefixes: ['NETTING_'], color: '#00695c', icon: <BalanceIcon sx={{ fontSize: 18 }} />, path: '/settlement/netting' },
+  { key: 'counterparty' as const, label: '거래처', prefixes: ['COUNTERPARTY_', 'BRANCH_'], color: '#006064', icon: <BusinessIcon sx={{ fontSize: 18 }} />, path: '/settlement/counterparties' },
+];
+
+function aggregateLogs(logs: ActivityLog[]): DailySummary {
+  const summary: DailySummary = { voucher: 0, upload: 0, payment: 0, netting: 0, counterparty: 0, total: logs.length, recentLogs: logs.slice(0, 5) };
+  for (const log of logs) {
+    for (const cat of DAILY_CATEGORIES) {
+      if (cat.prefixes.some((p) => log.action.startsWith(p))) {
+        summary[cat.key] += log.item_count || 1;
+        break;
+      }
+    }
+  }
+  return summary;
+}
+
+function getDayRange(dateStr?: string) {
+  // KST 기준 하루 범위 → UTC ISO 문자열 (DB는 UTC naive로 저장)
+  const ymd = dateStr ?? new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const start = new Date(ymd + 'T00:00:00+09:00');
+  const end = new Date(ymd + 'T23:59:59.999+09:00');
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
+function formatTimeOnly(isoStr: string): string {
+  try {
+    let s = isoStr;
+    if (s.includes('T') && !s.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(s)) s += 'Z';
+    return new Date(s).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false });
+  } catch { return isoStr; }
+}
+
+function getActionLabel(action: string): string {
+  const map: Record<string, string> = {
+    UPLOAD_START: '업로드 시작', UPLOAD_COMPLETE: '업로드 완료', UPLOAD_REVIEW: '업로드 검토',
+    UPLOAD_CONFIRM: '업로드 확정', UPLOAD_APPLY: '업로드 적용', UPLOAD_DELETE: '업로드 삭제',
+    VOUCHER_CREATE: '전표 생성', VOUCHER_UPDATE: '전표 수정', VOUCHER_DELETE: '전표 삭제',
+    VOUCHER_UPSERT: '전표 일괄처리', VOUCHER_LOCK: '전표 마감', VOUCHER_UNLOCK: '마감 해제',
+    VOUCHER_BATCH_LOCK: '일괄 마감', VOUCHER_BATCH_UNLOCK: '일괄 마감 해제',
+    RECEIPT_CREATE: '입금 등록', RECEIPT_DELETE: '입금 삭제',
+    PAYMENT_CREATE: '지급 등록', PAYMENT_DELETE: '지급 삭제',
+    TRANSACTION_CREATE: '입출금 생성', TRANSACTION_UPDATE: '입출금 수정',
+    TRANSACTION_CANCEL: '입출금 취소', TRANSACTION_HOLD: '입출금 보류', TRANSACTION_HIDE: '입출금 숨김',
+    ALLOCATION_CREATE: '배분 등록', ALLOCATION_DELETE: '배분 삭제', ALLOCATION_AUTO: '자동 배분',
+    NETTING_CREATE: '상계 생성', NETTING_CONFIRM: '상계 확정', NETTING_CANCEL: '상계 취소',
+    COUNTERPARTY_CREATE: '거래처 등록', COUNTERPARTY_UPDATE: '거래처 수정', COUNTERPARTY_DELETE: '거래처 삭제',
+    COUNTERPARTY_BATCH_CREATE: '거래처 일괄 등록', COUNTERPARTY_BATCH_DELETE: '거래처 일괄 삭제',
+    BANK_IMPORT_UPLOAD: '은행 임포트', BANK_IMPORT_CONFIRM: '은행 확정',
+  };
+  return map[action] ?? action.replace(/_/g, ' ').toLowerCase();
+}
+
+function getActionCategoryColor(action: string): string {
+  for (const cat of DAILY_CATEGORIES) {
+    if (cat.prefixes.some((p) => action.startsWith(p))) return cat.color;
+  }
+  return '#64748b';
+}
 
 // ─── 메인 컴포넌트 ────────────────────────────────────────────────────────────
 
 export default function SettlementDashboardPage() {
   const theme = useTheme();
-  const router = useRouter();
+  const router = useAppRouter();
   const user = useAuthStore((s) => s.user);
+  const { date: today, str: todayStr } = useToday();
 
   const [data, setData] = useState<DashboardData | null>(null);
   const [topReceivables, setTopReceivables] = useState<TopItem[]>([]);
@@ -151,6 +255,25 @@ export default function SettlementDashboardPage() {
   const [txnKpi, setTxnKpi] = useState<TransactionKpi | null>(null);
   const [nettingKpi, setNettingKpi] = useState<NettingKpi | null>(null);
   const [bankKpi, setBankKpi] = useState<BankImportKpi | null>(null);
+
+  // 시작 가이드용 카운트
+  const [counterpartyTotal, setCounterpartyTotal] = useState<number | null>(null);
+  const [txnTotal, setTxnTotal] = useState<number | null>(null);
+  const [guideDismissed, setGuideDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('settlement_guide_dismissed') === '1';
+  });
+
+  const handleDismissGuide = useCallback(() => {
+    setGuideDismissed(true);
+    localStorage.setItem('settlement_guide_dismissed', '1');
+  }, []);
+
+  // 오늘의 작업
+  const [dailySummary, setDailySummary] = useState<DailySummary | null>(null);
+  const [compareSummary, setCompareSummary] = useState<DailySummary | null>(null);
+  const [compareDate, setCompareDate] = useState('');
+  const [dailyLoading, setDailyLoading] = useState(true);
 
   // ─── 데이터 로드 ────────────────────────────────────────────────────────
 
@@ -229,15 +352,27 @@ export default function SettlementDashboardPage() {
 
   // ─── 신규 KPI 로드 ──────────────────────────────────────────────────────
   const loadNewKpis = useCallback(async () => {
+    // 시작 가이드용 거래처/입출금 총 수
+    try {
+      const cpRes = await settlementApi.listCounterparties({ page_size: 1 });
+      setCounterpartyTotal((cpRes.data as unknown as { total: number }).total ?? 0);
+    } catch { setCounterpartyTotal(0); }
+
     try {
       // 미배분 입출금 KPI: PENDING + PARTIAL 건수/금액
       const txnRes = await settlementApi.listTransactions({ page_size: 1, status: 'pending' });
       const txnData = txnRes.data as unknown as { total: number; transactions: Array<{ amount: number }> };
       const txnRes2 = await settlementApi.listTransactions({ page_size: 1, status: 'partial' });
       const txnData2 = txnRes2.data as unknown as { total: number; transactions: Array<{ amount: number }> };
+
+      // 입출금 전체 건수 (allocated 포함)
+      const txnRes3 = await settlementApi.listTransactions({ page_size: 1 });
+      const txnData3 = txnRes3.data as unknown as { total: number };
+      setTxnTotal(txnData3.total ?? 0);
+
       setTxnKpi({
         pending_count: txnData.total || 0,
-        pending_amount: 0, // 서버 집계 필요 — 목록에서는 합계를 알 수 없으므로 건수 위주 표시
+        pending_amount: 0,
         partial_count: txnData2.total || 0,
         partial_amount: 0,
       });
@@ -274,12 +409,36 @@ export default function SettlementDashboardPage() {
     }
   }, []);
 
+  const loadDailySummary = useCallback(async (dateStr?: string) => {
+    const { start, end } = getDayRange(dateStr);
+    try {
+      const res = await settlementApi.listActivityLogs({ start_date: start, end_date: end, page_size: 500 });
+      const resData = res.data as unknown as { logs: ActivityLog[]; total: number };
+      return aggregateLogs(resData.logs ?? []);
+    } catch {
+      return { voucher: 0, upload: 0, payment: 0, netting: 0, counterparty: 0, total: 0, recentLogs: [] } as DailySummary;
+    }
+  }, []);
+
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { loadLatestVersions(); }, [loadLatestVersions]);
   useEffect(() => { loadFavorites(); }, [loadFavorites]);
   useEffect(() => { loadNewKpis(); }, [loadNewKpis]);
+  useEffect(() => {
+    setDailyLoading(true);
+    loadDailySummary().then((s) => { setDailySummary(s); setDailyLoading(false); });
+  }, [loadDailySummary]);
+  useEffect(() => {
+    if (!compareDate) { setCompareSummary(null); return; }
+    loadDailySummary(compareDate).then(setCompareSummary);
+  }, [compareDate, loadDailySummary]);
 
-  const handleRefreshAll = () => { loadData(); loadLatestVersions(); loadFavorites(); loadNewKpis(); };
+  const handleRefreshAll = () => {
+    loadData(); loadLatestVersions(); loadFavorites(); loadNewKpis();
+    setDailyLoading(true);
+    loadDailySummary().then((s) => { setDailySummary(s); setDailyLoading(false); });
+    if (compareDate) loadDailySummary(compareDate).then(setCompareSummary);
+  };
 
   // ─── 파생 데이터 ────────────────────────────────────────────────────────
 
@@ -355,8 +514,9 @@ export default function SettlementDashboardPage() {
 
   // ─── 렌더링 ─────────────────────────────────────────────────────────────
 
+  // 섹션 간 일관된 간격: AppPageContainer gap 대신 내부에서 직접 제어
   return (
-    <AppPageContainer>
+    <AppPageContainer sx={{ gap: 0, overflow: 'auto', '&::-webkit-scrollbar': { width: 6 }, '&::-webkit-scrollbar-thumb': { borderRadius: 3, bgcolor: 'action.disabled' } }}>
       {/* ── 공통 PageHeader ─────────────────────────────────────────────────── */}
       <AppPageHeader
         icon={<SwapHorizIcon />}
@@ -369,10 +529,127 @@ export default function SettlementDashboardPage() {
         chips={kpiChips}
       />
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+
+      {/* ── 시작 가이드 ────────────────────────────────────────────────────── */}
+      {(() => {
+        const voucherTotal = (data?.open_sales_count ?? 0) + (data?.unpaid_purchase_count ?? 0) + (data?.settling_count ?? 0) + (data?.locked_count ?? 0);
+        const txnTotalCount = txnTotal ?? 0;
+        const cpTotal = counterpartyTotal ?? 0;
+        const pendingUnalloc = (txnKpi?.pending_count ?? 0) + (txnKpi?.partial_count ?? 0);
+        const allocationDone = txnTotalCount > 0 && pendingUnalloc === 0;
+
+        const steps = [
+          { label: '거래처 등록', done: cpTotal > 0, count: cpTotal, unit: '개', path: '/settlement/counterparties', desc: '거래처를 등록하면 전표와 입출금을 관리할 수 있습니다' },
+          { label: '전표 업로드', done: voucherTotal > 0, count: voucherTotal, unit: '건', path: '/settlement/upload', desc: 'UPM 엑셀 파일을 업로드하여 매출/매입 전표를 등록하세요' },
+          { label: '입출금 등록', done: txnTotalCount > 0, count: txnTotalCount, unit: '건', path: '/settlement/transactions', desc: '입금/출금 내역을 등록하여 전표에 배분할 준비를 하세요' },
+          { label: '전표 배분', done: allocationDone, count: allocationDone ? txnTotalCount : pendingUnalloc, unit: allocationDone ? '건 완료' : '건 미배분', path: '/settlement/transactions', desc: '입출금을 전표에 배분하여 정산을 완료하세요' },
+        ];
+        const doneCount = steps.filter((s) => s.done).length;
+        const allDone = doneCount === steps.length;
+        const isReady = !loading && data !== null && counterpartyTotal !== null && txnKpi !== null;
+
+        if (!isReady || allDone || guideDismissed) return null;
+
+        return (
+          <Paper
+            elevation={0}
+            sx={{
+              mt: 2.5, p: 2.5, borderRadius: 2,
+              border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
+              background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.04)} 0%, ${alpha(theme.palette.info.main, 0.02)} 100%)`,
+            }}
+          >
+            <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2 }}>
+              <Box sx={{
+                width: 32, height: 32, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                bgcolor: alpha(theme.palette.primary.main, 0.12),
+                boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.primary.main, 0.15)}`,
+              }}>
+                <RocketLaunchIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="subtitle1" fontWeight={800} sx={{ fontSize: '0.95rem', letterSpacing: '-0.01em' }}>
+                  정산 시작 가이드
+                </Typography>
+                <Typography variant="caption" color="text.secondary" fontWeight={500}>
+                  {doneCount}/{steps.length} 단계 완료
+                </Typography>
+              </Box>
+              <Chip
+                label={`${Math.round((doneCount / steps.length) * 100)}%`}
+                size="small"
+                color="primary"
+                sx={{ fontWeight: 700, height: 24 }}
+              />
+              <Tooltip title="가이드 닫기">
+                <IconButton size="small" onClick={handleDismissGuide} sx={{ ml: 0.5 }}>
+                  <CloseIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            </Stack>
+
+            <Stack spacing={1}>
+              {steps.map((step, idx) => (
+                <Paper
+                  key={idx}
+                  elevation={0}
+                  sx={{
+                    p: 1.5, borderRadius: 1.5,
+                    border: '1px solid',
+                    borderColor: step.done ? alpha(theme.palette.success.main, 0.3) : 'divider',
+                    bgcolor: step.done ? alpha(theme.palette.success.main, 0.03) : 'transparent',
+                    display: 'flex', alignItems: 'center', gap: 1.5,
+                  }}
+                >
+                  {step.done ? (
+                    <CheckCircleIcon sx={{ fontSize: 22, color: 'success.main' }} />
+                  ) : (
+                    <UncheckedIcon sx={{ fontSize: 22, color: 'text.disabled' }} />
+                  )}
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Stack direction="row" alignItems="center" spacing={1}>
+                      <Typography variant="body2" fontWeight={step.done ? 600 : 700} sx={{ color: step.done ? 'text.secondary' : 'text.primary' }}>
+                        {idx + 1}. {step.label}
+                      </Typography>
+                      <Chip
+                        label={`${step.count}${step.unit}`}
+                        size="small"
+                        color={step.done ? 'success' : 'default'}
+                        variant="outlined"
+                        sx={{ height: 20, fontSize: '0.7rem' }}
+                      />
+                    </Stack>
+                    {!step.done && (
+                      <Typography variant="caption" color="text.secondary">{step.desc}</Typography>
+                    )}
+                  </Box>
+                  {!step.done && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      endIcon={<ArrowForwardIcon sx={{ fontSize: '14px !important' }} />}
+                      onClick={() => router.push(step.path)}
+                      sx={{ flexShrink: 0, fontWeight: 600, fontSize: '0.75rem' }}
+                    >
+                      이동
+                    </Button>
+                  )}
+                </Paper>
+              ))}
+            </Stack>
+
+            <LinearProgress
+              variant="determinate"
+              value={(doneCount / steps.length) * 100}
+              sx={{ mt: 2, borderRadius: 2, height: 6, bgcolor: alpha(theme.palette.primary.main, 0.08) }}
+            />
+          </Paper>
+        );
+      })()}
 
       {/* ── 내 즐겨찾기 현황 ────────────────────────────────────────────────── */}
-      <Box sx={{ mb: 2 }}>
+      <Box sx={{ mt: 2.5 }}>
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
           <Stack direction="row" alignItems="center" spacing={1.5}>
             <Box sx={{
@@ -536,8 +813,173 @@ export default function SettlementDashboardPage() {
         )}
       </Box>
 
+      {/* ── 오늘의 작업 ──────────────────────────────────────────────────────── */}
+      <Paper
+        elevation={0}
+        sx={{
+          mt: 2.5, p: 2.5, borderRadius: 2,
+          border: '1px solid', borderColor: 'divider',
+        }}
+      >
+        {/* 헤더 */}
+        <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2 }}>
+          <Box sx={{
+            width: 32, height: 32, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            bgcolor: alpha(theme.palette.info.main, 0.12),
+            boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.info.main, 0.15)}`,
+          }}>
+            <TimelineIcon sx={{ fontSize: 18, color: 'info.main' }} />
+          </Box>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle1" fontWeight={800} sx={{ fontSize: '0.95rem', letterSpacing: '-0.01em' }}>
+              오늘의 작업
+            </Typography>
+            <Typography variant="caption" color="text.secondary" fontWeight={500}>
+              {todayStr}{!dailyLoading && dailySummary ? ` · 총 ${dailySummary.total}건` : ''}
+            </Typography>
+          </Box>
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            <TextField
+              type="date"
+              size="small"
+              label="비교 날짜"
+              value={compareDate}
+              onChange={(e) => setCompareDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              inputProps={{ max: new Date().toISOString().split('T')[0] }}
+              sx={{ width: 160, '& .MuiInputBase-root': { height: 32, fontSize: '0.8rem' }, '& .MuiInputLabel-root': { fontSize: '0.75rem' } }}
+            />
+            {compareDate && (
+              <IconButton size="small" onClick={() => setCompareDate('')}>
+                <CloseIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            )}
+            <Button
+              size="small"
+              endIcon={<ArrowForwardIcon />}
+              onClick={() => router.push('/settlement/activity')}
+              sx={{ fontWeight: 600, color: 'text.secondary', fontSize: '0.75rem', ml: 1 }}
+            >
+              전체 내역
+            </Button>
+          </Stack>
+        </Stack>
+
+        {/* KPI 카드 */}
+        {dailyLoading ? (
+          <Stack direction="row" spacing={1.5}>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} variant="rounded" height={72} sx={{ flex: 1, borderRadius: 1.5 }} />
+            ))}
+          </Stack>
+        ) : dailySummary && dailySummary.total === 0 && !compareDate ? (
+          <Box sx={{ textAlign: 'center', py: 3, color: 'text.secondary' }}>
+            <TimelineIcon sx={{ fontSize: 36, opacity: 0.3, mb: 1 }} />
+            <Typography variant="body2" fontWeight={600}>오늘 아직 작업 내역이 없습니다</Typography>
+            <Typography variant="caption" color="text.secondary">작업을 시작하면 여기에 자동으로 기록됩니다.</Typography>
+          </Box>
+        ) : (
+          <>
+            <Grid container spacing={1.5} sx={{ mb: dailySummary?.recentLogs.length ? 2 : 0 }}>
+              {DAILY_CATEGORIES.map((cat) => {
+                const todayVal = dailySummary?.[cat.key] ?? 0;
+                const compareVal = compareSummary?.[cat.key];
+                const diff = compareVal !== undefined ? todayVal - compareVal : null;
+                return (
+                  <Grid item xs={6} sm={4} md key={cat.key}>
+                    <Paper
+                      elevation={0}
+                      onClick={() => router.push(cat.path)}
+                      sx={{
+                        p: 1.5, borderRadius: 1.5, cursor: 'pointer',
+                        border: '1px solid', borderColor: 'divider',
+                        borderLeft: `3px solid ${cat.color}`,
+                        transition: 'all 0.15s',
+                        '&:hover': { borderColor: cat.color, boxShadow: `0 2px 8px ${alpha(cat.color, 0.15)}` },
+                      }}
+                    >
+                      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+                        <Box sx={{ color: cat.color, display: 'flex' }}>{cat.icon}</Box>
+                        <Typography variant="caption" fontWeight={700} color="text.secondary">{cat.label}</Typography>
+                      </Stack>
+                      <Typography variant="h6" fontWeight={800} sx={{ fontSize: '1.1rem', lineHeight: 1.2 }}>
+                        {todayVal}<Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>건</Typography>
+                      </Typography>
+                      {diff !== null && (
+                        <Typography variant="caption" sx={{
+                          fontWeight: 600,
+                          color: diff > 0 ? 'success.main' : diff < 0 ? 'text.secondary' : 'text.disabled',
+                        }}>
+                          vs {compareVal}건 {diff > 0 ? `▲${diff}` : diff < 0 ? `▼${Math.abs(diff)}` : '='}
+                        </Typography>
+                      )}
+                    </Paper>
+                  </Grid>
+                );
+              })}
+            </Grid>
+
+            {/* 최근 작업 타임라인 */}
+            {dailySummary && dailySummary.recentLogs.length > 0 && (
+              <>
+                <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                  최근 작업
+                </Typography>
+                <Stack spacing={0}>
+                  {dailySummary.recentLogs.map((log) => (
+                    <Box
+                      key={log.id}
+                      sx={{
+                        display: 'flex', alignItems: 'center', gap: 1.5,
+                        py: 0.75, px: 1,
+                        borderLeft: `3px solid ${getActionCategoryColor(log.action)}`,
+                        borderRadius: '0 4px 4px 0',
+                        '&:hover': { bgcolor: alpha(theme.palette.action.hover, 0.04) },
+                      }}
+                    >
+                      <Avatar sx={{
+                        width: 24, height: 24, fontSize: '0.6rem', flexShrink: 0,
+                        bgcolor: getAvatarColor(log.user_name ?? 'System'),
+                      }}>
+                        {getInitials(log.user_name ?? 'SY')}
+                      </Avatar>
+                      <Chip
+                        label={getActionLabel(log.action)}
+                        size="small"
+                        sx={{
+                          height: 20, fontSize: '0.65rem', fontWeight: 700,
+                          bgcolor: alpha(getActionCategoryColor(log.action), 0.1),
+                          color: getActionCategoryColor(log.action),
+                        }}
+                      />
+                      <Typography variant="caption" color="text.secondary" sx={{ flex: 1, minWidth: 0 }} noWrap>
+                        {log.description ?? ''}
+                        {log.item_count > 1 && ` (${log.item_count}건)`}
+                      </Typography>
+                      <Typography variant="caption" color="text.disabled" sx={{ flexShrink: 0, fontSize: '0.7rem' }}>
+                        {formatTimeOnly(log.created_at)}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Stack>
+                {dailySummary.total > 5 && (
+                  <Button
+                    size="small"
+                    endIcon={<ArrowForwardIcon />}
+                    onClick={() => router.push('/settlement/activity')}
+                    sx={{ mt: 1, fontWeight: 600, fontSize: '0.75rem', color: 'text.secondary' }}
+                  >
+                    오늘 작업 내역 전체 보기 ({dailySummary.total}건)
+                  </Button>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </Paper>
+
       {/* ── 운영 현황 + 최신 데이터 ─────────────────────────────────────────── */}
-      <Grid container spacing={2} sx={{ mb: 2 }}>
+      <Grid container spacing={2} sx={{ mt: 0.5 }}>
         {/* 운영 현황 */}
         <Grid item xs={12} md={7}>
           <AppSectionCard sx={{ p: 2, height: '100%', mb: 0 }}>
@@ -554,21 +996,24 @@ export default function SettlementDashboardPage() {
 
             <Grid container spacing={1.5}>
               {[
-                { label: '미정산 판매', value: data?.open_sales_count ?? 0, icon: <ReceiptIcon />, color: theme.palette.error.main, path: '/settlement/status' },
-                { label: '미지급 매입', value: data?.unpaid_purchase_count ?? 0, icon: <ShoppingCartIcon />, color: theme.palette.warning.main, path: '/settlement/status' },
-                { label: '미배분 입출금', value: (txnKpi?.pending_count ?? 0) + (txnKpi?.partial_count ?? 0), icon: <DepositIcon />, color: theme.palette.info.main, path: '/settlement/transactions' },
-                { label: '상계 대기', value: nettingKpi?.draft_count ?? 0, icon: <BalanceIcon />, color: '#7b1fa2', path: '/settlement/netting' },
-                { label: '은행 임포트 검수', value: bankKpi?.reviewing_count ?? 0, icon: <BankImportIcon />, color: '#00838f', path: '/settlement/bank-import' },
-                { label: '미매칭 거래처', value: data?.unmatched_count ?? 0, icon: <AccountBalanceIcon />, color: theme.palette.text.secondary, path: '/settlement/counterparties' },
-              ].map((card) => (
+                { label: '미정산 판매', value: data?.open_sales_count ?? 0, icon: <ReceiptIcon />, color: theme.palette.error.main, path: '/settlement/vouchers', actionLabel: '전표 확인' },
+                { label: '미지급 매입', value: data?.unpaid_purchase_count ?? 0, icon: <ShoppingCartIcon />, color: theme.palette.warning.main, path: '/settlement/vouchers', actionLabel: '전표 확인' },
+                { label: '미배분 입출금', value: (txnKpi?.pending_count ?? 0) + (txnKpi?.partial_count ?? 0), icon: <DepositIcon />, color: theme.palette.info.main, path: '/settlement/transactions', actionLabel: '배분하기' },
+                { label: '상계 대기', value: nettingKpi?.draft_count ?? 0, icon: <BalanceIcon />, color: '#7b1fa2', path: '/settlement/netting', actionLabel: '상계 확인' },
+                { label: '은행 임포트 검수', value: bankKpi?.reviewing_count ?? 0, icon: <BankImportIcon />, color: '#00838f', path: '/settlement/bank-import', actionLabel: '검수하기' },
+                { label: '미매칭 거래처', value: data?.unmatched_count ?? 0, icon: <AccountBalanceIcon />, color: theme.palette.warning.main, path: '/settlement/counterparties', actionLabel: '거래처 확인' },
+              ].map((card) => {
+                const hasIssue = card.value > 0;
+                return (
                 <Grid item xs={6} key={card.label}>
                   <Paper
                     elevation={0}
                     onClick={() => card.path && router.push(card.path)}
                     sx={{
                       p: 2, borderRadius: 2,
-                      border: `1px solid ${alpha(card.color, 0.2)}`,
-                      background: `linear-gradient(135deg, ${alpha(card.color, 0.05)} 0%, transparent 100%)`,
+                      border: `1px solid ${alpha(card.color, hasIssue ? 0.35 : 0.15)}`,
+                      borderLeft: hasIssue ? `3px solid ${card.color}` : undefined,
+                      background: `linear-gradient(135deg, ${alpha(card.color, hasIssue ? 0.06 : 0.02)} 0%, transparent 100%)`,
                       cursor: card.path ? 'pointer' : 'default',
                       transition: 'all 0.15s',
                       '&:hover': card.path ? { boxShadow: `0 4px 12px ${alpha(card.color, 0.12)}`, transform: 'translateY(-1px)' } : {},
@@ -581,7 +1026,7 @@ export default function SettlementDashboardPage() {
                     {loading ? (
                       <Skeleton width={36} height={28} />
                     ) : (
-                      <Typography variant="h6" fontWeight={800} sx={{ color: card.color, lineHeight: 1.2 }}>
+                      <Typography variant="h6" fontWeight={800} sx={{ color: hasIssue ? card.color : 'text.disabled', lineHeight: 1.2 }}>
                         {card.value}
                         <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>건</Typography>
                       </Typography>
@@ -589,9 +1034,20 @@ export default function SettlementDashboardPage() {
                     <Typography variant="caption" color="text.secondary" fontWeight={500}>
                       {card.label}
                     </Typography>
+                    {!loading && hasIssue && (
+                      <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: card.color, fontWeight: 600, fontSize: '0.7rem' }}>
+                        {card.actionLabel} →
+                      </Typography>
+                    )}
+                    {!loading && !hasIssue && (
+                      <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'success.main', fontWeight: 600, fontSize: '0.7rem' }}>
+                        완료
+                      </Typography>
+                    )}
                   </Paper>
                 </Grid>
-              ))}
+                );
+              })}
             </Grid>
           </AppSectionCard>
         </Grid>
@@ -701,7 +1157,7 @@ export default function SettlementDashboardPage() {
       </Grid>
 
       {/* ── 미수 / 미지급 Top 5 ──────────────────────────────────────────────── */}
-      <Grid container spacing={2}>
+      <Grid container spacing={2} sx={{ mt: 0.5, pb: 2 }}>
         {/* 미수 Top 5 */}
         <Grid item xs={12} md={6}>
           <AppSectionCard sx={{ p: 0, mb: 0, overflow: 'hidden' }}>

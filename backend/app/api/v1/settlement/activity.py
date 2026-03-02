@@ -134,7 +134,7 @@ def _build_log_dict(log: AuditLog, item_count: int = 1) -> dict:
 @router.get("", response_model=dict)
 async def list_activity_logs(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=200),
     category: Optional[str] = Query(None, description="upload|voucher|lock|payment|counterparty|change"),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),

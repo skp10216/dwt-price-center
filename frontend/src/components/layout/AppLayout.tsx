@@ -9,7 +9,7 @@
 'use client';
 
 import { useState, useEffect, useRef, Fragment, useCallback } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   Box,
@@ -75,11 +75,16 @@ import ActivityIcon from '@mui/icons-material/ManageSearch';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import BalanceIcon from '@mui/icons-material/Balance';
 import BankImportIcon from '@mui/icons-material/AccountBalanceWallet';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import BarChartIcon from '@mui/icons-material/BarChart';
+import DonutSmallIcon from '@mui/icons-material/DonutSmall';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import SpeedDial from '@mui/material/SpeedDial';
 import SpeedDialAction from '@mui/material/SpeedDialAction';
 import SpeedDialIcon from '@mui/material/SpeedDialIcon';
 import { useAuthStore, useUIStore, useDomainStore, useThemeStore, type ThemeMode, type User } from '@/lib/store';
 import { getDomainType, getDefaultPath } from '@/lib/domain';
+import { NavigationProvider } from '@/lib/navigation';
 import { Logo } from '@/components/ui/Logo';
 import { authApi } from '@/lib/api';
 import TransactionCreateDialog from '@/components/settlement/TransactionCreateDialog';
@@ -111,81 +116,144 @@ interface MenuItemType {
   children?: MenuItemType[];
 }
 
-// 사용자 도메인 메뉴 (dwt.price)
-const userMenus: MenuItemType[] = [
-  { id: 'prices', label: '본사 판매 단가', icon: <PriceCheckIcon />, path: '/prices' },
-  { id: 'compare', label: '업체별 단가 비교', icon: <CompareIcon />, path: '/compare' },
-  { id: 'my-lists', label: '내 리스트', icon: <StarIcon />, path: '/my-lists' },
-  { id: 'search', label: '모델 검색', icon: <SearchIcon />, path: '/search' },
-];
+// 메뉴 그룹 (섹션 구분)
+interface MenuGroup {
+  label?: string;        // 섹션 헤더 (없으면 첫 그룹으로 간주)
+  items: MenuItemType[];
+}
 
-// 관리자 도메인 메뉴 (admin.dwt.price) - 서브메뉴 구조
-const adminMenus: MenuItemType[] = [
-  { id: 'price-dashboard', label: '판매가 대시보드', icon: <TableChartIcon />, path: '/admin/price-dashboard' },
+// 사용자 도메인 메뉴 (dwt.price) - 4개로 그룹핑 불필요
+const userMenuGroups: MenuGroup[] = [
   {
-    id: 'ssot-models',
-    label: '모델 관리',
-    icon: <SettingsIcon />,
-    path: '/admin/models',
-    children: [
-      { id: 'models-dashboard', label: '대시보드', icon: <DashboardIcon />, path: '/admin/models' },
-      {
-        id: 'models-smartphone',
-        label: '스마트폰',
-        icon: <SmartphoneIcon />,
-        children: [
-          { id: 'smartphone-apple', label: 'Apple', icon: <AppleIcon />, path: '/admin/models/smartphone/apple' },
-          { id: 'smartphone-samsung', label: 'Samsung', icon: <SamsungIcon />, path: '/admin/models/smartphone/samsung' },
-        ],
-      },
-      {
-        id: 'models-tablet',
-        label: '태블릿',
-        icon: <TabletIcon />,
-        children: [
-          { id: 'tablet-apple', label: 'Apple', icon: <AppleIcon />, path: '/admin/models/tablet/apple' },
-          { id: 'tablet-samsung', label: 'Samsung', icon: <SamsungIcon />, path: '/admin/models/tablet/samsung' },
-        ],
-      },
-      {
-        id: 'models-wearable',
-        label: '웨어러블',
-        icon: <WatchIcon />,
-        children: [
-          { id: 'wearable-apple', label: 'Apple', icon: <AppleIcon />, path: '/admin/models/wearable/apple' },
-          { id: 'wearable-samsung', label: 'Samsung', icon: <SamsungIcon />, path: '/admin/models/wearable/samsung' },
-        ],
-      },
+    items: [
+      { id: 'prices', label: '본사 판매 단가', icon: <PriceCheckIcon />, path: '/prices' },
+      { id: 'compare', label: '업체별 단가 비교', icon: <CompareIcon />, path: '/compare' },
+      { id: 'my-lists', label: '내 리스트', icon: <StarIcon />, path: '/my-lists' },
+      { id: 'search', label: '모델 검색', icon: <SearchIcon />, path: '/search' },
     ],
   },
-  { id: 'hq-upload', label: '본사 단가표 업로드', icon: <UploadIcon />, path: '/admin/hq-upload' },
-  { id: 'partners', label: '거래처 관리', icon: <BusinessIcon />, path: '/admin/partners' },
-  { id: 'partner-upload', label: '거래처 단가표 업로드', icon: <UploadIcon />, path: '/admin/partner-upload' },
-  { id: 'grades', label: '등급 관리', icon: <GradeIcon />, path: '/admin/grades' },
-  { id: 'deductions', label: '차감 관리', icon: <RemoveCircleIcon />, path: '/admin/deductions' },
-  { id: 'audit', label: '감사로그', icon: <HistoryIcon />, path: '/admin/audit' },
-  { id: 'users', label: '사용자 관리', icon: <PeopleIcon />, path: '/admin/users' },
-  { id: 'appearance-settings', label: '외관 설정', icon: <PaletteIcon />, path: '/admin/settings/appearance' },
+];
+
+// 관리자 도메인 메뉴 (admin.dwt.price)
+const adminMenuGroups: MenuGroup[] = [
+  {
+    items: [
+      { id: 'price-dashboard', label: '판매가 대시보드', icon: <TableChartIcon />, path: '/admin/price-dashboard' },
+    ],
+  },
+  {
+    label: '단가 관리',
+    items: [
+      {
+        id: 'ssot-models',
+        label: '모델 관리',
+        icon: <SettingsIcon />,
+        path: '/admin/models',
+        children: [
+          { id: 'models-dashboard', label: '대시보드', icon: <DashboardIcon />, path: '/admin/models' },
+          {
+            id: 'models-smartphone',
+            label: '스마트폰',
+            icon: <SmartphoneIcon />,
+            children: [
+              { id: 'smartphone-apple', label: 'Apple', icon: <AppleIcon />, path: '/admin/models/smartphone/apple' },
+              { id: 'smartphone-samsung', label: 'Samsung', icon: <SamsungIcon />, path: '/admin/models/smartphone/samsung' },
+            ],
+          },
+          {
+            id: 'models-tablet',
+            label: '태블릿',
+            icon: <TabletIcon />,
+            children: [
+              { id: 'tablet-apple', label: 'Apple', icon: <AppleIcon />, path: '/admin/models/tablet/apple' },
+              { id: 'tablet-samsung', label: 'Samsung', icon: <SamsungIcon />, path: '/admin/models/tablet/samsung' },
+            ],
+          },
+          {
+            id: 'models-wearable',
+            label: '웨어러블',
+            icon: <WatchIcon />,
+            children: [
+              { id: 'wearable-apple', label: 'Apple', icon: <AppleIcon />, path: '/admin/models/wearable/apple' },
+              { id: 'wearable-samsung', label: 'Samsung', icon: <SamsungIcon />, path: '/admin/models/wearable/samsung' },
+            ],
+          },
+        ],
+      },
+      { id: 'hq-upload', label: '본사 단가표 업로드', icon: <UploadIcon />, path: '/admin/hq-upload' },
+      { id: 'partner-upload', label: '거래처 단가표 업로드', icon: <UploadIcon />, path: '/admin/partner-upload' },
+      { id: 'grades', label: '등급 관리', icon: <GradeIcon />, path: '/admin/grades' },
+      { id: 'deductions', label: '차감 관리', icon: <RemoveCircleIcon />, path: '/admin/deductions' },
+    ],
+  },
+  {
+    label: '거래처',
+    items: [
+      { id: 'partners', label: '거래처 관리', icon: <BusinessIcon />, path: '/admin/partners' },
+    ],
+  },
+  {
+    label: '시스템',
+    items: [
+      { id: 'users', label: '사용자 관리', icon: <PeopleIcon />, path: '/admin/users' },
+      { id: 'audit', label: '감사로그', icon: <HistoryIcon />, path: '/admin/audit' },
+      { id: 'appearance-settings', label: '외관 설정', icon: <PaletteIcon />, path: '/admin/settings/appearance' },
+    ],
+  },
 ];
 
 // 정산 도메인 메뉴 (settlement.dwt.price)
-const settlementMenus: MenuItemType[] = [
-  { id: 'stl-dashboard', label: '대시보드', icon: <DashboardIcon />, path: '/settlement/dashboard' },
-  { id: 'stl-upload', label: 'UPM 업로드', icon: <CloudUploadIcon />, path: '/settlement/upload' },
-  { id: 'stl-upload-history', label: '업로드 내역', icon: <HistoryIcon />, path: '/settlement/upload/jobs' },
-  { id: 'stl-vouchers', label: '전표 목록', icon: <ReceiptIcon />, path: '/settlement/vouchers' },
-  { id: 'stl-transactions', label: '입출금 관리', icon: <SwapHorizIcon />, path: '/settlement/transactions' },
-  { id: 'stl-netting', label: '상계 관리', icon: <BalanceIcon />, path: '/settlement/netting' },
-  { id: 'stl-bank-import', label: '은행 임포트', icon: <BankImportIcon />, path: '/settlement/bank-import' },
-  { id: 'stl-status', label: '거래처 현황', icon: <AccountBalanceIcon />, path: '/settlement/status' },
-  { id: 'stl-counterparties', label: '거래처 관리', icon: <BusinessIcon />, path: '/settlement/counterparties' },
-  { id: 'stl-lock', label: '마감 관리', icon: <LockIcon />, path: '/settlement/lock' },
-  { id: 'stl-activity', label: '작업 내역', icon: <ActivityIcon />, path: '/settlement/activity' },
+const settlementMenuGroups: MenuGroup[] = [
+  {
+    items: [
+      { id: 'stl-dashboard', label: '대시보드', icon: <DashboardIcon />, path: '/settlement/dashboard' },
+    ],
+  },
+  {
+    label: '데이터 입력',
+    items: [
+      { id: 'stl-upload', label: 'UPM 업로드', icon: <CloudUploadIcon />, path: '/settlement/upload' },
+      { id: 'stl-upload-history', label: '업로드 내역', icon: <HistoryIcon />, path: '/settlement/upload/jobs' },
+      { id: 'stl-bank-import', label: '은행 임포트', icon: <BankImportIcon />, path: '/settlement/bank-import' },
+    ],
+  },
+  {
+    label: '정산 업무',
+    items: [
+      { id: 'stl-vouchers', label: '전표 목록', icon: <ReceiptIcon />, path: '/settlement/vouchers' },
+      { id: 'stl-transactions', label: '입출금 관리', icon: <SwapHorizIcon />, path: '/settlement/transactions' },
+      // { id: 'stl-netting', label: '상계 관리', icon: <BalanceIcon />, path: '/settlement/netting' },
+    ],
+  },
+  {
+    label: '거래처',
+    items: [
+      { id: 'stl-counterparties', label: '거래처 관리', icon: <BusinessIcon />, path: '/settlement/counterparties' },
+      { id: 'stl-status', label: '거래처 현황', icon: <AccountBalanceIcon />, path: '/settlement/status' },
+      { id: 'stl-branches', label: '지사 관리', icon: <AccountTreeIcon />, path: '/settlement/branches' },
+    ],
+  },
+  {
+    label: '통계',
+    items: [
+      { id: 'stl-stats-overview', label: '정산 현황', icon: <BarChartIcon />, path: '/settlement/statistics' },
+      { id: 'stl-stats-counterparty', label: '거래처 분석', icon: <DonutSmallIcon />, path: '/settlement/statistics/counterparty' },
+      { id: 'stl-stats-profit', label: '수익률 분석', icon: <TrendingUpIcon />, path: '/settlement/statistics/profit' },
+    ],
+  },
+  {
+    label: '관리',
+    items: [
+      { id: 'stl-lock', label: '마감 관리', icon: <LockIcon />, path: '/settlement/lock' },
+      { id: 'stl-activity', label: '작업 내역', icon: <ActivityIcon />, path: '/settlement/activity' },
+    ],
+  },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user, logout, setAuth } = useAuthStore();
   const { sidebarOpen, toggleSidebar } = useUIStore();
   const { domainType, isAdminDomain, isSettlementDomain, setDomainType } = useDomainStore();
@@ -198,6 +266,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [latestPurchaseDate, setLatestPurchaseDate] = useState<string | null>(null);
   // NProgress-style 경로 전환 로딩 상태
   const [navigating, setNavigating] = useState(false);
+  const startNavigating = useCallback(() => setNavigating(true), []);
   // 정산 도메인 FAB
   const [fabTxnOpen, setFabTxnOpen] = useState(false);
   const prevPathRef = useRef(pathname);
@@ -381,7 +450,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   const isAdmin = user?.role === 'admin';
-  const currentMenus = isSettlementDomain ? settlementMenus : isAdminDomain ? adminMenus : userMenus;
+  const currentMenuGroups = isSettlementDomain ? settlementMenuGroups : isAdminDomain ? adminMenuGroups : userMenuGroups;
   
   const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -412,20 +481,43 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     });
   };
   
+  // from 파라미터 → 출발 메뉴 경로 매핑 (상세 페이지에서 사이드바 하이라이트 유지)
+  const fromParam = searchParams.get('from');
+  const FROM_MENU_PATHS: Record<string, string> = {
+    status: '/settlement/status',
+    dashboard: '/settlement/dashboard',
+  };
+  const activePathOverride = fromParam ? FROM_MENU_PATHS[fromParam] ?? null : null;
+
   // 메뉴가 현재 경로와 매칭되는지 확인
-  const isMenuActive = (menu: MenuItemType): boolean => {
-    if (menu.path && pathname === menu.path) return true;
+  const isMenuActive = (menu: MenuItemType, siblings?: MenuItemType[]): boolean => {
+    if (menu.path) {
+      // from 파라미터 오버라이드: 상세 페이지에서 출발 메뉴 유지
+      if (activePathOverride) {
+        if (menu.path === activePathOverride) return true;
+        if (pathname.startsWith(menu.path + '/')) return false;
+      }
+      if (pathname === menu.path) return true;
+      if (pathname.startsWith(menu.path + '/')) {
+        // 더 구체적인 sibling 경로가 매칭되면 이 메뉴는 비활성
+        if (siblings?.some(s => s.path && s.path !== menu.path && pathname.startsWith(s.path))) {
+          return false;
+        }
+        return true;
+      }
+      return false;
+    }
     if (menu.children) {
-      return menu.children.some(child => isMenuActive(child));
+      return menu.children.some(child => isMenuActive(child, menu.children));
     }
     return false;
   };
-  
+
   // 재귀적 메뉴 렌더링
-  const renderMenuItem = (menu: MenuItemType, level: number = 0) => {
+  const renderMenuItem = (menu: MenuItemType, level: number = 0, siblings?: MenuItemType[]) => {
     const hasChildren = menu.children && menu.children.length > 0;
     const isExpanded = expandedMenus.has(menu.id);
-    const isActive = menu.path ? pathname === menu.path : isMenuActive(menu);
+    const isActive = isMenuActive(menu, siblings);
     const isLeaf = !hasChildren && !!menu.path;
 
     // 미니 모드: 서브메뉴 아이템 숨김
@@ -525,7 +617,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {!miniMode && hasChildren && (
           <Collapse in={isExpanded} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
-              {menu.children!.map((child) => renderMenuItem(child, level + 1))}
+              {menu.children!.map((child) => renderMenuItem(child, level + 1, menu.children))}
             </List>
           </Collapse>
         )}
@@ -534,6 +626,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   };
   
   return (
+    <NavigationProvider value={startNavigating}>
     <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       {/* AppBar */}
       <AppBar
@@ -692,10 +785,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* 스크롤 가능한 메뉴 영역 */}
         <Box sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', py: 2 }}>
-          {/* 도메인별 메뉴 렌더링 */}
-          <List>
-            {currentMenus.map((menu) => renderMenuItem(menu))}
-          </List>
+          {/* 도메인별 메뉴 렌더링 (그룹 구조) */}
+          {currentMenuGroups.map((group, groupIdx) => (
+            <Fragment key={group.label ?? `group-${groupIdx}`}>
+              {groupIdx > 0 && <Divider sx={{ my: 1, mx: 1.5 }} />}
+              {group.label && !miniMode && (
+                <Typography
+                  variant="caption"
+                  color="text.disabled"
+                  fontWeight={700}
+                  sx={{ px: 3, pt: groupIdx > 0 ? 0.5 : 0, pb: 0.5, display: 'block', letterSpacing: '0.05em', fontSize: '0.65rem' }}
+                >
+                  {group.label}
+                </Typography>
+              )}
+              <List disablePadding>
+                {group.items.map((menu) => renderMenuItem(menu, 0, group.items))}
+              </List>
+            </Fragment>
+          ))}
 
           {/* 정산 도메인에서 관리자/사용자 이동 */}
           {isSettlementDomain && !miniMode && isAdmin && (
@@ -906,5 +1014,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         )}
       </Box>
     </Box>
+    </NavigationProvider>
   );
 }

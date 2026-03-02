@@ -57,7 +57,7 @@ import {
 } from '@/components/ui';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
-import { useRouter } from 'next/navigation';
+import { useAppRouter } from '@/lib/navigation';
 
 // ─── 타입 ───
 interface UploadJob {
@@ -216,7 +216,7 @@ function getInitials(name: string | null | undefined): string {
 export default function UploadJobsPage() {
   const theme = useTheme();
   const { enqueueSnackbar } = useSnackbar();
-  const router = useRouter();
+  const router = useAppRouter();
 
   // ─── 리스트 상태 ───
   const [jobs, setJobs] = useState<UploadJob[]>([]);

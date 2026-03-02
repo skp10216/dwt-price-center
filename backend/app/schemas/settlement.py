@@ -222,10 +222,33 @@ class PaymentResponse(BaseModel):
 # 전표 상세 (입금/송금 이력 포함)
 # ============================================================================
 
+class AllocationDetailItem(BaseModel):
+    """전표에 배분된 입출금 내역"""
+    id: UUID
+    transaction_id: UUID
+    transaction_date: Optional[date] = None
+    transaction_type: Optional[str] = None  # DEPOSIT / WITHDRAWAL
+    allocated_amount: Decimal
+    memo: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class VoucherDetailResponse(VoucherResponse):
-    """전표 상세 (입금/송금 이력 포함)"""
+    """전표 상세 (입금/송금/배분 이력 포함)"""
     receipts: List[ReceiptResponse] = []
     payments: List[PaymentResponse] = []
+    allocations: List[AllocationDetailItem] = []
+    # 조정전표 메타
+    is_adjustment: bool = False
+    adjustment_type: Optional[str] = None
+    adjustment_reason: Optional[str] = None
+    original_voucher_id: Optional[UUID] = None
+    original_voucher_number: Optional[str] = None
+    # 업로드 출처
+    upload_job_id: Optional[UUID] = None
 
 
 # ============================================================================

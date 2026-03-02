@@ -223,7 +223,17 @@ export default function TransactionCreateDialog({
     try {
       const res = await settlementApi.listCounterparties({ page_size: 200 });
       const data = res.data as unknown as { counterparties: CounterpartyOption[] };
-      setCounterparties(data.counterparties || []);
+      const list = data.counterparties || [];
+      setCounterparties(list);
+
+      // 최근 거래처 캐시에서 DB에 없는 항목 자동 제거
+      const validIds = new Set(list.map(c => c.id));
+      const recent = getRecentCounterparties();
+      const cleaned = recent.filter(r => validIds.has(r.id));
+      if (cleaned.length !== recent.length) {
+        localStorage.setItem(RECENT_CP_KEY, JSON.stringify(cleaned));
+      }
+      setRecentCps(cleaned);
     } catch { /* ignore */ }
     finally { setLoadingCps(false); }
   }, [fixedCpId]);
@@ -244,7 +254,6 @@ export default function TransactionCreateDialog({
       setAmountDisplay('');
       setMemo('');
       setCpSummary(null);
-      setRecentCps(getRecentCounterparties());
       setVouchers([]);
       setAllocMap(new Map());
       setLastLoadKey('');
@@ -261,9 +270,31 @@ export default function TransactionCreateDialog({
     setLoadingSummary(true);
     settlementApi.getCounterpartySummary(selectedCp.id)
       .then((res) => {
-        if (!cancelled) setCpSummary(res.data as unknown as CpSummary);
+        if (!cancelled) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const raw = res.data as any;
+          const src = raw?.data ?? raw;
+          // Decimal이 문자열로 직렬화되므로 Number 변환
+          setCpSummary({
+            total_sales_amount: Number(src.total_sales_amount) || 0,
+            total_purchase_amount: Number(src.total_purchase_amount) || 0,
+            total_receivable: Number(src.total_receivable) || 0,
+            total_payable: Number(src.total_payable) || 0,
+            voucher_count: Number(src.voucher_count) || 0,
+          });
+        }
       })
-      .catch(() => { if (!cancelled) setCpSummary(null); })
+      .catch((err) => {
+        if (!cancelled) {
+          setCpSummary(null);
+          const status = err?.response?.status;
+          if (status === 404) {
+            enqueueSnackbar(`거래처 "${selectedCp.name}"의 요약 정보를 찾을 수 없습니다`, { variant: 'warning' });
+          } else if (status !== 401 && status !== 403) {
+            enqueueSnackbar('거래처 요약 정보 로드에 실패했습니다', { variant: 'error' });
+          }
+        }
+      })
       .finally(() => { if (!cancelled) setLoadingSummary(false); });
     return () => { cancelled = true; };
   }, [selectedCp]);

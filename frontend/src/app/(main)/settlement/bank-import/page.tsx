@@ -15,7 +15,7 @@ import {
   CheckCircle as ConfirmIcon,
   InsertDriveFile as FileIcon,
 } from '@mui/icons-material';
-import { useRouter } from 'next/navigation';
+import { useAppRouter } from '@/lib/navigation';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
 import {
@@ -59,7 +59,7 @@ const STATUS_MAP: Record<string, { label: string; color: 'default' | 'info' | 'w
  * 은행 파일 업로드 + 작업 목록 관리
  */
 export default function BankImportPage() {
-  const router = useRouter();
+  const router = useAppRouter();
   const { enqueueSnackbar } = useSnackbar();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
