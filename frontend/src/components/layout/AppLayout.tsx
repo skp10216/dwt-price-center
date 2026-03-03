@@ -32,6 +32,8 @@ import {
   alpha,
   Button,
   Tooltip,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import { useSnackbar } from 'notistack';
 import { settlementApi } from '@/lib/api';
@@ -255,9 +257,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, logout, setAuth } = useAuthStore();
-  const { sidebarOpen, toggleSidebar } = useUIStore();
+  const { sidebarOpen, toggleSidebar, setSidebarOpen } = useUIStore();
   const { domainType, isAdminDomain, isSettlementDomain, setDomainType } = useDomainStore();
   const { mode, setMode } = useThemeStore();
+
+  // 모바일 감지 (AppDetailDrawer.tsx 패턴 동일)
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set(['ssot-models']));
@@ -441,13 +447,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSettlementDomain]);
 
-  // 경로 전환 시 navigating 해제
+  // 모바일 초기 진입 시 사이드바 닫기
+  useEffect(() => {
+    if (isMobile) setSidebarOpen(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile]);
+
+  // 경로 전환 시 navigating 해제 + 모바일 사이드바 닫기
   useEffect(() => {
     if (prevPathRef.current !== pathname) {
       setNavigating(false);
       prevPathRef.current = pathname;
+      if (isMobile) setSidebarOpen(false);
     }
-  }, [pathname]);
+  }, [pathname, isMobile, setSidebarOpen]);
 
   const isAdmin = user?.role === 'admin';
   const currentMenuGroups = isSettlementDomain ? settlementMenuGroups : isAdminDomain ? adminMenuGroups : userMenuGroups;
@@ -661,7 +674,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   : '/prices'
               )}
             />
-            {isAdminDomain && (
+            {isAdminDomain && !isMobile && (
               <Chip
                 icon={<AdminIcon sx={{ fontSize: 16 }} />}
                 label="관리자"
@@ -671,7 +684,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 sx={{ fontWeight: 600, cursor: 'pointer' }}
               />
             )}
-            {isSettlementDomain && (
+            {isSettlementDomain && !isMobile && (
               <Chip
                 icon={<AccountBalanceIcon sx={{ fontSize: 16 }} />}
                 label="경영지원"
@@ -683,7 +696,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             )}
           </Box>
 
-          {isSettlementDomain && latestSalesDate && (
+          {isSettlementDomain && latestSalesDate && !isMobile && (
             <Tooltip title="판매 데이터 최신 확정일 — 클릭하여 내역 보기">
               <Chip
                 label={`판매 ${latestSalesDate}`}
@@ -695,7 +708,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               />
             </Tooltip>
           )}
-          {isSettlementDomain && latestPurchaseDate && (
+          {isSettlementDomain && latestPurchaseDate && !isMobile && (
             <Tooltip title="매입 데이터 최신 확정일 — 클릭하여 내역 보기">
               <Chip
                 label={`매입 ${latestPurchaseDate}`}
@@ -758,22 +771,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       
       {/* Sidebar */}
       <Drawer
-        variant="persistent"
+        variant={isMobile ? 'temporary' : 'persistent'}
         open={sidebarOpen}
+        onClose={isMobile ? () => setSidebarOpen(false) : undefined}
+        ModalProps={isMobile ? { keepMounted: true } : undefined}
         sx={{
-          width: sidebarOpen ? (miniMode ? DRAWER_MINI_WIDTH : DRAWER_WIDTH) : 0,
+          width: isMobile ? 0 : (sidebarOpen ? (miniMode ? DRAWER_MINI_WIDTH : DRAWER_WIDTH) : 0),
           flexShrink: 0,
           transition: (theme) => theme.transitions.create('width', {
             easing: theme.transitions.easing.sharp,
             duration: theme.transitions.duration.enteringScreen,
           }),
           '& .MuiDrawer-paper': {
-            width: miniMode ? DRAWER_MINI_WIDTH : DRAWER_WIDTH,
+            width: isMobile ? DRAWER_WIDTH : (miniMode ? DRAWER_MINI_WIDTH : DRAWER_WIDTH),
             boxSizing: 'border-box',
             borderRight: (theme) => `1px solid ${theme.palette.divider}`,
             bgcolor: 'background.paper',
             overflowX: 'hidden',
-            transition: (theme) => theme.transitions.create('width', {
+            transition: isMobile ? undefined : (theme) => theme.transitions.create('width', {
               easing: theme.transitions.easing.sharp,
               duration: theme.transitions.duration.enteringScreen,
             }),
@@ -898,22 +913,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         </Box>
 
-        {/* 사이드바 최소화 토글 버튼 */}
-        <Box
-          sx={{
-            borderTop: '1px solid',
-            borderColor: 'divider',
-            p: 0.5,
-            display: 'flex',
-            justifyContent: miniMode ? 'center' : 'flex-end',
-          }}
-        >
-          <Tooltip title={miniMode ? '메뉴 펼치기' : '메뉴 접기'} placement="right">
-            <IconButton size="small" onClick={() => setMiniMode((v) => !v)}>
-              {miniMode ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
-            </IconButton>
-          </Tooltip>
-        </Box>
+        {/* 사이드바 최소화 토글 버튼 (모바일에서는 숨김) */}
+        {!isMobile && (
+          <Box
+            sx={{
+              borderTop: '1px solid',
+              borderColor: 'divider',
+              p: 0.5,
+              display: 'flex',
+              justifyContent: miniMode ? 'center' : 'flex-end',
+            }}
+          >
+            <Tooltip title={miniMode ? '메뉴 펼치기' : '메뉴 접기'} placement="right">
+              <IconButton size="small" onClick={() => setMiniMode((v) => !v)}>
+                {miniMode ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+          </Box>
+        )}
       </Drawer>
       
       {/* Main Content */}
@@ -956,7 +973,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
-            p: 2,
+            p: isMobile ? 1 : 2,
           }}
         >
           {children}

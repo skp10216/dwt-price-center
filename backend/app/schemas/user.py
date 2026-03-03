@@ -15,7 +15,7 @@ from app.models.enums import UserRole
 class UserCreate(BaseModel):
     """사용자 생성 요청"""
     email: EmailStr = Field(..., description="이메일 (로그인 ID)")
-    password: str = Field(..., min_length=8, description="비밀번호")
+    password: str = Field(..., min_length=4, description="비밀번호")
     name: str = Field(..., min_length=1, max_length=100, description="사용자 이름")
     role: UserRole = Field(default=UserRole.VIEWER, description="역할")
 

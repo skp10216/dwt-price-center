@@ -81,7 +81,7 @@ export default function ProfitStatsPage() {
         actions={[{
           label: '', variant: 'text' as const,
           icon: (
-            <FormControl size="small" sx={{ minWidth: 120 }}>
+            <FormControl size="small" sx={{ minWidth: { xs: 0, sm: 120 } }}>
               <InputLabel>조회 기간</InputLabel>
               <Select value={months} label="조회 기간" onChange={(e) => setMonths(Number(e.target.value))}>
                 {[3, 6, 12, 24].map((v) => <MenuItem key={v} value={v}>{v}개월</MenuItem>)}

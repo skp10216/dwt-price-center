@@ -183,6 +183,7 @@ export default function AppTableShell({
             position: 'relative',
             maxHeight: maxHeight,
             overflow: 'auto',
+            WebkitOverflowScrolling: 'touch',
             flex: 1,
             minHeight: 0,
             // sticky header 스타일

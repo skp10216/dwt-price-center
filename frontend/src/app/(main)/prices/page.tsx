@@ -226,13 +226,13 @@ export default function PricesPage() {
       {/* 필터 영역 */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
-          <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap" useFlexGap>
             <TextField
               size="small"
               placeholder="모델명/모델코드 검색"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              sx={{ minWidth: 250 }}
+              sx={{ minWidth: { xs: 0, sm: 250 }, flex: { xs: 1, sm: 'none' } }}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -241,8 +241,8 @@ export default function PricesPage() {
                 ),
               }}
             />
-            
-            <FormControl size="small" sx={{ minWidth: 120 }}>
+
+            <FormControl size="small" sx={{ minWidth: { xs: 0, sm: 120 }, flex: { xs: 1, sm: 'none' } }}>
               <InputLabel>등급</InputLabel>
               <Select
                 value={selectedGradeId}
@@ -256,8 +256,8 @@ export default function PricesPage() {
                 ))}
               </Select>
             </FormControl>
-            
-            <FormControl size="small" sx={{ minWidth: 120 }}>
+
+            <FormControl size="small" sx={{ minWidth: { xs: 0, sm: 120 }, flex: { xs: 1, sm: 'none' } }}>
               <InputLabel>타입</InputLabel>
               <Select
                 value={deviceType}
@@ -270,8 +270,8 @@ export default function PricesPage() {
                 <MenuItem value="wearable">웨어러블</MenuItem>
               </Select>
             </FormControl>
-            
-            <FormControl size="small" sx={{ minWidth: 120 }}>
+
+            <FormControl size="small" sx={{ minWidth: { xs: 0, sm: 120 }, flex: { xs: 1, sm: 'none' } }}>
               <InputLabel>제조사</InputLabel>
               <Select
                 value={manufacturer}

@@ -49,4 +49,4 @@ class LoginResponse(BaseModel):
 class ChangePasswordRequest(BaseModel):
     """비밀번호 변경 요청"""
     current_password: str = Field(..., min_length=4, description="현재 비밀번호")
-    new_password: str = Field(..., min_length=8, description="새 비밀번호")
+    new_password: str = Field(..., min_length=4, description="새 비밀번호")

@@ -30,14 +30,14 @@ export default function CashEventToolbar() {
               placeholder="거래처명/메모 검색"
               value={filters.search}
               onChange={(e) => setFilter('search', e.target.value)}
-              sx={{ minWidth: 200 }}
+              sx={{ minWidth: { xs: 0, sm: 200 }, flex: { xs: 1, sm: 'none' } }}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>
                 ),
               }}
             />
-            <FormControl size="small" sx={{ minWidth: 100 }}>
+            <FormControl size="small" sx={{ minWidth: { xs: 0, sm: 100 }, flex: { xs: 1, sm: 'none' } }}>
               <InputLabel>유형</InputLabel>
               <Select
                 value={filters.transactionType}
@@ -49,7 +49,7 @@ export default function CashEventToolbar() {
                 <MenuItem value="withdrawal">출금</MenuItem>
               </Select>
             </FormControl>
-            <FormControl size="small" sx={{ minWidth: 110 }}>
+            <FormControl size="small" sx={{ minWidth: { xs: 0, sm: 110 }, flex: { xs: 1, sm: 'none' } }}>
               <InputLabel>상태</InputLabel>
               <Select
                 value={filters.status}
@@ -65,7 +65,7 @@ export default function CashEventToolbar() {
                 <MenuItem value="cancelled">취소</MenuItem>
               </Select>
             </FormControl>
-            <FormControl size="small" sx={{ minWidth: 100 }}>
+            <FormControl size="small" sx={{ minWidth: { xs: 0, sm: 100 }, flex: { xs: 1, sm: 'none' } }}>
               <InputLabel>출처</InputLabel>
               <Select
                 value={filters.source}
@@ -84,7 +84,7 @@ export default function CashEventToolbar() {
               type="number"
               value={filters.amountMin}
               onChange={(e) => setFilter('amountMin', e.target.value)}
-              sx={{ width: 120 }}
+              sx={{ width: { xs: '100%', sm: 120 } }}
             />
             <TextField
               size="small"
@@ -92,7 +92,7 @@ export default function CashEventToolbar() {
               type="number"
               value={filters.amountMax}
               onChange={(e) => setFilter('amountMax', e.target.value)}
-              sx={{ width: 120 }}
+              sx={{ width: { xs: '100%', sm: 120 } }}
             />
           </Box>
         }

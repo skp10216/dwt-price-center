@@ -704,7 +704,7 @@ export default function UploadWizardPage() {
                 </Stack>
               ) : file ? (
                 <Stack alignItems="center" spacing={2}>
-                  <Paper elevation={2} sx={{ p: 3, borderRadius: 3, minWidth: 280, bgcolor: 'background.paper', border: '1px solid', borderColor: alpha(theme.palette.success.main, 0.3) }}>
+                  <Paper elevation={2} sx={{ p: 3, borderRadius: 3, minWidth: { xs: 0, sm: 280 }, width: { xs: '100%', sm: 'auto' }, bgcolor: 'background.paper', border: '1px solid', borderColor: alpha(theme.palette.success.main, 0.3) }}>
                     <Stack direction="row" spacing={2} alignItems="center">
                       <Box sx={{ width: 56, height: 56, borderRadius: 2, bgcolor: alpha(theme.palette.success.main, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <DescriptionIcon sx={{ fontSize: 32, color: 'success.main' }} />
@@ -890,7 +890,7 @@ export default function UploadWizardPage() {
                                   }));
                                 }}
                                 renderInput={(params) => <TextField {...params} placeholder="거래처 검색..." size="small" />}
-                                sx={{ minWidth: 200 }}
+                                sx={{ minWidth: { xs: 0, sm: 200 }, flex: { xs: 1, sm: 'none' } }}
                                 noOptionsText="검색 결과 없음"
                               />
                             ) : action.action === 'create' ? (
@@ -999,13 +999,13 @@ export default function UploadWizardPage() {
               ) : (
                 <>
                   {/* 검색/필터 */}
-                  <Stack direction="row" spacing={2} sx={{ mb: 1.5 }} alignItems="center" flexWrap="wrap">
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 1.5 }} alignItems={{ xs: 'stretch', sm: 'center' }} flexWrap="wrap">
                     <TextField
                       size="small"
                       placeholder="거래처명, 전표번호 검색..."
                       value={conflictSearch}
                       onChange={(e) => setConflictSearch(e.target.value)}
-                      sx={{ minWidth: 240 }}
+                      sx={{ minWidth: { xs: 0, sm: 240 }, flex: { xs: 1, sm: 'none' } }}
                       InputProps={{
                         startAdornment: (
                           <InputAdornment position="start">

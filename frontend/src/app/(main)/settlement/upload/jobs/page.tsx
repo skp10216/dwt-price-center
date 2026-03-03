@@ -1577,7 +1577,7 @@ export default function UploadJobsPage() {
                                 }));
                               }}
                               renderInput={(params) => <TextField {...params} placeholder="거래처 검색..." size="small" />}
-                              sx={{ minWidth: 200 }}
+                              sx={{ minWidth: { xs: 0, sm: 200 }, flex: { xs: 1, sm: 'none' } }}
                               noOptionsText="검색 결과 없음"
                             />
                           ) : action.action === 'create' ? (

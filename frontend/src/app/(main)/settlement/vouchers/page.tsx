@@ -517,9 +517,9 @@ export default function VouchersPage() {
                   </InputAdornment>
                 ),
               }}
-              sx={{ minWidth: 200 }}
+              sx={{ minWidth: { xs: 0, sm: 200 }, flex: { xs: 1, sm: 'none' } }}
             />
-            <FormControl size="small" sx={{ minWidth: 100 }}>
+            <FormControl size="small" sx={{ minWidth: { xs: 0, sm: 100 }, flex: { xs: 1, sm: 'none' } }}>
               <InputLabel>타입</InputLabel>
               <Select
                 label="타입"
@@ -531,7 +531,7 @@ export default function VouchersPage() {
                 <MenuItem value="purchase">매입</MenuItem>
               </Select>
             </FormControl>
-            <FormControl size="small" sx={{ minWidth: 110 }}>
+            <FormControl size="small" sx={{ minWidth: { xs: 0, sm: 110 }, flex: { xs: 1, sm: 'none' } }}>
               <InputLabel>정산상태</InputLabel>
               <Select
                 label="정산상태"
@@ -545,7 +545,7 @@ export default function VouchersPage() {
                 <MenuItem value="locked">마감</MenuItem>
               </Select>
             </FormControl>
-            <FormControl size="small" sx={{ minWidth: 110 }}>
+            <FormControl size="small" sx={{ minWidth: { xs: 0, sm: 110 }, flex: { xs: 1, sm: 'none' } }}>
               <InputLabel>지급상태</InputLabel>
               <Select
                 label="지급상태"
