@@ -30,9 +30,9 @@ export function middleware(request: NextRequest) {
     if (pathname === '/login') {
       const redirect = request.nextUrl.searchParams.get('redirect');
       const domainType = getDomainType(host, undefined, redirect || undefined);
-      const response = NextResponse.next();
-      response.headers.set('x-domain-type', domainType);
-      return response;
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set('x-domain-type', domainType);
+      return NextResponse.next({ request: { headers: requestHeaders } });
     }
     return NextResponse.next();
   }
@@ -84,11 +84,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL(defaultPath, request.url));
   }
   
-  // 도메인 타입을 헤더로 전달 (클라이언트에서 사용)
-  const response = NextResponse.next();
-  response.headers.set('x-domain-type', domainType);
-  
-  return response;
+  // 도메인 타입을 request 헤더로 전달 (Server Component에서 headers()로 읽기 가능)
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-domain-type', domainType);
+  return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
 export const config = {
