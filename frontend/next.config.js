@@ -2,6 +2,10 @@
 const nextConfig = {
   reactStrictMode: true,
   output: 'standalone',
+
+  experimental: {
+    missingSuspenseWithCSRBailout: false,
+  },
   
   // 환경 변수
   env: {

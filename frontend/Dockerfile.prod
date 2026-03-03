@@ -1,0 +1,57 @@
+# 프론트엔드 프로덕션 빌드 (Multi-stage)
+# standalone 출력으로 최소 이미지 생성
+
+# ── Stage 1: 의존성 설치 ──────────────────────────────────────────────
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci --prefer-offline
+
+# ── Stage 2: 빌드 ────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# NEXT_PUBLIC_* 환경변수는 빌드 시점에 번들에 포함됨
+ARG NEXT_PUBLIC_API_URL=https://settlement.dwt.kr
+ARG NEXT_PUBLIC_USER_DOMAIN=dwt.kr
+ARG NEXT_PUBLIC_ADMIN_DOMAIN=admin.dwt.kr
+ARG NEXT_PUBLIC_SETTLEMENT_DOMAIN=settlement.dwt.kr
+ARG NEXT_PUBLIC_USER_URL=https://dwt.kr
+ARG NEXT_PUBLIC_ADMIN_URL=https://admin.dwt.kr
+ARG NEXT_PUBLIC_SETTLEMENT_URL=https://settlement.dwt.kr
+
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_USER_DOMAIN=$NEXT_PUBLIC_USER_DOMAIN
+ENV NEXT_PUBLIC_ADMIN_DOMAIN=$NEXT_PUBLIC_ADMIN_DOMAIN
+ENV NEXT_PUBLIC_SETTLEMENT_DOMAIN=$NEXT_PUBLIC_SETTLEMENT_DOMAIN
+ENV NEXT_PUBLIC_USER_URL=$NEXT_PUBLIC_USER_URL
+ENV NEXT_PUBLIC_ADMIN_URL=$NEXT_PUBLIC_ADMIN_URL
+ENV NEXT_PUBLIC_SETTLEMENT_URL=$NEXT_PUBLIC_SETTLEMENT_URL
+
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+# ── Stage 3: 런타임 ──────────────────────────────────────────────────
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# standalone 출력 복사
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+
+EXPOSE 3100
+ENV PORT=3100
+ENV HOSTNAME="0.0.0.0"
+
+CMD ["node", "server.js"]

@@ -137,7 +137,7 @@ def _txn_to_response(txn: CounterpartyTransaction, counterparty_name: str = None
 # CRUD 엔드포인트
 # =============================================================================
 
-@router.get("/", response_model=TransactionListResponse)
+@router.get("", response_model=TransactionListResponse)
 async def list_transactions(
     counterparty_id: Optional[UUID] = None,
     transaction_type: Optional[str] = None,
@@ -232,7 +232,7 @@ async def list_transactions(
     )
 
 
-@router.post("/", response_model=TransactionResponse, status_code=201)
+@router.post("", response_model=TransactionResponse, status_code=201)
 async def create_transaction(
     data: TransactionCreate,
     db: AsyncSession = Depends(get_db),

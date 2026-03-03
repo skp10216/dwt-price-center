@@ -39,17 +39,20 @@ services:
       - "127.0.0.1:8180:8080"
 
   frontend:
-    volumes:
-      - /app/node_modules
-      - /app/.next
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://settlement.dwt.kr}
+        - NEXT_PUBLIC_USER_DOMAIN=${NEXT_PUBLIC_USER_DOMAIN:-dwt.kr}
+        - NEXT_PUBLIC_ADMIN_DOMAIN=${NEXT_PUBLIC_ADMIN_DOMAIN:-admin.dwt.kr}
+        - NEXT_PUBLIC_SETTLEMENT_DOMAIN=${NEXT_PUBLIC_SETTLEMENT_DOMAIN:-settlement.dwt.kr}
+        - NEXT_PUBLIC_USER_URL=${NEXT_PUBLIC_USER_URL:-https://dwt.kr}
+        - NEXT_PUBLIC_ADMIN_URL=${NEXT_PUBLIC_ADMIN_URL:-https://admin.dwt.kr}
+        - NEXT_PUBLIC_SETTLEMENT_URL=${NEXT_PUBLIC_SETTLEMENT_URL:-https://settlement.dwt.kr}
+    volumes: !override []
     ports: !override
       - "127.0.0.1:3100:3100"
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://settlement.dwt.kr}
-      - NEXT_PUBLIC_USER_DOMAIN=${NEXT_PUBLIC_USER_DOMAIN:-dwt.kr}
-      - NEXT_PUBLIC_ADMIN_DOMAIN=${NEXT_PUBLIC_ADMIN_DOMAIN:-admin.dwt.kr}
-      - NEXT_PUBLIC_SETTLEMENT_DOMAIN=${NEXT_PUBLIC_SETTLEMENT_DOMAIN:-settlement.dwt.kr}
-      - NEXT_PUBLIC_USER_URL=${NEXT_PUBLIC_USER_URL:-https://dwt.kr}
-      - NEXT_PUBLIC_ADMIN_URL=${NEXT_PUBLIC_ADMIN_URL:-https://admin.dwt.kr}
-      - NEXT_PUBLIC_SETTLEMENT_URL=${NEXT_PUBLIC_SETTLEMENT_URL:-https://settlement.dwt.kr}
-    command: npm run dev
+      - NODE_ENV=production
+    command: node server.js

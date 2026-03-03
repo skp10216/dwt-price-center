@@ -86,7 +86,7 @@ def _netting_to_response(
     )
 
 
-@router.get("/", response_model=NettingListResponse)
+@router.get("", response_model=NettingListResponse)
 async def list_nettings(
     counterparty_id: Optional[UUID] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
@@ -242,7 +242,7 @@ async def get_eligible_vouchers(
     )
 
 
-@router.post("/", response_model=NettingDetailResponse, status_code=201)
+@router.post("", response_model=NettingDetailResponse, status_code=201)
 async def create_netting(
     data: NettingCreateRequest,
     db: AsyncSession = Depends(get_db),
