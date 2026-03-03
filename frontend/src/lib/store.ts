@@ -18,7 +18,7 @@ function isLocalhost(): boolean {
 
 /**
  * 쿠키 도메인 결정
- * - 프로덕션: .dwt.price (서브도메인 간 공유)
+ * - 프로덕션: .dwt.kr (서브도메인 간 공유, NEXT_PUBLIC_USER_DOMAIN에서 읽음)
  * - 개발 환경 (*.localhost): domain 속성 생략 → 현재 호스트 전용 쿠키
  *   ⚠️ Chrome에서 domain=localhost 설정 시 settlement.localhost 등
  *      서브도메인에서 쿠키가 전달되지 않는 알려진 이슈 존재
@@ -26,7 +26,10 @@ function isLocalhost(): boolean {
  */
 function getCookieDomain(): string {
   if (typeof window === 'undefined') return '';
-  if (!isLocalhost()) return '; domain=.dwt.price';
+  if (!isLocalhost()) {
+    const baseDomain = process.env.NEXT_PUBLIC_USER_DOMAIN || 'dwt.kr';
+    return `; domain=.${baseDomain}`;
+  }
   // 개발 환경: domain 속성 생략 (호스트 전용 쿠키)
   // settlement.localhost / admin.localhost / localhost 각각 독립 쿠키
   return '';
@@ -57,6 +60,10 @@ function deleteCookie(name: string) {
       document.cookie = `${name}=; ${expired}; path=/; domain=.${hostname}`;
     }
   }
+  // 현재 프로덕션 도메인
+  const baseDomain = process.env.NEXT_PUBLIC_USER_DOMAIN || 'dwt.kr';
+  document.cookie = `${name}=; ${expired}; path=/; domain=.${baseDomain}`;
+  // 레거시 쿠키 정리 (이전 dwt.price 도메인)
   document.cookie = `${name}=; ${expired}; path=/; domain=.dwt.price`;
 }
 

@@ -1,8 +1,8 @@
 /**
  * 단가표 통합 관리 시스템 - 도메인 분리 설정
- * admin.dwt.price: 관리자 전용
- * settlement.dwt.price: 정산 관리 전용
- * dwt.price: 사용자 전용
+ * admin.dwt.kr: 관리자 전용
+ * settlement.dwt.kr: 정산 관리 전용
+ * dwt.kr: 사용자 전용
  */
 
 // 도메인 타입 정의
@@ -10,21 +10,21 @@ export type DomainType = 'admin' | 'user' | 'settlement';
 
 // 환경 변수에서 도메인 설정 로드
 export const DOMAIN_CONFIG = {
-  admin: process.env.NEXT_PUBLIC_ADMIN_DOMAIN || 'admin.dwt.price',
-  user: process.env.NEXT_PUBLIC_USER_DOMAIN || 'dwt.price',
-  settlement: process.env.NEXT_PUBLIC_SETTLEMENT_DOMAIN || 'settlement.dwt.price',
+  admin: process.env.NEXT_PUBLIC_ADMIN_DOMAIN || 'admin.dwt.kr',
+  user: process.env.NEXT_PUBLIC_USER_DOMAIN || 'dwt.kr',
+  settlement: process.env.NEXT_PUBLIC_SETTLEMENT_DOMAIN || 'settlement.dwt.kr',
 } as const;
 
 // 관리자 도메인 패턴 (localhost 개발 환경 포함)
 const ADMIN_DOMAIN_PATTERNS = [
-  'admin.dwt.price',
+  'admin.dwt.kr',
   'admin.localhost',
   /^admin\./,
 ];
 
 // 정산 도메인 패턴
 const SETTLEMENT_DOMAIN_PATTERNS = [
-  'settlement.dwt.price',
+  'settlement.dwt.kr',
   'settlement.localhost',
   /^settlement\./,
 ];

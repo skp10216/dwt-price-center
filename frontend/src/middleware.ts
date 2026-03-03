@@ -1,9 +1,10 @@
 /**
  * 단가표 통합 관리 시스템 - Next.js Middleware
  * Host 기반 도메인 분리 라우팅
- * 
- * admin.dwt.price -> 관리자 전용 (role=admin 필수)
- * dwt.price -> 사용자 전용
+ *
+ * admin.dwt.kr -> 관리자 전용 (role=admin 필수)
+ * settlement.dwt.kr -> 경영지원 전용 (role=settlement|admin 필수)
+ * dwt.kr -> 사용자 전용
  */
 
 import { NextRequest, NextResponse } from 'next/server';
