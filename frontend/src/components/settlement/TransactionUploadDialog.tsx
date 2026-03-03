@@ -19,6 +19,8 @@ import {
   ArrowUpward as WithdrawalIcon,
   PersonAdd as PersonAddIcon,
   Link as LinkIcon,
+  SkipNext as SkipIcon,
+  InfoOutlined as InfoIcon,
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
@@ -28,11 +30,12 @@ interface PreviewRow {
   transaction_date: string | null;
   counterparty_name: string;
   counterparty_id: string | null;
-  attribute: string;
-  transaction_type: 'deposit' | 'withdrawal';
+  category: string;
+  description: string;
+  transaction_type: 'deposit' | 'withdrawal' | null;
   amount: number;
   balance: number | null;
-  status: 'ok' | 'error' | 'unmatched';
+  status: 'ok' | 'error' | 'unmatched' | 'skipped';
   message: string | null;
 }
 
@@ -41,6 +44,7 @@ interface PreviewSummary {
   valid: number;
   error: number;
   unmatched: number;
+  skipped: number;
   total_deposit: number;
   total_withdrawal: number;
 }
@@ -300,9 +304,9 @@ export default function TransactionUploadDialog({ open, onClose, onCreated }: Tr
     const txns = selectedTxns.map((r) => ({
       transaction_date: r.transaction_date!,
       counterparty_id: r.counterparty_id!,
-      transaction_type: r.transaction_type,
+      transaction_type: r.transaction_type!,
       amount: r.amount,
-      memo: r.attribute || undefined,
+      memo: r.description || undefined,
     }));
 
     setConfirming(true);
@@ -354,78 +358,126 @@ export default function TransactionUploadDialog({ open, onClose, onCreated }: Tr
       <DialogContent dividers sx={{ minHeight: 400, p: 3 }}>
         {/* ── Step 0: 파일 업로드 ── */}
         {step === 0 && (
-          <Box
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={onDrop}
-            onClick={() => fileInputRef.current?.click()}
-            sx={{
-              border: '2px dashed',
-              borderColor: dragOver ? 'primary.main' : 'divider',
-              borderRadius: 3,
-              p: 6,
-              textAlign: 'center',
-              cursor: 'pointer',
-              bgcolor: dragOver ? alpha(theme.palette.primary.main, 0.04) : 'transparent',
-              transition: 'all 0.2s',
-              '&:hover': { borderColor: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.02) },
-            }}
-          >
-            {uploading ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                <Box sx={{ position: 'relative', display: 'inline-flex' }}>
-                  <CircularProgress
+          <Box>
+            <Box
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={onDrop}
+              onClick={() => fileInputRef.current?.click()}
+              sx={{
+                border: '2px dashed',
+                borderColor: dragOver ? 'primary.main' : 'divider',
+                borderRadius: 3,
+                p: 5,
+                textAlign: 'center',
+                cursor: 'pointer',
+                bgcolor: dragOver ? alpha(theme.palette.primary.main, 0.04) : 'transparent',
+                transition: 'all 0.2s',
+                '&:hover': { borderColor: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.02) },
+              }}
+            >
+              {uploading ? (
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                  <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+                    <CircularProgress
+                      variant="determinate"
+                      value={uploadProgress}
+                      size={80}
+                      thickness={4}
+                      sx={{ color: 'primary.main' }}
+                    />
+                    <CircularProgress
+                      variant="determinate"
+                      value={100}
+                      size={80}
+                      thickness={4}
+                      sx={{ color: alpha(theme.palette.primary.main, 0.1), position: 'absolute', left: 0 }}
+                    />
+                    <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Typography variant="h6" fontWeight={700} color="primary.main">
+                        {uploadProgress}%
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Typography color="text.secondary" fontWeight={500}>파일을 분석하고 있습니다...</Typography>
+                  <LinearProgress
                     variant="determinate"
                     value={uploadProgress}
-                    size={80}
-                    thickness={4}
-                    sx={{ color: 'primary.main' }}
+                    sx={{ width: '60%', borderRadius: 2, height: 6 }}
                   />
-                  <CircularProgress
-                    variant="determinate"
-                    value={100}
-                    size={80}
-                    thickness={4}
-                    sx={{ color: alpha(theme.palette.primary.main, 0.1), position: 'absolute', left: 0 }}
-                  />
-                  <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Typography variant="h6" fontWeight={700} color="primary.main">
-                      {uploadProgress}%
-                    </Typography>
-                  </Box>
                 </Box>
-                <Typography color="text.secondary" fontWeight={500}>파일을 분석하고 있습니다...</Typography>
-                <LinearProgress
-                  variant="determinate"
-                  value={uploadProgress}
-                  sx={{ width: '60%', borderRadius: 2, height: 6 }}
-                />
+              ) : (
+                <>
+                  <UploadIcon sx={{ fontSize: 56, color: 'text.disabled', mb: 2 }} />
+                  <Typography variant="h6" fontWeight={600} gutterBottom>
+                    엑셀 파일을 드래그하거나 클릭하여 선택
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    .xlsx, .xls 형식 지원
+                  </Typography>
+                  {file && (
+                    <Chip icon={<FileIcon />} label={file.name} sx={{ mt: 2 }} />
+                  )}
+                </>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                hidden
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleFileSelect(f);
+                  e.target.value = '';
+                }}
+              />
+            </Box>
+
+            {/* ── 엑셀 양식 안내 ── */}
+            <Alert
+              severity="info"
+              icon={<InfoIcon />}
+              sx={{ mt: 2 }}
+            >
+              <AlertTitle sx={{ fontWeight: 700 }}>엑셀 양식 안내</AlertTitle>
+              <Box sx={{ mt: 0.5 }}>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  아래 컬럼이 포함된 엑셀 파일을 업로드하세요.
+                </Typography>
+                <Table size="small" sx={{ bgcolor: 'background.paper', borderRadius: 1, overflow: 'hidden', mb: 1 }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700, py: 0.5, fontSize: '0.75rem' }}>컬럼명</TableCell>
+                      <TableCell sx={{ fontWeight: 700, py: 0.5, fontSize: '0.75rem' }}>필수</TableCell>
+                      <TableCell sx={{ fontWeight: 700, py: 0.5, fontSize: '0.75rem' }}>설명</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {[
+                      { col: '날짜', req: true, desc: '거래일자 (예: 2월 19일, 2025-02-19)' },
+                      { col: '구분', req: true, desc: '판매 / 매입 (대체·비용·기타는 건너뜀)' },
+                      { col: '거래처', req: true, desc: '거래처명' },
+                      { col: '거래내역', req: false, desc: '거래 상세 내역 (메모로 저장)' },
+                      { col: '차변(입금)', req: true, desc: '판매 시 사용되는 입금 금액' },
+                      { col: '대변(출금)', req: true, desc: '매입 시 사용되는 출금 금액' },
+                      { col: '잔액', req: false, desc: '잔액 (참고용)' },
+                    ].map((r) => (
+                      <TableRow key={r.col}>
+                        <TableCell sx={{ py: 0.3, fontSize: '0.75rem', fontWeight: 600 }}>{r.col}</TableCell>
+                        <TableCell sx={{ py: 0.3, fontSize: '0.75rem' }}>
+                          <Chip label={r.req ? '필수' : '선택'} size="small" color={r.req ? 'primary' : 'default'} variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
+                        </TableCell>
+                        <TableCell sx={{ py: 0.3, fontSize: '0.75rem', color: 'text.secondary' }}>{r.desc}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <Typography variant="caption" color="text.secondary">
+                  구분이 &apos;판매&apos;이면 차변(입금) 금액을 입금으로, &apos;매입&apos;이면 대변(출금) 금액을 출금으로 처리합니다.
+                  대체/비용/기타 구분은 자동으로 건너뜁니다.
+                </Typography>
               </Box>
-            ) : (
-              <>
-                <UploadIcon sx={{ fontSize: 56, color: 'text.disabled', mb: 2 }} />
-                <Typography variant="h6" fontWeight={600} gutterBottom>
-                  엑셀 파일을 드래그하거나 클릭하여 선택
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  .xlsx, .xls 형식 지원 | 날짜, 거래처, 입금, 출금 컬럼 필요
-                </Typography>
-                {file && (
-                  <Chip icon={<FileIcon />} label={file.name} sx={{ mt: 2 }} />
-                )}
-              </>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              hidden
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleFileSelect(f);
-                e.target.value = '';
-              }}
-            />
+            </Alert>
           </Box>
         )}
 
@@ -441,6 +493,9 @@ export default function TransactionUploadDialog({ open, onClose, onCreated }: Tr
               )}
               {preview.summary.unmatched > 0 && (
                 <Chip icon={<WarningIcon sx={{ fontSize: '16px !important' }} />} label={`미매칭 ${preview.summary.unmatched}건`} color="warning" variant="outlined" />
+              )}
+              {preview.summary.skipped > 0 && (
+                <Chip icon={<SkipIcon sx={{ fontSize: '16px !important' }} />} label={`건너뜀 ${preview.summary.skipped}건`} variant="outlined" sx={{ color: 'text.secondary', borderColor: 'text.disabled' }} />
               )}
               <Divider orientation="vertical" flexItem />
               <Chip
@@ -597,8 +652,9 @@ export default function TransactionUploadDialog({ open, onClose, onCreated }: Tr
                     </TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>#</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>날짜</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>구분</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>거래처</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>속성</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>거래내역</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>유형</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 700 }}>금액</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>상태</TableCell>
@@ -609,14 +665,17 @@ export default function TransactionUploadDialog({ open, onClose, onCreated }: Tr
                     const isOk = row.status === 'ok';
                     const isError = row.status === 'error';
                     const isUnmatched = row.status === 'unmatched';
+                    const isSkipped = row.status === 'skipped';
                     return (
                       <TableRow
                         key={idx}
                         hover={isOk}
                         sx={{
                           bgcolor: isError ? alpha(theme.palette.error.main, 0.04) :
-                            isUnmatched ? alpha(theme.palette.warning.main, 0.04) : 'inherit',
-                          opacity: isError || isUnmatched ? 0.7 : 1,
+                            isUnmatched ? alpha(theme.palette.warning.main, 0.04) :
+                            isSkipped ? alpha(theme.palette.text.primary, 0.03) : 'inherit',
+                          opacity: isError || isUnmatched ? 0.7 : isSkipped ? 0.5 : 1,
+                          textDecoration: isSkipped ? 'line-through' : 'none',
                         }}
                       >
                         <TableCell padding="checkbox">
@@ -629,27 +688,49 @@ export default function TransactionUploadDialog({ open, onClose, onCreated }: Tr
                         </TableCell>
                         <TableCell>{row.row_number}</TableCell>
                         <TableCell>{row.transaction_date || '-'}</TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>{row.counterparty_name}</TableCell>
-                        <TableCell>{row.attribute || '-'}</TableCell>
                         <TableCell>
                           <Chip
-                            label={row.transaction_type === 'deposit' ? '입금' : '출금'}
+                            label={row.category}
                             size="small"
-                            color={row.transaction_type === 'deposit' ? 'info' : 'error'}
+                            color={row.category === '판매' ? 'info' : row.category === '매입' ? 'error' : 'default'}
                             variant="outlined"
                             sx={{ height: 22, fontSize: '0.7rem' }}
                           />
                         </TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>{row.counterparty_name}</TableCell>
+                        <TableCell sx={{ fontSize: '0.8rem', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {row.description || '-'}
+                        </TableCell>
+                        <TableCell>
+                          {row.transaction_type ? (
+                            <Chip
+                              label={row.transaction_type === 'deposit' ? '입금' : '출금'}
+                              size="small"
+                              color={row.transaction_type === 'deposit' ? 'info' : 'error'}
+                              variant="outlined"
+                              sx={{ height: 22, fontSize: '0.7rem' }}
+                            />
+                          ) : (
+                            <Typography variant="caption" color="text.disabled">-</Typography>
+                          )}
+                        </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 600 }}>
-                          {fmt(row.amount)}
+                          {row.amount > 0 ? fmt(row.amount) : '-'}
                         </TableCell>
                         <TableCell>
                           {isOk && <Chip label="OK" size="small" color="success" sx={{ height: 20, fontSize: '0.65rem' }} />}
                           {isError && (
-                            <Chip label={row.message || '오류'} size="small" color="error" sx={{ height: 20, fontSize: '0.65rem' }} />
+                            <Tooltip title={row.message || '오류'}>
+                              <Chip label={row.message || '오류'} size="small" color="error" sx={{ height: 20, fontSize: '0.65rem', maxWidth: 120 }} />
+                            </Tooltip>
                           )}
                           {isUnmatched && (
                             <Chip label="미매칭" size="small" color="warning" sx={{ height: 20, fontSize: '0.65rem' }} />
+                          )}
+                          {isSkipped && (
+                            <Tooltip title={row.message || '건너뜀'}>
+                              <Chip label="건너뜀" size="small" variant="outlined" sx={{ height: 20, fontSize: '0.65rem', color: 'text.secondary' }} />
+                            </Tooltip>
                           )}
                         </TableCell>
                       </TableRow>
@@ -660,15 +741,15 @@ export default function TransactionUploadDialog({ open, onClose, onCreated }: Tr
                   <TableRow sx={{ bgcolor: theme.palette.background.paper, boxShadow: '0 -2px 6px rgba(0,0,0,0.08)', '& td': { borderTop: '2px solid', borderTopColor: 'primary.main', fontWeight: 700, fontSize: '0.8rem' } }}>
                     <TableCell />
                     <TableCell />
-                    <TableCell colSpan={2}>합계</TableCell>
+                    <TableCell colSpan={3}>합계 (판매/매입만)</TableCell>
                     <TableCell />
                     <TableCell>
                       <Chip label="입금" size="small" color="info" variant="outlined" sx={{ height: 20, fontSize: '0.65rem', mr: 0.5 }} />
-                      {fmt(preview.rows.reduce((s, r) => s + (r.transaction_type === 'deposit' ? r.amount : 0), 0))}
+                      {fmt(preview.rows.reduce((s, r) => s + (r.transaction_type === 'deposit' && r.status !== 'skipped' ? r.amount : 0), 0))}
                     </TableCell>
                     <TableCell align="right">
                       <Chip label="출금" size="small" color="error" variant="outlined" sx={{ height: 20, fontSize: '0.65rem', mr: 0.5 }} />
-                      {fmt(preview.rows.reduce((s, r) => s + (r.transaction_type === 'withdrawal' ? r.amount : 0), 0))}
+                      {fmt(preview.rows.reduce((s, r) => s + (r.transaction_type === 'withdrawal' && r.status !== 'skipped' ? r.amount : 0), 0))}
                     </TableCell>
                     <TableCell />
                   </TableRow>

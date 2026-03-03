@@ -1134,8 +1134,13 @@ def _parse_amount(raw) -> Optional[Decimal]:
         return None
 
 
+REQUIRED_COLUMNS = ["날짜", "구분", "거래처", "거래내역", "차변(입금)", "대변(출금)"]
+VALID_CATEGORIES = {"판매", "매입"}
+SKIPPED_CATEGORIES = {"대체", "비용", "기타", "이체"}
+
+
 def _find_header_row(ws) -> Optional[int]:
-    """날짜/거래처 컬럼이 있는 헤더 행 탐색"""
+    """날짜/구분/거래처 컬럼이 있는 헤더 행 탐색"""
     for row_idx in range(1, min(ws.max_row + 1, 20)):
         cells = [str(ws.cell(row=row_idx, column=c).value or "").strip() for c in range(1, min(ws.max_column + 1, 15))]
         joined = " ".join(cells).lower()
@@ -1145,20 +1150,22 @@ def _find_header_row(ws) -> Optional[int]:
 
 
 def _detect_columns(ws, header_row: int) -> dict:
-    """헤더 행에서 컬럼 인덱스 매핑"""
+    """헤더 행에서 컬럼 인덱스 매핑 (새 양식: 날짜/구분/거래처/거래내역/차변(입금)/대변(출금)/잔액)"""
     cols = {}
     for c in range(1, ws.max_column + 1):
         val = str(ws.cell(row=header_row, column=c).value or "").strip()
         lower = val.lower().replace(" ", "")
         if "날짜" in lower and "date" not in cols:
             cols["date"] = c
+        elif "구분" in lower and "category" not in cols:
+            cols["category"] = c
         elif ("거래처" in lower or "업체" in lower) and "counterparty" not in cols:
             cols["counterparty"] = c
-        elif "속성" in lower and "attribute" not in cols:
-            cols["attribute"] = c
-        elif ("입금" in lower or "반입" in lower) and "deposit" not in cols:
+        elif ("거래내역" in lower or "내역" in lower) and "description" not in cols:
+            cols["description"] = c
+        elif ("차변" in lower or "입금" in lower) and "deposit" not in cols:
             cols["deposit"] = c
-        elif ("출금" in lower or "판매" in lower) and "withdrawal" not in cols:
+        elif ("대변" in lower or "출금" in lower) and "withdrawal" not in cols:
             cols["withdrawal"] = c
         elif "잔액" in lower and "balance" not in cols:
             cols["balance"] = c
@@ -1218,10 +1225,30 @@ async def preview_transaction_upload(
         raise HTTPException(status_code=400, detail="헤더 행을 찾을 수 없습니다. '날짜', '거래처' 컬럼이 필요합니다.")
 
     cols = _detect_columns(ws, header_row)
-    if "date" not in cols or "counterparty" not in cols:
-        raise HTTPException(status_code=400, detail="필수 컬럼(날짜, 거래처)을 찾을 수 없습니다.")
-    if "deposit" not in cols and "withdrawal" not in cols:
-        raise HTTPException(status_code=400, detail="입금 또는 출금 컬럼을 찾을 수 없습니다.")
+
+    # ── 양식 검증: 필수 컬럼 체크 ──
+    missing = []
+    if "date" not in cols:
+        missing.append("날짜")
+    if "category" not in cols:
+        missing.append("구분")
+    if "counterparty" not in cols:
+        missing.append("거래처")
+    if "deposit" not in cols:
+        missing.append("차변(입금)")
+    if "withdrawal" not in cols:
+        missing.append("대변(출금)")
+
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"엑셀 양식이 올바르지 않습니다. "
+                f"누락된 필수 컬럼: {', '.join(missing)}. "
+                f"필수 컬럼: {', '.join(REQUIRED_COLUMNS)}. "
+                f"구분 컬럼에는 '판매' 또는 '매입' 값이 필요합니다."
+            ),
+        )
 
     current_year = datetime.now().year
     rows = []
@@ -1231,18 +1258,26 @@ async def preview_transaction_upload(
     valid_count = 0
     error_count = 0
     unmatched_count = 0
+    skipped_count = 0
     last_date_val = None
 
     for row_idx in range(header_row + 1, ws.max_row + 1):
         date_raw = ws.cell(row=row_idx, column=cols["date"]).value
+        category_raw = ws.cell(row=row_idx, column=cols["category"]).value
         cp_raw = ws.cell(row=row_idx, column=cols["counterparty"]).value
-        attr_raw = ws.cell(row=row_idx, column=cols.get("attribute", 0)).value if cols.get("attribute") else None
+        desc_raw = ws.cell(row=row_idx, column=cols["description"]).value if cols.get("description") else None
         dep_raw = ws.cell(row=row_idx, column=cols["deposit"]).value if cols.get("deposit") else None
         wth_raw = ws.cell(row=row_idx, column=cols["withdrawal"]).value if cols.get("withdrawal") else None
         bal_raw = ws.cell(row=row_idx, column=cols["balance"]).value if cols.get("balance") else None
 
         cell_data = {"counterparty": cp_raw}
         if _is_summary_row(cell_data):
+            continue
+
+        category = str(category_raw).strip() if category_raw else ""
+
+        # 구분 값이 비어 있으면 행 건너뜀
+        if not category:
             continue
 
         # 날짜 파싱 (빈 날짜 → 이전 행 날짜 유지)
@@ -1258,24 +1293,73 @@ async def preview_transaction_upload(
         parsed_date = last_date_val
 
         cp_name = str(cp_raw).strip() if cp_raw else ""
-        attribute = str(attr_raw).strip() if attr_raw else ""
+        description = str(desc_raw).strip() if desc_raw else ""
         deposit_amount = _parse_amount(dep_raw)
         withdrawal_amount = _parse_amount(wth_raw)
         balance = _parse_amount(bal_raw)
 
-        # 입금도 출금도 없으면 건너뜀
-        if not deposit_amount and not withdrawal_amount:
+        # ── 구분 기반 처리 ──
+        # 대체/비용/기타 등 판매·매입 외 구분은 건너뜀(skipped)
+        if category not in VALID_CATEGORIES:
+            skipped_count += 1
+            rows.append({
+                "row_number": row_idx - header_row,
+                "transaction_date": parsed_date.isoformat() if parsed_date else None,
+                "counterparty_name": cp_name,
+                "counterparty_id": None,
+                "category": category,
+                "description": description,
+                "transaction_type": None,
+                "amount": float(deposit_amount or withdrawal_amount or 0),
+                "balance": float(balance) if balance else None,
+                "status": "skipped",
+                "message": f"'{category}' 구분은 처리 대상이 아닙니다 (판매/매입만 처리)",
+            })
             continue
 
-        # transaction_type 결정
-        if deposit_amount:
+        # 판매: 차변(입금) 사용 → deposit
+        if category == "판매":
+            if not deposit_amount:
+                error_count += 1
+                rows.append({
+                    "row_number": row_idx - header_row,
+                    "transaction_date": parsed_date.isoformat() if parsed_date else None,
+                    "counterparty_name": cp_name,
+                    "counterparty_id": None,
+                    "category": category,
+                    "description": description,
+                    "transaction_type": "deposit",
+                    "amount": 0,
+                    "balance": float(balance) if balance else None,
+                    "status": "error",
+                    "message": "판매 구분이지만 차변(입금) 금액이 없습니다",
+                })
+                continue
             txn_type = "deposit"
             amount = deposit_amount
+
+        # 매입: 대변(출금) 사용 → withdrawal
         else:
+            if not withdrawal_amount:
+                error_count += 1
+                rows.append({
+                    "row_number": row_idx - header_row,
+                    "transaction_date": parsed_date.isoformat() if parsed_date else None,
+                    "counterparty_name": cp_name,
+                    "counterparty_id": None,
+                    "category": category,
+                    "description": description,
+                    "transaction_type": "withdrawal",
+                    "amount": 0,
+                    "balance": float(balance) if balance else None,
+                    "status": "error",
+                    "message": "매입 구분이지만 대변(출금) 금액이 없습니다",
+                })
+                continue
             txn_type = "withdrawal"
             amount = withdrawal_amount
 
-        # 검증
+        # ── 검증 ──
         row_status = "ok"
         message = None
         cp_id = None
@@ -1307,7 +1391,8 @@ async def preview_transaction_upload(
             "transaction_date": parsed_date.isoformat() if parsed_date else None,
             "counterparty_name": cp_name,
             "counterparty_id": str(cp_id) if cp_id else None,
-            "attribute": attribute,
+            "category": category,
+            "description": description,
             "transaction_type": txn_type,
             "amount": float(amount),
             "balance": float(balance) if balance else None,
@@ -1324,6 +1409,7 @@ async def preview_transaction_upload(
             "valid": valid_count,
             "error": error_count,
             "unmatched": unmatched_count,
+            "skipped": skipped_count,
             "total_deposit": float(total_deposit),
             "total_withdrawal": float(total_withdrawal),
         },
