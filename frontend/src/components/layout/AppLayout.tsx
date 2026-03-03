@@ -806,26 +806,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </Fragment>
           ))}
 
-          {/* 정산 도메인에서 관리자/사용자 이동 */}
-          {isSettlementDomain && !miniMode && isAdmin && (
-            <>
-              <Divider sx={{ my: 0.5 }} />
-              <List dense>
-                <ListItem disablePadding>
-                  <ListItemButton
-                    onClick={() => {
-                      const adminUrl = process.env.NEXT_PUBLIC_ADMIN_URL || 'https://admin.dwt.price';
-                      window.location.href = adminUrl;
-                    }}
-                    sx={{ mx: 1, borderRadius: 2 }}
-                  >
-                    <ListItemIcon sx={{ minWidth: 40 }}><AdminIcon color="error" /></ListItemIcon>
-                    <ListItemText primary="관리자 페이지" primaryTypographyProps={{ color: 'error.main', fontWeight: 600 }} />
-                  </ListItemButton>
-                </ListItem>
-              </List>
-            </>
-          )}
 
           {/* 도메인 전환 링크 (관리자만, 사용자 도메인에서만) */}
           {!isAdminDomain && !isSettlementDomain && isAdmin && !miniMode && (
