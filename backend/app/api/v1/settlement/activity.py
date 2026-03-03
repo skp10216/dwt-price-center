@@ -63,6 +63,31 @@ SETTLEMENT_ACTIONS = [
     AuditAction.VOUCHER_CHANGE_DETECTED,
     AuditAction.VOUCHER_CHANGE_APPROVED,
     AuditAction.VOUCHER_CHANGE_REJECTED,
+    # 입출금 이벤트
+    AuditAction.TRANSACTION_CREATE,
+    AuditAction.TRANSACTION_UPDATE,
+    AuditAction.TRANSACTION_CANCEL,
+    AuditAction.TRANSACTION_HOLD,
+    AuditAction.TRANSACTION_UNHOLD,
+    AuditAction.TRANSACTION_HIDE,
+    AuditAction.TRANSACTION_UNHIDE,
+    # 배분
+    AuditAction.ALLOCATION_CREATE,
+    AuditAction.ALLOCATION_DELETE,
+    AuditAction.ALLOCATION_AUTO,
+    # 상계
+    AuditAction.NETTING_CREATE,
+    AuditAction.NETTING_CONFIRM,
+    AuditAction.NETTING_CANCEL,
+    # 조정전표
+    AuditAction.ADJUSTMENT_VOUCHER_CREATE,
+    # 은행 임포트
+    AuditAction.BANK_IMPORT_UPLOAD,
+    AuditAction.BANK_IMPORT_CONFIRM,
+    # 기간 마감
+    AuditAction.PERIOD_LOCK,
+    AuditAction.PERIOD_UNLOCK,
+    AuditAction.PERIOD_ADJUST,
 ]
 
 # 카테고리별 액션 그룹
@@ -97,6 +122,27 @@ CATEGORY_ACTIONS = {
         AuditAction.VOUCHER_CHANGE_DETECTED,
         AuditAction.VOUCHER_CHANGE_APPROVED,
         AuditAction.VOUCHER_CHANGE_REJECTED,
+    ],
+    "transaction": [
+        AuditAction.TRANSACTION_CREATE, AuditAction.TRANSACTION_UPDATE,
+        AuditAction.TRANSACTION_CANCEL, AuditAction.TRANSACTION_HOLD,
+        AuditAction.TRANSACTION_UNHOLD, AuditAction.TRANSACTION_HIDE,
+        AuditAction.TRANSACTION_UNHIDE,
+    ],
+    "allocation": [
+        AuditAction.ALLOCATION_CREATE, AuditAction.ALLOCATION_DELETE,
+        AuditAction.ALLOCATION_AUTO,
+    ],
+    "netting": [
+        AuditAction.NETTING_CREATE, AuditAction.NETTING_CONFIRM,
+        AuditAction.NETTING_CANCEL,
+    ],
+    "bank_import": [
+        AuditAction.BANK_IMPORT_UPLOAD, AuditAction.BANK_IMPORT_CONFIRM,
+    ],
+    "period_lock": [
+        AuditAction.PERIOD_LOCK, AuditAction.PERIOD_UNLOCK,
+        AuditAction.PERIOD_ADJUST,
     ],
 }
 
