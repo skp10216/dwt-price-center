@@ -537,8 +537,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const buttonSx = {
       mx: 1,
       borderRadius: 2,
+      py: 0.5,
       ...(miniMode
-        ? { justifyContent: 'center', px: 1, minHeight: 48 }
+        ? { justifyContent: 'center', px: 1, minHeight: 40 }
         : { pl: 2 + level * 2 }
       ),
       ...selectedSx,
@@ -552,13 +553,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
     const buttonContent = (
       <>
-        <ListItemIcon sx={{ minWidth: miniMode ? 0 : 36 }}>{menu.icon}</ListItemIcon>
+        <ListItemIcon sx={{ minWidth: miniMode ? 0 : 32, '& .MuiSvgIcon-root': { fontSize: '1.2rem' } }}>{menu.icon}</ListItemIcon>
         {!miniMode && (
           <>
             <ListItemText
               primary={menu.label}
               primaryTypographyProps={{
-                variant: level > 0 ? 'body2' : 'body1',
+                variant: 'body2',
                 fontWeight: isActive ? 600 : 400,
               }}
             />
@@ -783,23 +784,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       >
         <Toolbar />
 
-        {/* 스크롤 가능한 메뉴 영역 */}
-        <Box sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', py: 2 }}>
+        {/* 메뉴 영역 (compact: 스크롤 방지) */}
+        <Box sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', py: 1 }}>
           {/* 도메인별 메뉴 렌더링 (그룹 구조) */}
           {currentMenuGroups.map((group, groupIdx) => (
             <Fragment key={group.label ?? `group-${groupIdx}`}>
-              {groupIdx > 0 && <Divider sx={{ my: 1, mx: 1.5 }} />}
+              {groupIdx > 0 && <Divider sx={{ my: 0.5, mx: 1.5 }} />}
               {group.label && !miniMode && (
                 <Typography
                   variant="caption"
                   color="text.disabled"
                   fontWeight={700}
-                  sx={{ px: 3, pt: groupIdx > 0 ? 0.5 : 0, pb: 0.5, display: 'block', letterSpacing: '0.05em', fontSize: '0.65rem' }}
+                  sx={{ px: 3, pt: 0, pb: 0.25, display: 'block', letterSpacing: '0.05em', fontSize: '0.65rem' }}
                 >
                   {group.label}
                 </Typography>
               )}
-              <List disablePadding>
+              <List disablePadding dense>
                 {group.items.map((menu) => renderMenuItem(menu, 0, group.items))}
               </List>
             </Fragment>
@@ -808,8 +809,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {/* 정산 도메인에서 관리자/사용자 이동 */}
           {isSettlementDomain && !miniMode && isAdmin && (
             <>
-              <Divider sx={{ my: 2 }} />
-              <List>
+              <Divider sx={{ my: 0.5 }} />
+              <List dense>
                 <ListItem disablePadding>
                   <ListItemButton
                     onClick={() => {
@@ -829,13 +830,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {/* 도메인 전환 링크 (관리자만, 사용자 도메인에서만) */}
           {!isAdminDomain && !isSettlementDomain && isAdmin && !miniMode && (
             <>
-              <Divider sx={{ my: 2 }} />
+              <Divider sx={{ my: 0.5 }} />
               <Box sx={{ px: 2 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ pl: 1 }}>
                   관리자 기능
                 </Typography>
               </Box>
-              <List>
+              <List dense>
                 <ListItem disablePadding>
                   <ListItemButton
                     onClick={() => {
@@ -865,8 +866,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {/* 도메인 전환 링크 (관리자 도메인에서) */}
           {isAdminDomain && !miniMode && (
             <>
-              <Divider sx={{ my: 2 }} />
-              <List>
+              <Divider sx={{ my: 0.5 }} />
+              <List dense>
                 <ListItem disablePadding>
                   <ListItemButton
                     onClick={() => {
