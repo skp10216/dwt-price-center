@@ -48,6 +48,10 @@ uploads/
 # Docker
 .docker/
 
+# Keys / Credentials
+*.pem
+*.key
+
 # Misc
 *.bak
 *.backup
