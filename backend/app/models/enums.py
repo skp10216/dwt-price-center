@@ -277,6 +277,11 @@ class AuditAction(str, enum.Enum):
     # 조정전표
     ADJUSTMENT_VOUCHER_CREATE = "adjustment_voucher_create"
 
+    # 법인 관리
+    CORPORATE_ENTITY_CREATE = "corporate_entity_create"
+    CORPORATE_ENTITY_UPDATE = "corporate_entity_update"
+    CORPORATE_ENTITY_DELETE = "corporate_entity_delete"
+
     # 은행 임포트
     BANK_IMPORT_UPLOAD = "bank_import_upload"
     BANK_IMPORT_CONFIRM = "bank_import_confirm"

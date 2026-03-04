@@ -7,6 +7,7 @@ from fastapi import APIRouter
 
 from app.api.v1.settlement import (
     counterparties,
+    corporate_entities,
     vouchers,
     receipts,
     payments,
@@ -23,6 +24,11 @@ from app.api.v1.settlement import (
 )
 
 settlement_router = APIRouter()
+
+# 법인
+settlement_router.include_router(
+    corporate_entities.router, prefix="/corporate-entities", tags=["정산-법인"]
+)
 
 # 거래처
 settlement_router.include_router(

@@ -36,6 +36,14 @@ class CounterpartyTransaction(Base):
         comment="거래처 ID",
     )
 
+    # ==================== 법인 연결 ====================
+    corporate_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("corporate_entities.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="법인 ID (어느 법인 계좌에서 입출금이 발생했는지)",
+    )
+
     # ==================== 거래 정보 ====================
     transaction_type: Mapped[TransactionType] = mapped_column(
         SQLEnum(TransactionType, name="transaction_type"),
@@ -104,6 +112,7 @@ class CounterpartyTransaction(Base):
 
     # ==================== 관계 ====================
     counterparty = relationship("Counterparty", back_populates="transactions")
+    corporate_entity = relationship("CorporateEntity")
     allocations = relationship(
         "TransactionAllocation",
         back_populates="transaction",

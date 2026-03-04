@@ -5,9 +5,11 @@
 from typing import Optional, List
 from uuid import UUID
 
+from decimal import Decimal
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -132,10 +134,107 @@ async def list_counterparties(
         )
         branch_name_map = {row[0]: row[1] for row in br_result.all()}
 
+    # N+1 방지: 거래처별 미수/미지급 배치 계산
+    financial_map: dict = {}  # counterparty_id → {total_sales, total_purchases, outstanding_receivable, outstanding_payable}
+    if counterparty_ids:
+        # 1) 거래처별 판매/매입 전표 합계 (단일 쿼리)
+        voucher_result = await db.execute(
+            select(
+                Voucher.counterparty_id,
+                func.coalesce(func.sum(case(
+                    (Voucher.voucher_type == VoucherType.SALES, Voucher.total_amount),
+                    else_=0,
+                )), 0).label("total_sales"),
+                func.coalesce(func.sum(case(
+                    (Voucher.voucher_type == VoucherType.PURCHASE, Voucher.total_amount),
+                    else_=0,
+                )), 0).label("total_purchases"),
+            )
+            .where(Voucher.counterparty_id.in_(counterparty_ids))
+            .group_by(Voucher.counterparty_id)
+        )
+        voucher_map = {row[0]: (row[1], row[2]) for row in voucher_result.all()}
+
+        # 2) 레거시 입금 (Receipt → SALES 전표)
+        receipt_result = await db.execute(
+            select(
+                Voucher.counterparty_id,
+                func.coalesce(func.sum(Receipt.amount), 0),
+            )
+            .join(Voucher, Receipt.voucher_id == Voucher.id)
+            .where(Voucher.counterparty_id.in_(counterparty_ids))
+            .group_by(Voucher.counterparty_id)
+        )
+        receipt_map = {row[0]: row[1] for row in receipt_result.all()}
+
+        # 3) 레거시 송금 (Payment → PURCHASE 전표)
+        payment_result = await db.execute(
+            select(
+                Voucher.counterparty_id,
+                func.coalesce(func.sum(Payment.amount), 0),
+            )
+            .join(Voucher, Payment.voucher_id == Voucher.id)
+            .where(Voucher.counterparty_id.in_(counterparty_ids))
+            .group_by(Voucher.counterparty_id)
+        )
+        payment_map = {row[0]: row[1] for row in payment_result.all()}
+
+        # 4) 신규 배분 입금 (TransactionAllocation ← DEPOSIT)
+        alloc_deposit_result = await db.execute(
+            select(
+                Voucher.counterparty_id,
+                func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0),
+            )
+            .join(Voucher, TransactionAllocation.voucher_id == Voucher.id)
+            .join(CounterpartyTransaction, TransactionAllocation.transaction_id == CounterpartyTransaction.id)
+            .where(
+                Voucher.counterparty_id.in_(counterparty_ids),
+                CounterpartyTransaction.transaction_type == TransactionType.DEPOSIT,
+            )
+            .group_by(Voucher.counterparty_id)
+        )
+        alloc_deposit_map = {row[0]: row[1] for row in alloc_deposit_result.all()}
+
+        # 5) 신규 배분 출금 (TransactionAllocation ← WITHDRAWAL)
+        alloc_withdrawal_result = await db.execute(
+            select(
+                Voucher.counterparty_id,
+                func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0),
+            )
+            .join(Voucher, TransactionAllocation.voucher_id == Voucher.id)
+            .join(CounterpartyTransaction, TransactionAllocation.transaction_id == CounterpartyTransaction.id)
+            .where(
+                Voucher.counterparty_id.in_(counterparty_ids),
+                CounterpartyTransaction.transaction_type == TransactionType.WITHDRAWAL,
+            )
+            .group_by(Voucher.counterparty_id)
+        )
+        alloc_withdrawal_map = {row[0]: row[1] for row in alloc_withdrawal_result.all()}
+
+        # 합산하여 financial_map 구성
+        for cid in counterparty_ids:
+            total_sales, total_purchases = voucher_map.get(cid, (Decimal("0"), Decimal("0")))
+            legacy_received = receipt_map.get(cid, Decimal("0"))
+            alloc_received = alloc_deposit_map.get(cid, Decimal("0"))
+            legacy_paid = payment_map.get(cid, Decimal("0"))
+            alloc_paid = alloc_withdrawal_map.get(cid, Decimal("0"))
+
+            financial_map[cid] = {
+                "total_sales": total_sales,
+                "total_purchases": total_purchases,
+                "outstanding_receivable": total_sales - legacy_received - alloc_received,
+                "outstanding_payable": total_purchases - legacy_paid - alloc_paid,
+            }
+
     def to_response(c: Counterparty) -> CounterpartyResponse:
         resp = CounterpartyResponse.model_validate(c)
         resp.is_favorite = c.id in favorite_ids
         resp.branch_name = branch_name_map.get(c.branch_id) if c.branch_id else None
+        fin = financial_map.get(c.id, {})
+        resp.total_sales = fin.get("total_sales", Decimal("0"))
+        resp.total_purchases = fin.get("total_purchases", Decimal("0"))
+        resp.outstanding_receivable = fin.get("outstanding_receivable", Decimal("0"))
+        resp.outstanding_payable = fin.get("outstanding_payable", Decimal("0"))
         return resp
 
     return {

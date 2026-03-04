@@ -78,6 +78,7 @@ import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import BalanceIcon from '@mui/icons-material/Balance';
 import BankImportIcon from '@mui/icons-material/AccountBalanceWallet';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import CorporateFareIcon from '@mui/icons-material/CorporateFare';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import DonutSmallIcon from '@mui/icons-material/DonutSmall';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -233,6 +234,7 @@ const settlementMenuGroups: MenuGroup[] = [
       { id: 'stl-counterparties', label: '거래처 관리', icon: <BusinessIcon />, path: '/settlement/counterparties' },
       { id: 'stl-status', label: '거래처 현황', icon: <AccountBalanceIcon />, path: '/settlement/status' },
       { id: 'stl-branches', label: '지사 관리', icon: <AccountTreeIcon />, path: '/settlement/branches' },
+      { id: 'stl-corporate-entities', label: '법인 관리', icon: <CorporateFareIcon />, path: '/settlement/corporate-entities' },
     ],
   },
   {

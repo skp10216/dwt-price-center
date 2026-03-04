@@ -4,15 +4,14 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Box, Table, TableBody, TableCell, TableHead, TableRow,
   Chip, Tooltip, Typography, IconButton, Button,
-  Alert, Stack, Divider, FormControl, InputLabel, Select, MenuItem,
-  TextField, Paper,
+  Alert, Stack, Divider, FormControl, Select, MenuItem,
+  Paper,
 } from '@mui/material';
 import {
   ArrowBack as BackIcon,
   AutoFixHigh as AutoMatchIcon,
   CheckCircle as ConfirmIcon,
   Edit as EditIcon,
-  Warning as DuplicateIcon,
   Block as ExcludeIcon,
 } from '@mui/icons-material';
 import { useParams } from 'next/navigation';
@@ -41,11 +40,19 @@ interface ImportLine {
   bank_reference: string | null;
   match_confidence: number | null;
   transaction_id: string | null;
+  // 거래내역조회 추가 필드
+  sender_receiver: string | null;
+  additional_memo: string | null;
+  transaction_type_raw: string | null;
+  bank_branch: string | null;
+  special_notes: string | null;
 }
 
 interface ImportJobDetail {
   id: string;
   original_filename: string;
+  corporate_entity_id: string | null;
+  corporate_entity_name: string | null;
   bank_name: string;
   account_number: string;
   import_date_from: string | null;
@@ -221,7 +228,10 @@ export default function BankImportDetailPage() {
         title={job?.original_filename || '은행 임포트 상세'}
         description={
           job
-            ? `${job.bank_name || '은행'} | ${job.account_number || '-'} | ${job.import_date_from || ''} ~ ${job.import_date_to || ''}`
+            ? [
+                job.corporate_entity_name || '법인 미지정',
+                job.import_date_from ? `${job.import_date_from} ~ ${job.import_date_to}` : '',
+              ].filter(Boolean).join(' | ')
             : ''
         }
         color="info"
@@ -260,6 +270,12 @@ export default function BankImportDetailPage() {
                 )}
               </Box>
             </Box>
+            {job.corporate_entity_name && (
+              <Box>
+                <Typography variant="caption" color="text.secondary">법인</Typography>
+                <Typography fontWeight={600}>{job.corporate_entity_name}</Typography>
+              </Box>
+            )}
             <Box>
               <Typography variant="caption" color="text.secondary">전체</Typography>
               <Typography fontWeight={700}>{job.total_lines}건</Typography>
@@ -317,11 +333,12 @@ export default function BankImportDetailPage() {
               <TableCell sx={{ fontWeight: 700, width: 50 }}>#</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>거래일</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>적요</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>의뢰인/수취인</TableCell>
               <TableCell align="right" sx={{ fontWeight: 700 }}>금액</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>원장 거래처명</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>구분</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>거래점</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>매칭 거래처</TableCell>
               <TableCell align="center" sx={{ fontWeight: 700 }}>상태</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>참조번호</TableCell>
               <TableCell align="center" sx={{ fontWeight: 700 }}>액션</TableCell>
             </TableRow>
           </TableHead>
@@ -345,8 +362,15 @@ export default function BankImportDetailPage() {
                   <TableCell>{line.line_number}</TableCell>
                   <TableCell>{line.transaction_date}</TableCell>
                   <TableCell>
-                    <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                      {line.description}
+                    <Tooltip title={line.additional_memo || line.special_notes ? `${line.additional_memo || ''} ${line.special_notes || ''}`.trim() : ''} arrow>
+                      <Typography variant="body2" noWrap sx={{ maxWidth: 160, cursor: (line.additional_memo || line.special_notes) ? 'help' : 'default' }}>
+                        {line.description}
+                      </Typography>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 120 }}>
+                      {line.sender_receiver || line.counterparty_name_raw || '-'}
                     </Typography>
                   </TableCell>
                   <TableCell align="right">
@@ -361,8 +385,13 @@ export default function BankImportDetailPage() {
                     </Typography>
                   </TableCell>
                   <TableCell>
+                    <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 80 }}>
+                      {line.transaction_type_raw || '-'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
                     <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 120 }}>
-                      {line.counterparty_name_raw || '-'}
+                      {line.bank_branch || '-'}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -392,10 +421,10 @@ export default function BankImportDetailPage() {
                         <Typography variant="body2" fontWeight={line.counterparty_name ? 500 : 400}>
                           {line.counterparty_name || '-'}
                         </Typography>
-                        {line.match_confidence != null && line.match_confidence < 1 && (
-                          <Tooltip title={`매칭 신뢰도: ${Math.round(line.match_confidence * 100)}%`}>
+                        {line.match_confidence != null && line.match_confidence < 100 && (
+                          <Tooltip title={`매칭 신뢰도: ${Math.round(line.match_confidence)}%`}>
                             <Typography variant="caption" color="warning.main">
-                              ({Math.round(line.match_confidence * 100)}%)
+                              ({Math.round(line.match_confidence)}%)
                             </Typography>
                           </Tooltip>
                         )}
@@ -404,11 +433,6 @@ export default function BankImportDetailPage() {
                   </TableCell>
                   <TableCell align="center">
                     <Chip label={lineStatus.label} color={lineStatus.color} size="small" />
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 100 }}>
-                      {line.bank_reference || '-'}
-                    </Typography>
                   </TableCell>
                   <TableCell align="center">
                     {!isConfirmed && !isExcluded && (

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box, TextField, Table, TableBody, TableCell, TableHead, TableRow,
   Chip, Tooltip, Typography, IconButton, InputAdornment,
-  Button, Alert, LinearProgress, Paper,
+  Button, Alert, LinearProgress, Paper, FormControl, InputLabel, Select, MenuItem,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -12,7 +12,6 @@ import {
   AccountBalanceWallet as BankImportIcon,
   Visibility as ViewIcon,
   Delete as DeleteIcon,
-  CheckCircle as ConfirmIcon,
   InsertDriveFile as FileIcon,
 } from '@mui/icons-material';
 import { useAppRouter } from '@/lib/navigation';
@@ -30,6 +29,8 @@ import {
 interface ImportJobRow {
   id: string;
   original_filename: string;
+  corporate_entity_id: string | null;
+  corporate_entity_name: string | null;
   bank_name: string;
   account_number: string;
   import_date_from: string | null;
@@ -42,6 +43,11 @@ interface ImportJobRow {
   created_by_name: string;
   created_at: string;
   confirmed_at: string | null;
+}
+
+interface CorporateEntityOption {
+  id: string;
+  name: string;
 }
 
 // ─── 상수 ──────────────────────────────────────────────────────────
@@ -70,12 +76,29 @@ export default function BankImportPage() {
   const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(true);
 
+  // 법인
+  const [corporateEntities, setCorporateEntities] = useState<CorporateEntityOption[]>([]);
+  const [selectedEntityId, setSelectedEntityId] = useState('');
+
   // 필터
   const [search, setSearch] = useState('');
+  const [filterEntityId, setFilterEntityId] = useState('');
 
   // 업로드
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+
+  // ─── 법인 로드 ──────────────────────────────────────────────────
+
+  const loadCorporateEntities = useCallback(async () => {
+    try {
+      const res = await settlementApi.listCorporateEntities({ page_size: 100, is_active: true });
+      const data = res.data as unknown as { corporate_entities: CorporateEntityOption[] };
+      setCorporateEntities(data.corporate_entities || []);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { loadCorporateEntities(); }, [loadCorporateEntities]);
 
   // ─── 데이터 로드 ──────────────────────────────────────────────
 
@@ -87,6 +110,7 @@ export default function BankImportPage() {
         page_size: pageSize,
       };
       if (search) params.search = search;
+      if (filterEntityId) params.corporate_entity_id = filterEntityId;
 
       const res = await settlementApi.listBankImportJobs(params);
       const data = res.data as unknown as { jobs: ImportJobRow[]; total: number };
@@ -97,7 +121,7 @@ export default function BankImportPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, enqueueSnackbar]);
+  }, [page, pageSize, search, filterEntityId, enqueueSnackbar]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -105,18 +129,30 @@ export default function BankImportPage() {
 
   const handleUpload = async (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!ext || !['xlsx', 'xls', 'csv'].includes(ext)) {
-      enqueueSnackbar('Excel(.xlsx, .xls) 또는 CSV(.csv) 파일만 업로드 가능합니다.', { variant: 'warning' });
+    if (!ext || !['xlsx', 'xls'].includes(ext)) {
+      enqueueSnackbar('Excel(.xlsx, .xls) 파일만 업로드 가능합니다.', { variant: 'warning' });
+      return;
+    }
+
+    if (!selectedEntityId) {
+      enqueueSnackbar('법인을 먼저 선택해 주세요.', { variant: 'warning' });
       return;
     }
 
     setUploading(true);
     try {
-      await settlementApi.uploadBankFile(file);
+      await settlementApi.uploadBankFile(file, selectedEntityId);
       enqueueSnackbar(`${file.name} 업로드 완료`, { variant: 'success' });
       loadData();
-    } catch {
-      enqueueSnackbar('파일 업로드에 실패했습니다.', { variant: 'error' });
+    } catch (err: unknown) {
+      // 양식 오류 시 구체적인 메시지 표시
+      const axiosErr = err as { response?: { data?: { detail?: string } } };
+      const detail = axiosErr?.response?.data?.detail;
+      if (detail) {
+        enqueueSnackbar(detail, { variant: 'error', autoHideDuration: 8000 });
+      } else {
+        enqueueSnackbar('파일 업로드에 실패했습니다.', { variant: 'error' });
+      }
     } finally {
       setUploading(false);
     }
@@ -181,46 +217,65 @@ export default function BankImportPage() {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".xlsx,.xls,.csv"
+        accept=".xlsx,.xls"
         onChange={handleFileChange}
         style={{ display: 'none' }}
       />
 
-      {/* 드래그 앤 드롭 영역 */}
-      <Paper
-        variant="outlined"
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        sx={{
-          p: 3,
-          textAlign: 'center',
-          borderStyle: 'dashed',
-          borderWidth: 2,
-          borderColor: dragOver ? 'primary.main' : 'divider',
-          bgcolor: dragOver ? 'action.hover' : 'transparent',
-          cursor: 'pointer',
-          transition: 'all 0.2s',
-        }}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        {uploading ? (
-          <Box>
-            <LinearProgress sx={{ mb: 1 }} />
-            <Typography variant="body2" color="text.secondary">업로드 중...</Typography>
-          </Box>
-        ) : (
-          <Box>
-            <FileIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
-            <Typography variant="body2" color="text.secondary">
-              은행 거래내역 파일을 여기에 드래그하거나 클릭하여 업로드
-            </Typography>
-            <Typography variant="caption" color="text.disabled">
-              Excel (.xlsx, .xls) 또는 CSV (.csv) 형식 지원
-            </Typography>
-          </Box>
-        )}
-      </Paper>
+      {/* 업로드 영역: 법인 선택 + 드래그 앤 드롭 */}
+      <Box sx={{ display: 'flex', gap: 2, mb: 0 }}>
+        {/* 법인 선택 */}
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel>법인 선택</InputLabel>
+          <Select
+            value={selectedEntityId}
+            label="법인 선택"
+            onChange={(e) => setSelectedEntityId(e.target.value)}
+          >
+            <MenuItem value=""><em>선택 안함</em></MenuItem>
+            {corporateEntities.map((ce) => (
+              <MenuItem key={ce.id} value={ce.id}>{ce.name}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        {/* 드래그 앤 드롭 영역 */}
+        <Paper
+          variant="outlined"
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          sx={{
+            flex: 1,
+            p: 2,
+            textAlign: 'center',
+            borderStyle: 'dashed',
+            borderWidth: 2,
+            borderColor: dragOver ? 'primary.main' : !selectedEntityId ? 'action.disabled' : 'divider',
+            bgcolor: dragOver ? 'action.hover' : 'transparent',
+            cursor: selectedEntityId ? 'pointer' : 'default',
+            opacity: selectedEntityId ? 1 : 0.6,
+            transition: 'all 0.2s',
+          }}
+          onClick={() => selectedEntityId && fileInputRef.current?.click()}
+        >
+          {uploading ? (
+            <Box>
+              <LinearProgress sx={{ mb: 1 }} />
+              <Typography variant="body2" color="text.secondary">업로드 중...</Typography>
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+              <FileIcon sx={{ fontSize: 24, color: 'text.disabled' }} />
+              <Typography variant="body2" color="text.secondary">
+                {selectedEntityId
+                  ? '거래내역조회 Excel 파일을 드래그하거나 클릭하여 업로드 (.xlsx, .xls)'
+                  : '왼쪽에서 법인을 먼저 선택해 주세요'}
+              </Typography>
+            </Box>
+          )}
+        </Paper>
+      </Box>
 
       {/* 필터 */}
       <AppPageToolbar
@@ -238,6 +293,18 @@ export default function BankImportPage() {
                 ),
               }}
             />
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <Select
+                value={filterEntityId}
+                displayEmpty
+                onChange={(e) => { setFilterEntityId(e.target.value); setPage(0); }}
+              >
+                <MenuItem value="">전체 법인</MenuItem>
+                {corporateEntities.map((ce) => (
+                  <MenuItem key={ce.id} value={ce.id}>{ce.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </Box>
         }
       />
@@ -257,8 +324,7 @@ export default function BankImportPage() {
           <TableHead>
             <TableRow>
               <TableCell sx={{ fontWeight: 700 }}>파일명</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>은행</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>계좌번호</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>법인</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>기간</TableCell>
               <TableCell align="center" sx={{ fontWeight: 700 }}>상태</TableCell>
               <TableCell align="center" sx={{ fontWeight: 700 }}>전체</TableCell>
@@ -287,8 +353,11 @@ export default function BankImportPage() {
                       {job.original_filename}
                     </Typography>
                   </TableCell>
-                  <TableCell>{job.bank_name || '-'}</TableCell>
-                  <TableCell>{job.account_number || '-'}</TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color="text.secondary">
+                      {job.corporate_entity_name || '-'}
+                    </Typography>
+                  </TableCell>
                   <TableCell>
                     {job.import_date_from && job.import_date_to
                       ? `${job.import_date_from} ~ ${job.import_date_to}`

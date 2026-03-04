@@ -18,6 +18,7 @@ from app.models.compare_list import CompareListModel
 from app.models.hq_price_apply import HQPriceApply, HQPriceApplyLock
 
 # 정산 도메인 모델
+from app.models.corporate_entity import CorporateEntity
 from app.models.counterparty import Counterparty, CounterpartyAlias, UserCounterpartyFavorite
 from app.models.voucher import Voucher
 from app.models.receipt import Receipt
@@ -53,6 +54,7 @@ __all__ = [
     "HQPriceApply",
     "HQPriceApplyLock",
     # 정산 도메인
+    "CorporateEntity",
     "Counterparty",
     "CounterpartyAlias",
     "UserCounterpartyFavorite",

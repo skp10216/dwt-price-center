@@ -10,7 +10,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     String, Integer, Date, DateTime, Text, Numeric, Boolean,
-    ForeignKey, Enum as SQLEnum, Index,
+    ForeignKey, Enum as SQLEnum, Index, Time,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -38,6 +38,14 @@ class BankImportJob(Base):
     )
     file_hash: Mapped[str | None] = mapped_column(
         String(64), nullable=True, comment="파일 해시 (중복 방지)"
+    )
+
+    # ==================== 법인 연결 ====================
+    corporate_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("corporate_entities.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="법인 ID",
     )
 
     # ==================== 은행 정보 ====================
@@ -92,6 +100,7 @@ class BankImportJob(Base):
     )
 
     # ==================== 관계 ====================
+    corporate_entity = relationship("CorporateEntity", back_populates="bank_import_jobs")
     lines = relationship(
         "BankImportLine",
         back_populates="import_job",
@@ -101,6 +110,7 @@ class BankImportJob(Base):
     __table_args__ = (
         Index("ix_bij_status", "status"),
         Index("ix_bij_created_at", "created_at"),
+        Index("ix_bij_corporate_entity", "corporate_entity_id"),
     )
 
     def __repr__(self) -> str:
@@ -146,6 +156,23 @@ class BankImportLine(Base):
     )
     counterparty_name_raw: Mapped[str | None] = mapped_column(
         String(200), nullable=True, comment="원본 거래처명"
+    )
+
+    # ==================== 거래내역조회 추가 필드 ====================
+    sender_receiver: Mapped[str | None] = mapped_column(
+        String(200), nullable=True, comment="의뢰인/수취인"
+    )
+    additional_memo: Mapped[str | None] = mapped_column(
+        String(500), nullable=True, comment="추가메모"
+    )
+    transaction_type_raw: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, comment="구분 (타행이체, 당행송금 등)"
+    )
+    bank_branch: Mapped[str | None] = mapped_column(
+        String(200), nullable=True, comment="거래점"
+    )
+    special_notes: Mapped[str | None] = mapped_column(
+        String(500), nullable=True, comment="거래특이사항"
     )
 
     # ==================== 매칭 정보 ====================

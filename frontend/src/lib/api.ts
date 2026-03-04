@@ -899,10 +899,24 @@ export const settlementApi = {
   cancelNetting: (id: string) =>
     api.post<ApiResponse<unknown>>(`/settlement/netting/${id}/cancel`),
 
+  // ── 법인 (Corporate Entities) ─────────────────────────────────────
+  listCorporateEntities: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<unknown>>('/settlement/corporate-entities', { params }),
+
+  createCorporateEntity: (data: unknown) =>
+    api.post<ApiResponse<unknown>>('/settlement/corporate-entities', data),
+
+  updateCorporateEntity: (id: string, data: unknown) =>
+    api.patch<ApiResponse<unknown>>(`/settlement/corporate-entities/${id}`, data),
+
+  deleteCorporateEntity: (id: string) =>
+    api.delete<ApiResponse<unknown>>(`/settlement/corporate-entities/${id}`),
+
   // ── 은행 파일 임포트 (Bank Import) ────────────────────────────────
-  uploadBankFile: (file: File) => {
+  uploadBankFile: (file: File, corporateEntityId?: string) => {
     const formData = new FormData();
     formData.append('file', file);
+    if (corporateEntityId) formData.append('corporate_entity_id', corporateEntityId);
     return api.post<ApiResponse<unknown>>('/settlement/bank-import/upload', formData);
   },
 

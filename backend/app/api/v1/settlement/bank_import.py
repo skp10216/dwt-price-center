@@ -1,6 +1,6 @@
 """
 정산 도메인 - 은행 파일 임포트
-원본 보관 → 거래처 자동 매칭 → 검수 → 확정(Transaction 생성) 파이프라인
+거래내역조회 양식 전용 파서 + 법인 관리 + 거래처 자동 매칭 → 확정(Transaction 생성) 파이프라인
 """
 
 import hashlib
@@ -11,7 +11,10 @@ from decimal import Decimal
 from typing import Optional
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+import pandas as pd
+import io
+
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +22,7 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.api.deps import get_current_user
 from app.models.user import User
+from app.models.corporate_entity import CorporateEntity
 from app.models.counterparty import Counterparty, CounterpartyAlias
 from app.models.counterparty_transaction import CounterpartyTransaction
 from app.models.bank_import import BankImportJob, BankImportLine
@@ -34,6 +38,10 @@ from app.schemas.settlement import (
 
 router = APIRouter()
 
+# ── 거래내역조회 양식 정의 ──────────────────────────────────────────
+REQUIRED_COLUMNS = {"거래일시", "적요", "입금", "출금", "거래후잔액"}
+OPTIONAL_COLUMNS = {"No", "추가메모", "의뢰인/수취인", "구분", "거래점", "거래특이사항"}
+
 
 def _generate_duplicate_key(txn_date: date, amount: Decimal, description: str, bank_ref: str = None) -> str:
     """중복 감지 키: hash(date + amount + description + bank_ref)"""
@@ -41,11 +49,13 @@ def _generate_duplicate_key(txn_date: date, amount: Decimal, description: str, b
     return hashlib.sha256(raw.encode()).hexdigest()[:64]
 
 
-def _job_to_response(job: BankImportJob, created_by_name: str = None) -> BankImportJobResponse:
+def _job_to_response(job: BankImportJob, created_by_name: str = None, ce_name: str = None) -> BankImportJobResponse:
     return BankImportJobResponse(
         id=job.id,
         original_filename=job.original_filename,
         file_hash=job.file_hash,
+        corporate_entity_id=job.corporate_entity_id,
+        corporate_entity_name=ce_name,
         bank_name=job.bank_name,
         account_number=job.account_number,
         import_date_from=job.import_date_from,
@@ -79,28 +89,73 @@ def _line_to_response(line: BankImportLine, cp_name: str = None) -> BankImportLi
         duplicate_key=line.duplicate_key,
         bank_reference=line.bank_reference,
         transaction_id=line.transaction_id,
+        # 거래내역조회 추가 필드
+        sender_receiver=line.sender_receiver,
+        additional_memo=line.additional_memo,
+        transaction_type_raw=line.transaction_type_raw,
+        bank_branch=line.bank_branch,
+        special_notes=line.special_notes,
     )
 
+
+# ── 헬퍼: Excel 헤더 자동 탐색 ──────────────────────────────────────
+
+def _find_header_row(df_raw: pd.DataFrame) -> Optional[int]:
+    """거래일시 컬럼이 있는 행을 찾아 헤더 행 번호 반환"""
+    for i in range(min(15, len(df_raw))):
+        row_values = [str(v).strip() for v in df_raw.iloc[i].values if pd.notna(v)]
+        if "거래일시" in row_values:
+            return i
+    return None
+
+
+def _validate_columns(columns: list[str]) -> None:
+    """필수 컬럼 존재 여부 검증"""
+    col_set = {str(c).strip() for c in columns}
+    missing = REQUIRED_COLUMNS - col_set
+    if missing:
+        raise ValueError(
+            f"지원하지 않는 엑셀 형식입니다. '거래내역조회' 양식의 파일만 업로드 가능합니다.\n"
+            f"누락된 필수 컬럼: {', '.join(sorted(missing))}"
+        )
+
+
+# ── 업로드 ──────────────────────────────────────────────────────────
 
 @router.post("/upload", response_model=BankImportJobResponse, status_code=201)
 async def upload_bank_file(
     file: UploadFile = File(...),
-    bank_name: Optional[str] = None,
-    account_number: Optional[str] = None,
+    corporate_entity_id: Optional[UUID] = Form(None),
+    bank_name: Optional[str] = Form(None),
+    account_number: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """은행 파일 업로드 (Excel/CSV)"""
+    """은행 파일 업로드 (거래내역조회 Excel 전용)"""
+    # 파일 확장자 검증 (CSV 제거 — Excel만 허용)
+    file_ext = Path(file.filename).suffix.lower()
+    if file_ext not in (".xlsx", ".xls"):
+        raise HTTPException(
+            status_code=400,
+            detail="지원하지 않는 파일 형식입니다. Excel(.xlsx, .xls) 파일만 업로드 가능합니다.",
+        )
+
+    # 법인 검증
+    ce_name = None
+    if corporate_entity_id:
+        ce = await db.get(CorporateEntity, corporate_entity_id)
+        if not ce:
+            raise HTTPException(status_code=404, detail="법인을 찾을 수 없습니다")
+        if not ce.is_active:
+            raise HTTPException(status_code=400, detail="비활성화된 법인입니다")
+        ce_name = ce.name
+
     # 파일 저장
     upload_dir = Path(settings.UPLOAD_DIR) / "bank_imports"
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     file_content = await file.read()
     file_hash = hashlib.sha256(file_content).hexdigest()
-
-    file_ext = Path(file.filename).suffix.lower()
-    if file_ext not in (".xlsx", ".xls", ".csv"):
-        raise HTTPException(status_code=400, detail="지원하지 않는 파일 형식입니다 (.xlsx, .xls, .csv만 가능)")
 
     file_path = upload_dir / f"{uuid_mod.uuid4()}{file_ext}"
     with open(file_path, "wb") as f:
@@ -110,6 +165,7 @@ async def upload_bank_file(
         file_path=str(file_path),
         original_filename=file.filename,
         file_hash=file_hash,
+        corporate_entity_id=corporate_entity_id,
         bank_name=bank_name,
         account_number=account_number,
         status=BankImportJobStatus.UPLOADED,
@@ -118,7 +174,7 @@ async def upload_bank_file(
     db.add(job)
     await db.flush()
 
-    # 동기 파싱 (간단한 파일의 경우)
+    # 동기 파싱
     try:
         await _parse_bank_file(job, file_content, file_ext, db)
         job.status = BankImportJobStatus.PARSED
@@ -134,13 +190,16 @@ async def upload_bank_file(
         target_id=job.id,
         after_data={
             "filename": file.filename,
+            "corporate_entity_id": str(corporate_entity_id) if corporate_entity_id else None,
             "total_lines": job.total_lines,
             "status": job.status.value if hasattr(job.status, 'value') else job.status,
         },
     ))
 
-    return _job_to_response(job, current_user.name)
+    return _job_to_response(job, current_user.name, ce_name)
 
+
+# ── 거래내역조회 전용 파서 ──────────────────────────────────────────
 
 async def _parse_bank_file(
     job: BankImportJob,
@@ -148,38 +207,43 @@ async def _parse_bank_file(
     file_ext: str,
     db: AsyncSession,
 ) -> None:
-    """은행 파일 파싱 → BankImportLine 생성"""
-    import pandas as pd
-    import io
+    """거래내역조회 양식 Excel 파싱 → BankImportLine 생성"""
+    # 1. 헤더 없이 먼저 로드하여 실제 헤더 행 탐색
+    df_raw = pd.read_excel(io.BytesIO(file_content), header=None)
 
-    if file_ext == ".csv":
-        df = pd.read_csv(io.BytesIO(file_content))
-    else:
-        df = pd.read_excel(io.BytesIO(file_content))
-
-    if df.empty:
+    if df_raw.empty:
         raise ValueError("파일에 데이터가 없습니다")
 
-    # 컬럼 자동 매핑 (일반적인 은행 원장 형식)
-    col_map = {}
-    for col in df.columns:
-        col_lower = str(col).lower().strip()
-        if "일" in col_lower or "date" in col_lower:
-            col_map["date"] = col
-        elif "입금" in col_lower or "deposit" in col_lower or "수입" in col_lower:
-            col_map["deposit"] = col
-        elif "출금" in col_lower or "withdrawal" in col_lower or "지출" in col_lower:
-            col_map["withdrawal"] = col
-        elif "금액" in col_lower or "amount" in col_lower:
-            col_map["amount"] = col
-        elif "적요" in col_lower or "내역" in col_lower or "설명" in col_lower or "desc" in col_lower:
-            col_map["description"] = col
-        elif "잔액" in col_lower or "balance" in col_lower:
-            col_map["balance"] = col
-        elif "거래처" in col_lower or "상대" in col_lower:
-            col_map["counterparty"] = col
-        elif "참조" in col_lower or "ref" in col_lower:
-            col_map["reference"] = col
+    header_row = _find_header_row(df_raw)
+    if header_row is None:
+        raise ValueError(
+            "지원하지 않는 엑셀 형식입니다. '거래내역조회' 양식의 파일만 업로드 가능합니다.\n"
+            "'거래일시' 컬럼을 포함한 헤더 행을 찾을 수 없습니다."
+        )
+
+    # 2. 헤더 행 기준으로 다시 로드
+    df = pd.read_excel(io.BytesIO(file_content), header=header_row)
+    # 컬럼명 정리 (공백 제거)
+    df.columns = [str(c).strip() for c in df.columns]
+
+    # 3. 양식 검증
+    _validate_columns(df.columns.tolist())
+
+    # 4. 컬럼 매핑 (정확한 이름 기반)
+    def get_col(name: str):
+        """컬럼 존재 시 이름 반환, 없으면 None"""
+        return name if name in df.columns else None
+
+    col_date = "거래일시"
+    col_desc = "적요"
+    col_memo = get_col("추가메모")
+    col_sender = get_col("의뢰인/수취인")
+    col_deposit = "입금"
+    col_withdrawal = "출금"
+    col_balance = "거래후잔액"
+    col_type = get_col("구분")
+    col_branch = get_col("거래점")
+    col_notes = get_col("거래특이사항")
 
     lines = []
     min_date = None
@@ -187,61 +251,81 @@ async def _parse_bank_file(
 
     for idx, row in df.iterrows():
         try:
-            # 날짜
-            txn_date = None
-            if "date" in col_map:
-                raw_date = row[col_map["date"]]
-                if pd.notna(raw_date):
-                    txn_date = pd.to_datetime(raw_date).date()
-
-            if not txn_date:
+            # 날짜 파싱
+            raw_date = row[col_date]
+            if pd.isna(raw_date):
                 continue
+            txn_date = pd.to_datetime(raw_date).date()
 
-            # 금액 (입금/출금 분리 또는 단일 컬럼)
+            # 금액 (입금/출금 분리)
             amount = Decimal("0")
-            if "deposit" in col_map and "withdrawal" in col_map:
-                dep = row.get(col_map["deposit"])
-                wd = row.get(col_map["withdrawal"])
-                if pd.notna(dep) and float(dep) != 0:
-                    amount = Decimal(str(float(dep)))
-                elif pd.notna(wd) and float(wd) != 0:
-                    amount = -Decimal(str(abs(float(wd))))
-            elif "amount" in col_map:
-                raw_amount = row[col_map["amount"]]
-                if pd.notna(raw_amount):
-                    amount = Decimal(str(float(raw_amount)))
+            dep = row.get(col_deposit)
+            wd = row.get(col_withdrawal)
+            if pd.notna(dep) and dep != "" and float(dep) != 0:
+                amount = Decimal(str(float(dep)))
+            elif pd.notna(wd) and wd != "" and float(wd) != 0:
+                amount = -Decimal(str(abs(float(wd))))
 
             if amount == 0:
                 continue
 
             # 적요
-            description = ""
-            if "description" in col_map:
-                desc = row.get(col_map["description"])
-                description = str(desc) if pd.notna(desc) else ""
+            desc_val = row.get(col_desc)
+            description = str(desc_val).strip() if pd.notna(desc_val) else ""
 
             # 잔액
             balance_after = None
-            if "balance" in col_map:
-                bal = row.get(col_map["balance"])
-                if pd.notna(bal):
-                    balance_after = Decimal(str(float(bal)))
+            bal_val = row.get(col_balance)
+            if pd.notna(bal_val) and bal_val != "":
+                try:
+                    balance_after = Decimal(str(float(bal_val)))
+                except (ValueError, TypeError):
+                    pass
 
-            # 거래처
+            # 의뢰인/수취인 → counterparty_name_raw
             cp_raw = None
-            if "counterparty" in col_map:
-                cp = row.get(col_map["counterparty"])
-                if pd.notna(cp):
-                    cp_raw = str(cp).strip()
+            if col_sender:
+                sender_val = row.get(col_sender)
+                if pd.notna(sender_val) and str(sender_val).strip():
+                    cp_raw = str(sender_val).strip()
 
-            # 참조번호
-            bank_ref = None
-            if "reference" in col_map:
-                ref = row.get(col_map["reference"])
-                if pd.notna(ref):
-                    bank_ref = str(ref).strip()
+            # 추가메모
+            additional_memo = None
+            if col_memo:
+                memo_val = row.get(col_memo)
+                if pd.notna(memo_val) and str(memo_val).strip():
+                    additional_memo = str(memo_val).strip()
 
-            dup_key = _generate_duplicate_key(txn_date, amount, description, bank_ref)
+            # 구분
+            type_raw = None
+            if col_type:
+                type_val = row.get(col_type)
+                if pd.notna(type_val) and str(type_val).strip():
+                    type_raw = str(type_val).strip()
+
+            # 거래점
+            bank_branch = None
+            if col_branch:
+                branch_val = row.get(col_branch)
+                if pd.notna(branch_val) and str(branch_val).strip():
+                    bank_branch = str(branch_val).strip()
+
+            # 거래특이사항
+            special_notes = None
+            if col_notes:
+                notes_val = row.get(col_notes)
+                if pd.notna(notes_val) and str(notes_val).strip():
+                    special_notes = str(notes_val).strip()
+
+            # 중복 키 생성
+            dup_key = _generate_duplicate_key(txn_date, amount, description)
+
+            # raw_data 보관
+            raw_data = {}
+            for c in df.columns:
+                val = row.get(c)
+                if pd.notna(val):
+                    raw_data[c] = str(val)
 
             line = BankImportLine(
                 import_job_id=job.id,
@@ -251,10 +335,14 @@ async def _parse_bank_file(
                 amount=amount,
                 balance_after=balance_after,
                 counterparty_name_raw=cp_raw,
+                sender_receiver=cp_raw,
+                additional_memo=additional_memo,
+                transaction_type_raw=type_raw,
+                bank_branch=bank_branch,
+                special_notes=special_notes,
                 status=BankImportLineStatus.UNMATCHED,
                 duplicate_key=dup_key,
-                bank_reference=bank_ref,
-                raw_data=row.to_dict() if hasattr(row, 'to_dict') else {},
+                raw_data=raw_data,
             )
             db.add(line)
             lines.append(line)
@@ -288,12 +376,15 @@ async def _parse_bank_file(
             line.status = BankImportLineStatus.DUPLICATE
 
 
+# ── 작업 목록 ──────────────────────────────────────────────────────
+
 @router.get("/jobs")
 async def list_jobs(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None, description="파일명/은행명 검색"),
     status: Optional[str] = Query(None, description="상태 필터"),
+    corporate_entity_id: Optional[UUID] = Query(None, description="법인 필터"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -307,6 +398,8 @@ async def list_jobs(
         )
     if status:
         filters.append(BankImportJob.status == status)
+    if corporate_entity_id:
+        filters.append(BankImportJob.corporate_entity_id == corporate_entity_id)
 
     # 전체 건수
     count_q = select(func.count(BankImportJob.id))
@@ -325,6 +418,7 @@ async def list_jobs(
     result = await db.execute(q)
     jobs = result.scalars().all()
 
+    # 사용자명 매핑
     user_ids = {j.created_by for j in jobs}
     user_map = {}
     if user_ids:
@@ -333,13 +427,27 @@ async def list_jobs(
         )
         user_map = {row.id: row.name for row in u_result.all()}
 
+    # 법인명 매핑
+    ce_ids = {j.corporate_entity_id for j in jobs if j.corporate_entity_id}
+    ce_map = {}
+    if ce_ids:
+        ce_result = await db.execute(
+            select(CorporateEntity.id, CorporateEntity.name).where(CorporateEntity.id.in_(ce_ids))
+        )
+        ce_map = {row.id: row.name for row in ce_result.all()}
+
     return {
-        "jobs": [_job_to_response(j, user_map.get(j.created_by)) for j in jobs],
+        "jobs": [
+            _job_to_response(j, user_map.get(j.created_by), ce_map.get(j.corporate_entity_id))
+            for j in jobs
+        ],
         "total": total,
         "page": page,
         "page_size": page_size,
     }
 
+
+# ── 작업 상세 ──────────────────────────────────────────────────────
 
 @router.get("/jobs/{job_id}", response_model=BankImportJobDetailResponse)
 async def get_job_detail(
@@ -368,13 +476,21 @@ async def get_job_detail(
         )
         cp_map = {row.id: row.name for row in cp_result.all()}
 
+    # 법인명
+    ce_name = None
+    if job.corporate_entity_id:
+        ce = await db.get(CorporateEntity, job.corporate_entity_id)
+        ce_name = ce.name if ce else None
+
     user = await db.get(User, job.created_by)
-    resp = _job_to_response(job, user.name if user else None)
+    resp = _job_to_response(job, user.name if user else None, ce_name)
     return BankImportJobDetailResponse(
         **resp.model_dump(),
         lines=[_line_to_response(l, cp_map.get(l.counterparty_id)) for l in lines],
     )
 
+
+# ── 자동 매칭 ──────────────────────────────────────────────────────
 
 @router.post("/jobs/{job_id}/auto-match")
 async def auto_match(
@@ -448,6 +564,8 @@ async def auto_match(
     return {"matched_count": matched_count, "total_unmatched": len(lines) - matched_count}
 
 
+# ── 라인 수동 매칭 ──────────────────────────────────────────────────
+
 @router.patch("/jobs/{job_id}/lines/{line_id}", response_model=BankImportLineResponse)
 async def update_line(
     job_id: UUID,
@@ -484,6 +602,8 @@ async def update_line(
     return _line_to_response(line, cp_name)
 
 
+# ── 확정 ──────────────────────────────────────────────────────────
+
 @router.post("/jobs/{job_id}/confirm")
 async def confirm_job(
     job_id: UUID,
@@ -518,6 +638,7 @@ async def confirm_job(
 
         txn = CounterpartyTransaction(
             counterparty_id=line.counterparty_id,
+            corporate_entity_id=job.corporate_entity_id,  # 법인 전파
             transaction_type=txn_type,
             transaction_date=line.transaction_date,
             amount=txn_amount,
@@ -547,11 +668,14 @@ async def confirm_job(
         after_data={
             "confirmed_lines": created_count,
             "total_lines": job.total_lines,
+            "corporate_entity_id": str(job.corporate_entity_id) if job.corporate_entity_id else None,
         },
     ))
 
     return {"confirmed_count": created_count, "total_matched": len(lines)}
 
+
+# ── 삭제 ──────────────────────────────────────────────────────────
 
 @router.delete("/jobs/{job_id}", status_code=204)
 async def delete_job(

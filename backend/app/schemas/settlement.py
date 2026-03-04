@@ -59,6 +59,10 @@ class CounterpartyResponse(BaseModel):
     is_favorite: bool = False  # API 레이어에서 주입
     branch_id: Optional[UUID] = None
     branch_name: Optional[str] = None  # API 레이어에서 주입
+    total_sales: Decimal = Decimal("0")              # 총 판매액 (API 레이어에서 주입)
+    total_purchases: Decimal = Decimal("0")           # 총 매입액 (API 레이어에서 주입)
+    outstanding_receivable: Decimal = Decimal("0")    # 미수 잔액 (API 레이어에서 주입)
+    outstanding_payable: Decimal = Decimal("0")       # 미지급 잔액 (API 레이어에서 주입)
     created_at: datetime
     updated_at: datetime
     aliases: List[CounterpartyAliasResponse] = []
@@ -671,6 +675,43 @@ class NettingEligibleResponse(BaseModel):
 
 
 # ============================================================================
+# 법인 (CorporateEntity)
+# ============================================================================
+
+class CorporateEntityCreate(BaseModel):
+    """법인 생성"""
+    name: str = Field(..., min_length=1, max_length=200, description="법인명")
+    code: Optional[str] = Field(None, max_length=50, description="법인 코드")
+    business_number: Optional[str] = Field(None, max_length=20, description="사업자등록번호")
+    memo: Optional[str] = None
+    is_active: bool = True
+
+
+class CorporateEntityUpdate(BaseModel):
+    """법인 수정"""
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    code: Optional[str] = Field(None, max_length=50)
+    business_number: Optional[str] = Field(None, max_length=20)
+    memo: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class CorporateEntityResponse(BaseModel):
+    """법인 응답"""
+    id: UUID
+    name: str
+    code: Optional[str] = None
+    business_number: Optional[str] = None
+    memo: Optional[str] = None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================================
 # 은행 임포트 (BankImport)
 # ============================================================================
 
@@ -689,6 +730,12 @@ class BankImportLineResponse(BaseModel):
     duplicate_key: Optional[str] = None
     bank_reference: Optional[str] = None
     transaction_id: Optional[UUID] = None
+    # 거래내역조회 추가 필드
+    sender_receiver: Optional[str] = None
+    additional_memo: Optional[str] = None
+    transaction_type_raw: Optional[str] = None
+    bank_branch: Optional[str] = None
+    special_notes: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -704,6 +751,8 @@ class BankImportJobResponse(BaseModel):
     id: UUID
     original_filename: str
     file_hash: Optional[str] = None
+    corporate_entity_id: Optional[UUID] = None
+    corporate_entity_name: Optional[str] = None  # API 계층에서 주입
     bank_name: Optional[str] = None
     account_number: Optional[str] = None
     import_date_from: Optional[date] = None
