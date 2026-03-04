@@ -21,7 +21,7 @@ from app.models.payment import Payment
 from app.models.voucher_change import VoucherChangeRequest
 from app.models.enums import (
     VoucherType, SettlementStatus, PaymentStatus, ChangeRequestStatus,
-    TransactionType,
+    TransactionType, TransactionStatus,
 )
 from app.models.transaction_allocation import TransactionAllocation
 from app.models.counterparty_transaction import CounterpartyTransaction
@@ -40,6 +40,10 @@ async def get_dashboard_summary(
 ):
     """대시보드 정산 요약"""
 
+    _active_txn_filter = CounterpartyTransaction.status.notin_([
+        TransactionStatus.CANCELLED, TransactionStatus.HIDDEN,
+    ])
+
     # 판매 전표 합계 (미수 관련)
     sales_total = (await db.execute(
         select(func.coalesce(func.sum(Voucher.total_amount), 0))
@@ -52,17 +56,15 @@ async def get_dashboard_summary(
         .where(Voucher.voucher_type == VoucherType.SALES)
     )).scalar() or Decimal("0")
 
-    alloc_received = (await db.execute(
-        select(func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0))
-        .join(CounterpartyTransaction, TransactionAllocation.transaction_id == CounterpartyTransaction.id)
-        .join(Voucher, TransactionAllocation.voucher_id == Voucher.id)
+    txn_received = (await db.execute(
+        select(func.coalesce(func.sum(CounterpartyTransaction.amount), 0))
         .where(
-            Voucher.voucher_type == VoucherType.SALES,
             CounterpartyTransaction.transaction_type == TransactionType.DEPOSIT,
+            _active_txn_filter,
         )
     )).scalar() or Decimal("0")
 
-    total_receivable = sales_total - legacy_received - alloc_received
+    total_receivable = sales_total - legacy_received - txn_received
 
     # 매입 전표 합계 (미지급 관련)
     purchase_total = (await db.execute(
@@ -76,17 +78,15 @@ async def get_dashboard_summary(
         .where(Voucher.voucher_type == VoucherType.PURCHASE)
     )).scalar() or Decimal("0")
 
-    alloc_paid = (await db.execute(
-        select(func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0))
-        .join(CounterpartyTransaction, TransactionAllocation.transaction_id == CounterpartyTransaction.id)
-        .join(Voucher, TransactionAllocation.voucher_id == Voucher.id)
+    txn_paid = (await db.execute(
+        select(func.coalesce(func.sum(CounterpartyTransaction.amount), 0))
         .where(
-            Voucher.voucher_type == VoucherType.PURCHASE,
             CounterpartyTransaction.transaction_type == TransactionType.WITHDRAWAL,
+            _active_txn_filter,
         )
     )).scalar() or Decimal("0")
 
-    total_payable = purchase_total - legacy_paid - alloc_paid
+    total_payable = purchase_total - legacy_paid - txn_paid
 
     # 상태별 건수
     settling_count = (await db.execute(
@@ -142,6 +142,10 @@ async def get_top_receivables(
     current_user: User = Depends(get_current_user),
 ):
     """미수 상위 거래처 (Top N) - 단일 쿼리"""
+    _active_txn_filter = CounterpartyTransaction.status.notin_([
+        TransactionStatus.CANCELLED, TransactionStatus.HIDDEN,
+    ])
+
     # 거래처별 판매전표 합계 서브쿼리
     voucher_sub = (
         select(
@@ -164,22 +168,19 @@ async def get_top_receivables(
         .group_by(Voucher.counterparty_id)
     ).subquery()
 
-    # 거래처별 누적 입금 서브쿼리 (신규 배분)
-    alloc_deposit_sub = (
+    # 거래처별 DEPOSIT 트랜잭션 직접 합산 (배분 여부 무관)
+    deposit_txn_sub = (
         select(
-            Voucher.counterparty_id,
-            func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0).label("alloc_received"),
+            CounterpartyTransaction.counterparty_id,
+            func.coalesce(func.sum(CounterpartyTransaction.amount), 0).label("txn_received"),
         )
-        .join(Voucher, TransactionAllocation.voucher_id == Voucher.id)
-        .join(CounterpartyTransaction, TransactionAllocation.transaction_id == CounterpartyTransaction.id)
         .where(
-            Voucher.voucher_type == VoucherType.SALES,
             CounterpartyTransaction.transaction_type == TransactionType.DEPOSIT,
+            _active_txn_filter,
         )
-        .group_by(Voucher.counterparty_id)
+        .group_by(CounterpartyTransaction.counterparty_id)
     ).subquery()
 
-    # 단일 쿼리로 합산
     query = (
         select(
             Counterparty.id.label("counterparty_id"),
@@ -187,11 +188,11 @@ async def get_top_receivables(
             voucher_sub.c.total_amount,
             voucher_sub.c.voucher_count,
             func.coalesce(receipt_sub.c.received, 0).label("received"),
-            func.coalesce(alloc_deposit_sub.c.alloc_received, 0).label("alloc_received"),
+            func.coalesce(deposit_txn_sub.c.txn_received, 0).label("txn_received"),
         )
         .join(voucher_sub, Counterparty.id == voucher_sub.c.counterparty_id)
         .outerjoin(receipt_sub, Counterparty.id == receipt_sub.c.counterparty_id)
-        .outerjoin(alloc_deposit_sub, Counterparty.id == alloc_deposit_sub.c.counterparty_id)
+        .outerjoin(deposit_txn_sub, Counterparty.id == deposit_txn_sub.c.counterparty_id)
     )
 
     result = await db.execute(query)
@@ -199,7 +200,7 @@ async def get_top_receivables(
 
     items = []
     for row in rows:
-        balance = row.total_amount - row.received - row.alloc_received
+        balance = row.total_amount - row.received - row.txn_received
         if balance > 0:
             items.append(TopCounterpartyItem(
                 counterparty_id=row.counterparty_id,
@@ -220,6 +221,10 @@ async def get_top_payables(
     current_user: User = Depends(get_current_user),
 ):
     """미지급 상위 거래처 (Top N) - 단일 쿼리"""
+    _active_txn_filter = CounterpartyTransaction.status.notin_([
+        TransactionStatus.CANCELLED, TransactionStatus.HIDDEN,
+    ])
+
     # 거래처별 매입전표 합계 서브쿼리
     voucher_sub = (
         select(
@@ -242,33 +247,35 @@ async def get_top_payables(
         .group_by(Voucher.counterparty_id)
     ).subquery()
 
-    # 거래처별 누적 지급 서브쿼리 (신규 배분)
-    alloc_withdrawal_sub = (
+    # 거래처별 WITHDRAWAL 트랜잭션 직접 합산 (배분 여부 무관)
+    withdrawal_txn_sub = (
         select(
-            Voucher.counterparty_id,
-            func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0).label("alloc_paid"),
+            CounterpartyTransaction.counterparty_id,
+            func.coalesce(func.sum(CounterpartyTransaction.amount), 0).label("txn_paid"),
         )
-        .join(Voucher, TransactionAllocation.voucher_id == Voucher.id)
-        .join(CounterpartyTransaction, TransactionAllocation.transaction_id == CounterpartyTransaction.id)
         .where(
-            Voucher.voucher_type == VoucherType.PURCHASE,
             CounterpartyTransaction.transaction_type == TransactionType.WITHDRAWAL,
+            _active_txn_filter,
         )
-        .group_by(Voucher.counterparty_id)
+        .group_by(CounterpartyTransaction.counterparty_id)
     ).subquery()
 
     query = (
         select(
             Counterparty.id.label("counterparty_id"),
             Counterparty.name.label("counterparty_name"),
-            voucher_sub.c.total_amount,
-            voucher_sub.c.voucher_count,
+            func.coalesce(voucher_sub.c.total_amount, 0).label("total_amount"),
+            func.coalesce(voucher_sub.c.voucher_count, 0).label("voucher_count"),
             func.coalesce(payment_sub.c.paid, 0).label("paid"),
-            func.coalesce(alloc_withdrawal_sub.c.alloc_paid, 0).label("alloc_paid"),
+            func.coalesce(withdrawal_txn_sub.c.txn_paid, 0).label("txn_paid"),
         )
-        .join(voucher_sub, Counterparty.id == voucher_sub.c.counterparty_id)
+        .outerjoin(voucher_sub, Counterparty.id == voucher_sub.c.counterparty_id)
         .outerjoin(payment_sub, Counterparty.id == payment_sub.c.counterparty_id)
-        .outerjoin(alloc_withdrawal_sub, Counterparty.id == alloc_withdrawal_sub.c.counterparty_id)
+        .outerjoin(withdrawal_txn_sub, Counterparty.id == withdrawal_txn_sub.c.counterparty_id)
+        .where(
+            (voucher_sub.c.counterparty_id.isnot(None)) |
+            (withdrawal_txn_sub.c.counterparty_id.isnot(None))
+        )
     )
 
     result = await db.execute(query)
@@ -276,7 +283,7 @@ async def get_top_payables(
 
     items = []
     for row in rows:
-        balance = row.total_amount - row.paid - row.alloc_paid
+        balance = row.total_amount - row.paid - row.txn_paid
         if balance > 0:
             items.append(TopCounterpartyItem(
                 counterparty_id=row.counterparty_id,
@@ -301,7 +308,11 @@ async def list_receivables(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """미수 현황 (거래처별) - 전표 거래일 기준 필터, 수금액은 해당 전표에 대한 누적"""
+    """미수 현황 (거래처별) - 전표 거래일 기준 필터 + 입출금 트랜잭션 직접 합산"""
+    _active_txn_filter = CounterpartyTransaction.status.notin_([
+        TransactionStatus.CANCELLED, TransactionStatus.HIDDEN,
+    ])
+
     # 전표 날짜 필터 조건
     voucher_date_filters = [Voucher.voucher_type == VoucherType.SALES]
     if date_from:
@@ -309,7 +320,7 @@ async def list_receivables(
     if date_to:
         voucher_date_filters.append(Voucher.trade_date <= date_to)
 
-    # 기간 내 전표 ID 목록 (입금 서브쿼리에서 재사용)
+    # 기간 내 전표 ID 목록 (레거시 입금 서브쿼리에서 재사용)
     voucher_id_filter = select(Voucher.id).where(*voucher_date_filters)
 
     # 거래처별 판매전표 합계 서브쿼리
@@ -334,40 +345,48 @@ async def list_receivables(
         .group_by(Voucher.counterparty_id)
     ).subquery()
 
-    # 거래처별 누적 입금 서브쿼리 (신규 배분) — 기간 내 전표에 연결된 배분만
-    alloc_deposit_sub = (
+    # 거래처별 DEPOSIT 트랜잭션 직접 합산 (배분 여부 무관, 기간 필터 적용)
+    deposit_txn_filters = [
+        CounterpartyTransaction.transaction_type == TransactionType.DEPOSIT,
+        _active_txn_filter,
+    ]
+    if date_from:
+        deposit_txn_filters.append(CounterpartyTransaction.transaction_date >= date_from)
+    if date_to:
+        deposit_txn_filters.append(CounterpartyTransaction.transaction_date <= date_to)
+
+    deposit_txn_sub = (
         select(
-            Voucher.counterparty_id,
-            func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0).label("alloc_received"),
+            CounterpartyTransaction.counterparty_id,
+            func.coalesce(func.sum(CounterpartyTransaction.amount), 0).label("txn_received"),
         )
-        .join(Voucher, TransactionAllocation.voucher_id == Voucher.id)
-        .join(CounterpartyTransaction, TransactionAllocation.transaction_id == CounterpartyTransaction.id)
-        .where(
-            TransactionAllocation.voucher_id.in_(voucher_id_filter),
-            CounterpartyTransaction.transaction_type == TransactionType.DEPOSIT,
-        )
-        .group_by(Voucher.counterparty_id)
+        .where(*deposit_txn_filters)
+        .group_by(CounterpartyTransaction.counterparty_id)
     ).subquery()
 
     # balance를 SQL에서 계산
     total_received_expr = (
         func.coalesce(receipt_sub.c.received, 0) +
-        func.coalesce(alloc_deposit_sub.c.alloc_received, 0)
+        func.coalesce(deposit_txn_sub.c.txn_received, 0)
     )
-    balance_expr = voucher_sub.c.total_amount - total_received_expr
+    balance_expr = func.coalesce(voucher_sub.c.total_amount, 0) - total_received_expr
 
     query = (
         select(
             Counterparty.id.label("counterparty_id"),
             Counterparty.name.label("counterparty_name"),
-            voucher_sub.c.total_amount,
-            voucher_sub.c.voucher_count,
+            func.coalesce(voucher_sub.c.total_amount, 0).label("total_amount"),
+            func.coalesce(voucher_sub.c.voucher_count, 0).label("voucher_count"),
             total_received_expr.label("total_received"),
             balance_expr.label("balance"),
         )
-        .join(voucher_sub, Counterparty.id == voucher_sub.c.counterparty_id)
+        .outerjoin(voucher_sub, Counterparty.id == voucher_sub.c.counterparty_id)
         .outerjoin(receipt_sub, Counterparty.id == receipt_sub.c.counterparty_id)
-        .outerjoin(alloc_deposit_sub, Counterparty.id == alloc_deposit_sub.c.counterparty_id)
+        .outerjoin(deposit_txn_sub, Counterparty.id == deposit_txn_sub.c.counterparty_id)
+        .where(
+            (voucher_sub.c.counterparty_id.isnot(None)) |
+            (deposit_txn_sub.c.counterparty_id.isnot(None))
+        )
     )
 
     if search:
@@ -417,7 +436,11 @@ async def list_payables(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """미지급 현황 (거래처별) - 전표 거래일 기준 필터, 지급액은 해당 전표에 대한 누적"""
+    """미지급 현황 (거래처별) - 전표 거래일 기준 필터 + 입출금 트랜잭션 직접 합산"""
+    _active_txn_filter = CounterpartyTransaction.status.notin_([
+        TransactionStatus.CANCELLED, TransactionStatus.HIDDEN,
+    ])
+
     # 전표 날짜 필터 조건
     voucher_date_filters = [Voucher.voucher_type == VoucherType.PURCHASE]
     if date_from:
@@ -450,40 +473,48 @@ async def list_payables(
         .group_by(Voucher.counterparty_id)
     ).subquery()
 
-    # 거래처별 누적 지급 서브쿼리 (신규 배분) — 기간 내 전표에 연결된 배분만
-    alloc_withdrawal_sub = (
+    # 거래처별 WITHDRAWAL 트랜잭션 직접 합산 (배분 여부 무관, 기간 필터 적용)
+    withdrawal_txn_filters = [
+        CounterpartyTransaction.transaction_type == TransactionType.WITHDRAWAL,
+        _active_txn_filter,
+    ]
+    if date_from:
+        withdrawal_txn_filters.append(CounterpartyTransaction.transaction_date >= date_from)
+    if date_to:
+        withdrawal_txn_filters.append(CounterpartyTransaction.transaction_date <= date_to)
+
+    withdrawal_txn_sub = (
         select(
-            Voucher.counterparty_id,
-            func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0).label("alloc_paid"),
+            CounterpartyTransaction.counterparty_id,
+            func.coalesce(func.sum(CounterpartyTransaction.amount), 0).label("txn_paid"),
         )
-        .join(Voucher, TransactionAllocation.voucher_id == Voucher.id)
-        .join(CounterpartyTransaction, TransactionAllocation.transaction_id == CounterpartyTransaction.id)
-        .where(
-            TransactionAllocation.voucher_id.in_(voucher_id_filter),
-            CounterpartyTransaction.transaction_type == TransactionType.WITHDRAWAL,
-        )
-        .group_by(Voucher.counterparty_id)
+        .where(*withdrawal_txn_filters)
+        .group_by(CounterpartyTransaction.counterparty_id)
     ).subquery()
 
     # balance를 SQL에서 계산
     total_paid_expr = (
         func.coalesce(payment_sub.c.paid, 0) +
-        func.coalesce(alloc_withdrawal_sub.c.alloc_paid, 0)
+        func.coalesce(withdrawal_txn_sub.c.txn_paid, 0)
     )
-    balance_expr = voucher_sub.c.total_amount - total_paid_expr
+    balance_expr = func.coalesce(voucher_sub.c.total_amount, 0) - total_paid_expr
 
     query = (
         select(
             Counterparty.id.label("counterparty_id"),
             Counterparty.name.label("counterparty_name"),
-            voucher_sub.c.total_amount,
-            voucher_sub.c.voucher_count,
+            func.coalesce(voucher_sub.c.total_amount, 0).label("total_amount"),
+            func.coalesce(voucher_sub.c.voucher_count, 0).label("voucher_count"),
             total_paid_expr.label("total_paid"),
             balance_expr.label("balance"),
         )
-        .join(voucher_sub, Counterparty.id == voucher_sub.c.counterparty_id)
+        .outerjoin(voucher_sub, Counterparty.id == voucher_sub.c.counterparty_id)
         .outerjoin(payment_sub, Counterparty.id == payment_sub.c.counterparty_id)
-        .outerjoin(alloc_withdrawal_sub, Counterparty.id == alloc_withdrawal_sub.c.counterparty_id)
+        .outerjoin(withdrawal_txn_sub, Counterparty.id == withdrawal_txn_sub.c.counterparty_id)
+        .where(
+            (voucher_sub.c.counterparty_id.isnot(None)) |
+            (withdrawal_txn_sub.c.counterparty_id.isnot(None))
+        )
     )
 
     if search:

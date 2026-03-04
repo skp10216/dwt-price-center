@@ -299,22 +299,26 @@ async def top_balance(
         else:
             purchase_map[r[0]] = float(r[2])
 
-    # 쿼리2: 전표별 정산액 집계 → 거래처별 미수/미지급 산출
-    # Receipt by voucher → counterparty
+    # 쿼리2: 정산액 집계 → 거래처별 미수/미지급 산출
+    _active_txn_filter = CounterpartyTransaction.status.notin_([
+        TransactionStatus.CANCELLED, TransactionStatus.HIDDEN,
+    ])
+    cp_receipts: dict = {}
+    cp_payments: dict = {}
+
+    # Receipt (레거시) by voucher → counterparty
     receipt_q = await db.execute(
         select(Voucher.counterparty_id, Voucher.voucher_type, func.coalesce(func.sum(Receipt.amount), 0))
         .join(Receipt, Receipt.voucher_id == Voucher.id)
         .group_by(Voucher.counterparty_id, Voucher.voucher_type)
     )
-    cp_receipts: dict = {}
-    cp_payments: dict = {}
     for r in receipt_q.all():
         if r[1] == VoucherType.SALES:
             cp_receipts[r[0]] = cp_receipts.get(r[0], 0) + float(r[2])
         else:
             cp_payments[r[0]] = cp_payments.get(r[0], 0) + float(r[2])
 
-    # Payment by voucher → counterparty
+    # Payment (레거시) by voucher → counterparty
     payment_q = await db.execute(
         select(Voucher.counterparty_id, Voucher.voucher_type, func.coalesce(func.sum(Payment.amount), 0))
         .join(Payment, Payment.voucher_id == Voucher.id)
@@ -326,20 +330,24 @@ async def top_balance(
         else:
             cp_payments[r[0]] = cp_payments.get(r[0], 0) + float(r[2])
 
-    # Allocation by voucher → counterparty
-    alloc_q = await db.execute(
-        select(Voucher.counterparty_id, Voucher.voucher_type, func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0))
-        .join(TransactionAllocation, TransactionAllocation.voucher_id == Voucher.id)
-        .group_by(Voucher.counterparty_id, Voucher.voucher_type)
+    # CounterpartyTransaction 직접 합산 (배분 여부 무관)
+    txn_q = await db.execute(
+        select(
+            CounterpartyTransaction.counterparty_id,
+            CounterpartyTransaction.transaction_type,
+            func.coalesce(func.sum(CounterpartyTransaction.amount), 0),
+        )
+        .where(_active_txn_filter)
+        .group_by(CounterpartyTransaction.counterparty_id, CounterpartyTransaction.transaction_type)
     )
-    for r in alloc_q.all():
-        if r[1] == VoucherType.SALES:
+    for r in txn_q.all():
+        if r[1] == TransactionType.DEPOSIT:
             cp_receipts[r[0]] = cp_receipts.get(r[0], 0) + float(r[2])
         else:
             cp_payments[r[0]] = cp_payments.get(r[0], 0) + float(r[2])
 
     # 쿼리3: 거래처명
-    all_cp_ids = set(list(sales_map) + list(purchase_map))
+    all_cp_ids = set(list(sales_map) + list(purchase_map) + list(cp_receipts) + list(cp_payments))
     cp_names = {}
     if all_cp_ids:
         cp_q = await db.execute(

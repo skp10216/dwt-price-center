@@ -116,6 +116,7 @@ export const DOMAIN_ROUTES = {
       '/settlement/transactions',
       '/settlement/netting',
       '/settlement/bank-import',
+      '/settlement/corporate-entities',
       '/settlement/lock',
       '/settlement/activity',
       '/settlement/statistics',

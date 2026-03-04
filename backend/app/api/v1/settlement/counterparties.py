@@ -21,7 +21,7 @@ from app.models.branch import Branch
 from app.models.voucher import Voucher
 from app.models.receipt import Receipt
 from app.models.payment import Payment
-from app.models.enums import VoucherType, AuditAction, TransactionType
+from app.models.enums import VoucherType, AuditAction, TransactionType, TransactionStatus
 from app.models.transaction_allocation import TransactionAllocation
 from app.models.counterparty_transaction import CounterpartyTransaction
 from app.models.audit_log import AuditLog
@@ -721,28 +721,27 @@ async def get_counterparty_summary(
     total_sales = sales_result[0]
     sales_count = sales_result[1]
 
+    _active_txn_filter = CounterpartyTransaction.status.notin_([
+        TransactionStatus.CANCELLED, TransactionStatus.HIDDEN,
+    ])
+
     # 누적 입금 (레거시 Receipt)
     receipts_q = select(func.coalesce(func.sum(Receipt.amount), 0)).join(
         Voucher, Receipt.voucher_id == Voucher.id
     ).where(Voucher.counterparty_id == counterparty_id)
     legacy_received = (await db.execute(receipts_q)).scalar() or 0
 
-    # 누적 입금 (신규 TransactionAllocation - DEPOSIT)
-    alloc_received_q = select(
-        func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0)
-    ).join(
-        CounterpartyTransaction,
-        TransactionAllocation.transaction_id == CounterpartyTransaction.id,
-    ).join(
-        Voucher,
-        TransactionAllocation.voucher_id == Voucher.id,
+    # 누적 입금 (DEPOSIT 트랜잭션 직접 합산, 배분 여부 무관)
+    txn_received_q = select(
+        func.coalesce(func.sum(CounterpartyTransaction.amount), 0)
     ).where(
-        Voucher.counterparty_id == counterparty_id,
+        CounterpartyTransaction.counterparty_id == counterparty_id,
         CounterpartyTransaction.transaction_type == TransactionType.DEPOSIT,
+        _active_txn_filter,
     )
-    alloc_received = (await db.execute(alloc_received_q)).scalar() or 0
+    txn_received = (await db.execute(txn_received_q)).scalar() or 0
 
-    total_received = legacy_received + alloc_received
+    total_received = legacy_received + txn_received
 
     # 매입 전표 합계 (미지급)
     purchase_q = select(
@@ -762,22 +761,17 @@ async def get_counterparty_summary(
     ).where(Voucher.counterparty_id == counterparty_id)
     legacy_paid = (await db.execute(payments_q)).scalar() or 0
 
-    # 누적 송금 (신규 TransactionAllocation - WITHDRAWAL)
-    alloc_paid_q = select(
-        func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0)
-    ).join(
-        CounterpartyTransaction,
-        TransactionAllocation.transaction_id == CounterpartyTransaction.id,
-    ).join(
-        Voucher,
-        TransactionAllocation.voucher_id == Voucher.id,
+    # 누적 송금 (WITHDRAWAL 트랜잭션 직접 합산, 배분 여부 무관)
+    txn_paid_q = select(
+        func.coalesce(func.sum(CounterpartyTransaction.amount), 0)
     ).where(
-        Voucher.counterparty_id == counterparty_id,
+        CounterpartyTransaction.counterparty_id == counterparty_id,
         CounterpartyTransaction.transaction_type == TransactionType.WITHDRAWAL,
+        _active_txn_filter,
     )
-    alloc_paid = (await db.execute(alloc_paid_q)).scalar() or 0
+    txn_paid = (await db.execute(txn_paid_q)).scalar() or 0
 
-    total_paid = legacy_paid + alloc_paid
+    total_paid = legacy_paid + txn_paid
 
     return CounterpartySummary(
         id=cp.id,
