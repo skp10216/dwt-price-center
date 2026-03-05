@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Paper, Button, Stack, Alert, AlertTitle, Chip,
   Divider, LinearProgress, Tooltip, IconButton, alpha, useTheme, Grid,
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField,
 } from '@mui/material';
 import {
   CheckCircle as PassIcon,
@@ -25,6 +26,7 @@ import {
   History as LegacyIcon,
   OpenInNew as LinkIcon,
   Science as TestIcon,
+  DeleteForever as ResetIcon,
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
 import { useAppRouter } from '@/lib/navigation';
@@ -123,6 +125,11 @@ export default function FlowTestPage() {
   const [loading, setLoading] = useState(true);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
 
+  // 전체 초기화 상태
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+  const [resetting, setResetting] = useState(false);
+
   const runCheck = useCallback(async () => {
     setLoading(true);
     try {
@@ -138,6 +145,23 @@ export default function FlowTestPage() {
 
   useEffect(() => { runCheck(); }, [runCheck]);
 
+  const handleResetAll = useCallback(async () => {
+    setResetting(true);
+    try {
+      const res = await settlementApi.flowTestResetAll();
+      const result = res.data as unknown as { total_deleted: number; summary: Record<string, number> };
+      enqueueSnackbar(`전체 데이터 초기화 완료 (총 ${result.total_deleted.toLocaleString()}건 삭제)`, { variant: 'success' });
+      setResetDialogOpen(false);
+      setResetConfirmText('');
+      // 초기화 후 자동 재점검
+      runCheck();
+    } catch {
+      enqueueSnackbar('데이터 초기화에 실패했습니다.', { variant: 'error' });
+    } finally {
+      setResetting(false);
+    }
+  }, [enqueueSnackbar, runCheck]);
+
   const overallConfig = data ? STATUS_CONFIG[data.overall] : STATUS_CONFIG.info;
   const OverallIcon = overallConfig.icon;
 
@@ -148,13 +172,22 @@ export default function FlowTestPage() {
         title="업무 플로우 점검"
         description="정산 시스템의 전체 업무 흐름을 단계별로 점검합니다"
         color="info"
-        actions={[{
-          label: loading ? '점검 중...' : '다시 점검',
-          onClick: runCheck,
-          variant: 'contained' as const,
-          icon: <RefreshIcon />,
-          disabled: loading,
-        }]}
+        actions={[
+          {
+            label: '전체 데이터 초기화',
+            onClick: () => setResetDialogOpen(true),
+            variant: 'outlined' as const,
+            color: 'error' as const,
+            icon: <ResetIcon />,
+          },
+          {
+            label: loading ? '점검 중...' : '다시 점검',
+            onClick: runCheck,
+            variant: 'contained' as const,
+            icon: <RefreshIcon />,
+            disabled: loading,
+          },
+        ]}
       />
 
       {loading && !data && <LinearProgress sx={{ mb: 2 }} />}
@@ -338,6 +371,54 @@ export default function FlowTestPage() {
           </Grid>
         </Stack>
       )}
+      {/* 전체 데이터 초기화 확인 다이얼로그 */}
+      <Dialog
+        open={resetDialogOpen}
+        onClose={() => { if (!resetting) { setResetDialogOpen(false); setResetConfirmText(''); } }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ResetIcon color="error" />
+          전체 데이터 초기화
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            <AlertTitle>이 작업은 되돌릴 수 없습니다</AlertTitle>
+            거래처, 법인, 지사, 전표, 입출금 내역, 배분, 상계, 은행 임포트, 마감, 업로드 템플릿, 작업 내역 등
+            <strong> 모든 정산 데이터가 영구 삭제</strong>됩니다.
+          </Alert>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            계속하려면 아래에 <strong>초기화</strong>를 입력하세요.
+          </Typography>
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="초기화"
+            value={resetConfirmText}
+            onChange={(e) => setResetConfirmText(e.target.value)}
+            disabled={resetting}
+            autoFocus
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button
+            onClick={() => { setResetDialogOpen(false); setResetConfirmText(''); }}
+            disabled={resetting}
+          >
+            취소
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleResetAll}
+            disabled={resetting || resetConfirmText !== '초기화'}
+            startIcon={<ResetIcon />}
+          >
+            {resetting ? '초기화 중...' : '전체 초기화 실행'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </AppPageContainer>
   );
 }

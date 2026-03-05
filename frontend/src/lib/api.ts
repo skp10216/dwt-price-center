@@ -986,6 +986,9 @@ export const settlementApi = {
   // ── 플로우 테스트 ────────────────────────────────────────────
   flowTestHealthCheck: () =>
     api.get<ApiResponse<unknown>>('/settlement/flow-test/health-check'),
+
+  flowTestResetAll: () =>
+    api.delete<ApiResponse<{ total_deleted: number; summary: Record<string, number> }>>('/settlement/flow-test/reset-all'),
 };
 
 export default api;
