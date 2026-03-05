@@ -226,7 +226,7 @@ const settlementMenuGroups: MenuGroup[] = [
     items: [
       { id: 'stl-vouchers', label: '전표 목록', icon: <ReceiptIcon />, path: '/settlement/vouchers' },
       { id: 'stl-transactions', label: '입출금 관리', icon: <SwapHorizIcon />, path: '/settlement/transactions' },
-      // { id: 'stl-netting', label: '상계 관리', icon: <BalanceIcon />, path: '/settlement/netting' },
+      { id: 'stl-netting', label: '상계 관리', icon: <BalanceIcon />, path: '/settlement/netting' },
     ],
   },
   {

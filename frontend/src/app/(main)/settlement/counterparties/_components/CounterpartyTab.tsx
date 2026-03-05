@@ -36,11 +36,9 @@ import {
 interface CounterpartyRow {
   id: string;
   name: string;
-  registration_number: string | null;
-  type: string;
-  contact_person: string | null;
-  contact_email: string | null;
-  contact_phone: string | null;
+  code: string | null;
+  counterparty_type: string;
+  contact_info: string | null;
   is_active: boolean;
   is_favorite: boolean;
   branch_id: string | null;
@@ -186,11 +184,11 @@ export default function CounterpartyTab() {
   const openEdit = (cp: CounterpartyRow) => {
     setEditing(cp);
     setFormName(cp.name);
-    setFormRegNo(cp.registration_number || '');
-    setFormType(cp.type);
-    setFormContact(cp.contact_person || '');
-    setFormEmail(cp.contact_email || '');
-    setFormPhone(cp.contact_phone || '');
+    setFormRegNo(cp.code || '');
+    setFormType(cp.counterparty_type);
+    setFormContact(cp.contact_info || '');
+    setFormEmail('');
+    setFormPhone('');
     setFormBranchId(cp.branch_id || '');
     setDialogOpen(true);
   };
@@ -199,11 +197,9 @@ export default function CounterpartyTab() {
     try {
       const data: Record<string, unknown> = {
         name: formName,
-        registration_number: formRegNo || null,
-        type: formType,
-        contact_person: formContact || null,
-        contact_email: formEmail || null,
-        contact_phone: formPhone || null,
+        code: formRegNo || null,
+        counterparty_type: formType,
+        contact_info: [formContact, formEmail, formPhone].filter(Boolean).join(' / ') || null,
         branch_id: formBranchId || null,
       };
       if (editing) {
@@ -563,10 +559,10 @@ export default function CounterpartyTab() {
                       </Stack>
                     </TableCell>
                     <TableCell sx={{ color: 'text.secondary' }}>
-                      {cp.registration_number || '—'}
+                      {cp.code || '—'}
                     </TableCell>
                     <TableCell>
-                      <Chip label={typeLabels[cp.type] || cp.type} size="small" variant="outlined" />
+                      <Chip label={typeLabels[cp.counterparty_type] || cp.counterparty_type} size="small" variant="outlined" />
                     </TableCell>
                     <TableCell>
                       {cp.branch_name ? (
@@ -600,7 +596,7 @@ export default function CounterpartyTab() {
                       {formatAmount(cp.outstanding_payable)}
                     </TableCell>
                     <TableCell>
-                      {cp.contact_person || '—'}
+                      {cp.contact_info || '—'}
                     </TableCell>
                     <TableCell align="center">
                       <Stack direction="row" spacing={0.25} justifyContent="center">
@@ -803,7 +799,7 @@ export default function CounterpartyTab() {
                   <Stack key={cp.id} direction="row" spacing={1} alignItems="center" sx={{ py: 0.3 }}>
                     <BusinessIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
                     <Typography variant="caption" sx={{ flex: 1 }}>{cp.name}</Typography>
-                    <Chip label={typeLabels[cp.type] || cp.type} size="small" variant="outlined" sx={{ fontSize: '0.6rem', height: 18 }} />
+                    <Chip label={typeLabels[cp.counterparty_type] || cp.counterparty_type} size="small" variant="outlined" sx={{ fontSize: '0.6rem', height: 18 }} />
                     {cp.aliases.length > 0 && (
                       <Chip label={`별칭 ${cp.aliases.length}`} size="small" color="info" variant="outlined" sx={{ fontSize: '0.6rem', height: 18 }} />
                     )}

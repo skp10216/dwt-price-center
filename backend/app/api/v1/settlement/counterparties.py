@@ -297,6 +297,7 @@ async def create_counterparty(
         branch_id=data.branch_id,
     )
     db.add(cp)
+    await db.flush()  # cp.id 확정
 
     # 거래처명 자체를 별칭으로 자동 등록 (업로드 매칭용)
     alias = CounterpartyAlias(
