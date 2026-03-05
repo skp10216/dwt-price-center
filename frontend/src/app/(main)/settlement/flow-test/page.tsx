@@ -2,14 +2,15 @@
 
 /**
  * 정산 시스템 — 전체 업무 플로우 테스트 대시보드
- * 각 업무 단계의 상태를 한눈에 점검하고, 주요 기능으로 빠르게 이동
+ * 각 업무 단계의 상태를 한눈에 점검 + 시나리오 자동 테스트 러너
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box, Typography, Paper, Button, Stack, Alert, AlertTitle, Chip,
   Divider, LinearProgress, Tooltip, IconButton, alpha, useTheme, Grid,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
+  Collapse, CircularProgress,
 } from '@mui/material';
 import {
   CheckCircle as PassIcon,
@@ -27,11 +28,22 @@ import {
   OpenInNew as LinkIcon,
   Science as TestIcon,
   DeleteForever as ResetIcon,
+  PlayArrow as PlayIcon,
+  Stop as StopIcon,
+  ExpandMore as ExpandIcon,
+  ExpandLess as CollapseIcon,
+  Timer as TimerIcon,
+  CheckCircleOutline as StepPassIcon,
+  ErrorOutline as StepFailIcon,
+  HourglassEmpty as StepWaitIcon,
+  FiberManualRecord as StepDotIcon,
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
 import { useAppRouter } from '@/lib/navigation';
 import { useSnackbar } from 'notistack';
 import { AppPageContainer, AppPageHeader } from '@/components/ui';
+
+// ─── 타입 정의 ────────────────────────────────────────
 
 interface CheckItem {
   step: string;
@@ -52,6 +64,26 @@ interface HealthCheckResponse {
     bank_import_jobs: number;
   };
 }
+
+interface ScenarioStep {
+  step: number;
+  name: string;
+}
+
+interface StepResult {
+  step: number;
+  name: string;
+  status: 'pass' | 'fail' | 'warn';
+  duration_ms: number;
+  message: string;
+  details: Record<string, unknown>;
+  error: string | null;
+  context: Record<string, unknown>;
+}
+
+type StepState = 'idle' | 'running' | 'pass' | 'fail' | 'skipped';
+
+// ─── 상수 ──────────────────────────────────────────────
 
 const STATUS_CONFIG = {
   pass: { icon: PassIcon, color: 'success' as const, label: '정상' },
@@ -116,11 +148,14 @@ const DETAIL_LABELS: Record<string, string> = {
   payments: '송금(레거시)',
 };
 
+// ─── 컴포넌트 ──────────────────────────────────────────
+
 export default function FlowTestPage() {
   const theme = useTheme();
   const router = useAppRouter();
   const { enqueueSnackbar } = useSnackbar();
 
+  // 헬스체크 상태
   const [data, setData] = useState<HealthCheckResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
@@ -129,6 +164,21 @@ export default function FlowTestPage() {
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [resetting, setResetting] = useState(false);
+
+  // 시나리오 테스트 러너 상태
+  const [scenarioOpen, setScenarioOpen] = useState(false);
+  const [scenarioRunning, setScenarionRunning] = useState(false);
+  const [scenarioSteps, setScenarioSteps] = useState<ScenarioStep[]>([]);
+  const [stepStates, setStepStates] = useState<Record<number, StepState>>({});
+  const [stepResults, setStepResults] = useState<Record<number, StepResult>>({});
+  const [expandedStep, setExpandedStep] = useState<number | null>(null);
+  const [scenarioContext, setScenarioContext] = useState<Record<string, unknown>>({});
+  const [scenarioStartTime, setScenarioStartTime] = useState<number | null>(null);
+  const [scenarioElapsed, setScenarioElapsed] = useState(0);
+  const stopRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ─── 헬스체크 ────────────────────────────────
 
   const runCheck = useCallback(async () => {
     setLoading(true);
@@ -145,6 +195,8 @@ export default function FlowTestPage() {
 
   useEffect(() => { runCheck(); }, [runCheck]);
 
+  // ─── 초기화 ──────────────────────────────────
+
   const handleResetAll = useCallback(async () => {
     setResetting(true);
     try {
@@ -153,7 +205,6 @@ export default function FlowTestPage() {
       enqueueSnackbar(`전체 데이터 초기화 완료 (총 ${result.total_deleted.toLocaleString()}건 삭제)`, { variant: 'success' });
       setResetDialogOpen(false);
       setResetConfirmText('');
-      // 초기화 후 자동 재점검
       runCheck();
     } catch {
       enqueueSnackbar('데이터 초기화에 실패했습니다.', { variant: 'error' });
@@ -161,6 +212,120 @@ export default function FlowTestPage() {
       setResetting(false);
     }
   }, [enqueueSnackbar, runCheck]);
+
+  // ─── 시나리오 러너 ──────────────────────────
+
+  // 단계 목록 로드
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await settlementApi.flowTestGetSteps();
+        const d = res.data as unknown as { total_steps: number; steps: ScenarioStep[] };
+        setScenarioSteps(d.steps);
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  const startScenario = useCallback(async () => {
+    if (scenarioRunning) return;
+    stopRef.current = false;
+    setScenarionRunning(true);
+
+    // 초기화
+    const initialStates: Record<number, StepState> = {};
+    scenarioSteps.forEach(s => { initialStates[s.step] = 'idle'; });
+    setStepStates(initialStates);
+    setStepResults({});
+    setExpandedStep(null);
+    setScenarioOpen(true);
+
+    const startTs = Date.now();
+    setScenarioStartTime(startTs);
+    setScenarioElapsed(0);
+    timerRef.current = setInterval(() => {
+      setScenarioElapsed(Date.now() - startTs);
+    }, 100);
+
+    let ctx: Record<string, unknown> = {};
+    setScenarioContext({});
+
+    for (const s of scenarioSteps) {
+      if (stopRef.current) {
+        setStepStates(prev => ({ ...prev, [s.step]: 'skipped' }));
+        continue;
+      }
+
+      // 현재 단계 실행 중
+      setStepStates(prev => ({ ...prev, [s.step]: 'running' }));
+      setExpandedStep(s.step);
+
+      try {
+        const res = await settlementApi.flowTestRunStep(s.step, ctx);
+        const result = res.data as unknown as StepResult;
+
+        // context 업데이트
+        if (result.context) {
+          ctx = { ...ctx, ...result.context };
+          setScenarioContext(ctx);
+        }
+
+        const state: StepState = result.status === 'pass' ? 'pass' : 'fail';
+        setStepStates(prev => ({ ...prev, [s.step]: state }));
+        setStepResults(prev => ({ ...prev, [s.step]: result }));
+
+        // 실패 시 자동 확장
+        if (result.status === 'fail') {
+          setExpandedStep(s.step);
+        }
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : '알 수 없는 오류';
+        setStepStates(prev => ({ ...prev, [s.step]: 'fail' }));
+        setStepResults(prev => ({
+          ...prev,
+          [s.step]: {
+            step: s.step,
+            name: s.name,
+            status: 'fail',
+            duration_ms: 0,
+            message: `API 호출 실패: ${errorMessage}`,
+            details: {},
+            error: errorMessage,
+            context: ctx,
+          },
+        }));
+        setExpandedStep(s.step);
+      }
+    }
+
+    if (timerRef.current) clearInterval(timerRef.current);
+    setScenarioElapsed(Date.now() - startTs);
+    setScenarionRunning(false);
+
+    // 완료 후 헬스체크 갱신
+    runCheck();
+  }, [scenarioRunning, scenarioSteps, runCheck]);
+
+  const stopScenario = useCallback(() => {
+    stopRef.current = true;
+    if (timerRef.current) clearInterval(timerRef.current);
+  }, []);
+
+  // cleanup timer
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
+  // ─── 시나리오 통계 계산 ──────────────────────
+
+  const passCount = Object.values(stepStates).filter(s => s === 'pass').length;
+  const failCount = Object.values(stepStates).filter(s => s === 'fail').length;
+  const totalSteps = scenarioSteps.length;
+  const completedCount = passCount + failCount;
+  const progress = totalSteps > 0 ? (completedCount / totalSteps) * 100 : 0;
+
+  // ─── 렌더링 ──────────────────────────────────
 
   const overallConfig = data ? STATUS_CONFIG[data.overall] : STATUS_CONFIG.info;
   const OverallIcon = overallConfig.icon;
@@ -191,6 +356,309 @@ export default function FlowTestPage() {
       />
 
       {loading && !data && <LinearProgress sx={{ mb: 2 }} />}
+
+      {/* ── 시나리오 테스트 러너 ────────────────────────── */}
+      <Paper
+        variant="outlined"
+        sx={{
+          mb: 3,
+          overflow: 'hidden',
+          borderColor: scenarioRunning
+            ? alpha(theme.palette.info.main, 0.5)
+            : alpha(theme.palette.divider, 1),
+          transition: 'border-color 0.3s',
+        }}
+      >
+        {/* 헤더 */}
+        <Box
+          sx={{
+            px: 3, py: 2,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.06)}, ${alpha(theme.palette.primary.main, 0.03)})`,
+            borderBottom: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+            cursor: 'pointer',
+          }}
+          onClick={() => setScenarioOpen(!scenarioOpen)}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <TestIcon sx={{ color: 'info.main', fontSize: 28 }} />
+            <Box>
+              <Typography variant="subtitle1" fontWeight={700}>
+                시나리오 자동 테스트
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                12단계 전체 플로우를 자동으로 실행하고 결과를 검증합니다
+              </Typography>
+            </Box>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {completedCount > 0 && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mr: 1 }}>
+                <Chip
+                  size="small"
+                  label={`${passCount} 통과`}
+                  color="success"
+                  variant="outlined"
+                  sx={{ fontWeight: 600 }}
+                />
+                {failCount > 0 && (
+                  <Chip
+                    size="small"
+                    label={`${failCount} 실패`}
+                    color="error"
+                    variant="outlined"
+                    sx={{ fontWeight: 600 }}
+                  />
+                )}
+              </Box>
+            )}
+            {scenarioRunning ? (
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                startIcon={<StopIcon />}
+                onClick={(e) => { e.stopPropagation(); stopScenario(); }}
+              >
+                중지
+              </Button>
+            ) : (
+              <Button
+                size="small"
+                variant="contained"
+                color="info"
+                startIcon={<PlayIcon />}
+                onClick={(e) => { e.stopPropagation(); startScenario(); }}
+                disabled={scenarioSteps.length === 0}
+              >
+                테스트 실행
+              </Button>
+            )}
+            <IconButton size="small">
+              {scenarioOpen ? <CollapseIcon /> : <ExpandIcon />}
+            </IconButton>
+          </Box>
+        </Box>
+
+        {/* 진행 바 */}
+        {scenarioRunning && (
+          <LinearProgress
+            variant="determinate"
+            value={progress}
+            sx={{
+              height: 3,
+              '& .MuiLinearProgress-bar': {
+                transition: 'transform 0.5s ease',
+              },
+            }}
+          />
+        )}
+
+        {/* 본문 */}
+        <Collapse in={scenarioOpen}>
+          <Box sx={{ p: 0 }}>
+            {/* 경과 시간 + 요약 */}
+            {(scenarioRunning || completedCount > 0) && (
+              <Box
+                sx={{
+                  px: 3, py: 1.5,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  bgcolor: alpha(theme.palette.background.default, 0.5),
+                  borderBottom: `1px solid ${theme.palette.divider}`,
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <TimerIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                  <Typography variant="caption" color="text.secondary" fontFamily="monospace">
+                    {(scenarioElapsed / 1000).toFixed(1)}s
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ mx: 1 }}>|</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {completedCount}/{totalSteps} 완료
+                  </Typography>
+                </Box>
+                {!scenarioRunning && completedCount === totalSteps && (
+                  <Chip
+                    size="small"
+                    label={failCount === 0 ? '전체 통과' : `${failCount}건 실패`}
+                    color={failCount === 0 ? 'success' : 'error'}
+                    sx={{ fontWeight: 700 }}
+                  />
+                )}
+              </Box>
+            )}
+
+            {/* 단계별 결과 */}
+            {scenarioSteps.map((s) => {
+              const state = stepStates[s.step] || 'idle';
+              const result = stepResults[s.step];
+              const isExpanded = expandedStep === s.step;
+
+              return (
+                <Box
+                  key={s.step}
+                  sx={{
+                    borderBottom: `1px solid ${alpha(theme.palette.divider, 0.3)}`,
+                    '&:last-child': { borderBottom: 'none' },
+                  }}
+                >
+                  {/* 단계 헤더 */}
+                  <Box
+                    sx={{
+                      px: 3, py: 1.5,
+                      display: 'flex', alignItems: 'center', gap: 1.5,
+                      cursor: result ? 'pointer' : 'default',
+                      '&:hover': result ? {
+                        bgcolor: alpha(theme.palette.action.hover, 0.04),
+                      } : {},
+                      bgcolor: state === 'running'
+                        ? alpha(theme.palette.info.main, 0.04)
+                        : 'transparent',
+                      transition: 'background-color 0.3s',
+                    }}
+                    onClick={() => result && setExpandedStep(isExpanded ? null : s.step)}
+                  >
+                    {/* 상태 아이콘 */}
+                    <Box sx={{ width: 28, display: 'flex', justifyContent: 'center' }}>
+                      {state === 'running' ? (
+                        <CircularProgress size={20} thickness={5} />
+                      ) : state === 'pass' ? (
+                        <StepPassIcon sx={{ color: 'success.main', fontSize: 22 }} />
+                      ) : state === 'fail' ? (
+                        <StepFailIcon sx={{ color: 'error.main', fontSize: 22 }} />
+                      ) : state === 'skipped' ? (
+                        <StepWaitIcon sx={{ color: 'text.disabled', fontSize: 22 }} />
+                      ) : (
+                        <StepDotIcon sx={{ color: 'text.disabled', fontSize: 10 }} />
+                      )}
+                    </Box>
+
+                    {/* 단계 번호 + 이름 */}
+                    <Chip
+                      label={s.step}
+                      size="small"
+                      sx={{
+                        minWidth: 28, height: 22,
+                        fontWeight: 700, fontSize: '0.7rem',
+                        bgcolor: state === 'pass'
+                          ? alpha(theme.palette.success.main, 0.1)
+                          : state === 'fail'
+                            ? alpha(theme.palette.error.main, 0.1)
+                            : alpha(theme.palette.action.selected, 0.08),
+                        color: state === 'pass'
+                          ? 'success.dark'
+                          : state === 'fail'
+                            ? 'error.dark'
+                            : 'text.secondary',
+                      }}
+                    />
+                    <Typography
+                      variant="body2"
+                      fontWeight={state === 'running' ? 700 : 500}
+                      sx={{
+                        flex: 1,
+                        color: state === 'idle' ? 'text.secondary' : 'text.primary',
+                      }}
+                    >
+                      {s.name}
+                    </Typography>
+
+                    {/* 시간 + 상태 */}
+                    {result && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="caption" color="text.disabled" fontFamily="monospace">
+                          {result.duration_ms}ms
+                        </Typography>
+                        {result && <IconButton size="small" sx={{ p: 0.25 }}>
+                          {isExpanded ? <CollapseIcon fontSize="small" /> : <ExpandIcon fontSize="small" />}
+                        </IconButton>}
+                      </Box>
+                    )}
+                  </Box>
+
+                  {/* 상세 결과 */}
+                  <Collapse in={isExpanded && !!result}>
+                    {result && (
+                      <Box
+                        sx={{
+                          px: 3, pb: 2, pt: 0.5, ml: 5.5,
+                          borderLeft: `2px solid ${
+                            result.status === 'pass'
+                              ? theme.palette.success.main
+                              : theme.palette.error.main
+                          }`,
+                        }}
+                      >
+                        {/* 메시지 */}
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            mb: 1,
+                            color: result.status === 'pass' ? 'success.dark' : 'error.dark',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {result.message}
+                        </Typography>
+
+                        {/* 상세 데이터 */}
+                        {Object.keys(result.details).length > 0 && (
+                          <Box
+                            sx={{
+                              p: 1.5,
+                              borderRadius: 1,
+                              bgcolor: alpha(theme.palette.background.default, 0.7),
+                              border: `1px solid ${theme.palette.divider}`,
+                              fontSize: '0.75rem',
+                              fontFamily: 'monospace',
+                              maxHeight: 300,
+                              overflow: 'auto',
+                            }}
+                          >
+                            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                              {JSON.stringify(result.details, null, 2)}
+                            </pre>
+                          </Box>
+                        )}
+
+                        {/* 에러 트레이스백 */}
+                        {result.error && (
+                          <Alert severity="error" sx={{ mt: 1 }} variant="outlined">
+                            <AlertTitle>에러 상세</AlertTitle>
+                            <Box
+                              component="pre"
+                              sx={{
+                                m: 0, fontSize: '0.7rem', fontFamily: 'monospace',
+                                whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                                maxHeight: 200, overflow: 'auto',
+                              }}
+                            >
+                              {result.error}
+                            </Box>
+                          </Alert>
+                        )}
+                      </Box>
+                    )}
+                  </Collapse>
+                </Box>
+              );
+            })}
+
+            {/* 빈 상태 */}
+            {scenarioSteps.length > 0 && completedCount === 0 && !scenarioRunning && (
+              <Box sx={{ px: 3, py: 4, textAlign: 'center' }}>
+                <PlayIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+                <Typography variant="body2" color="text.secondary">
+                  상단의 <strong>테스트 실행</strong> 버튼을 클릭하여 시나리오를 시작하세요
+                </Typography>
+                <Typography variant="caption" color="text.disabled">
+                  전체 데이터를 초기화한 후 12단계 플로우를 자동으로 실행합니다
+                </Typography>
+              </Box>
+            )}
+          </Box>
+        </Collapse>
+      </Paper>
 
       {data && (
         <Stack spacing={3}>
@@ -371,6 +839,7 @@ export default function FlowTestPage() {
           </Grid>
         </Stack>
       )}
+
       {/* 전체 데이터 초기화 확인 다이얼로그 */}
       <Dialog
         open={resetDialogOpen}

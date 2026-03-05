@@ -989,6 +989,12 @@ export const settlementApi = {
 
   flowTestResetAll: () =>
     api.delete<ApiResponse<{ total_deleted: number; summary: Record<string, number> }>>('/settlement/flow-test/reset-all'),
+
+  flowTestRunStep: (step: number, context: Record<string, unknown> = {}) =>
+    api.post<ApiResponse<unknown>>('/settlement/flow-test/scenario/run-step', { step, context }),
+
+  flowTestGetSteps: () =>
+    api.get<ApiResponse<{ total_steps: number; steps: { step: number; name: string }[] }>>('/settlement/flow-test/scenario/steps'),
 };
 
 export default api;
