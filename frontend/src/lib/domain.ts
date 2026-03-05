@@ -120,6 +120,7 @@ export const DOMAIN_ROUTES = {
       '/settlement/lock',
       '/settlement/activity',
       '/settlement/statistics',
+      '/settlement/flow-test',
       '/settings',
       '/login',
     ],

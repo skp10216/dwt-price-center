@@ -982,6 +982,10 @@ export const settlementApi = {
     api.get<ApiResponse<unknown>>('/settlement/statistics/completion-rate', { params: { months } }),
   statsCashLag: (limit?: number) =>
     api.get<ApiResponse<unknown>>('/settlement/statistics/cash-lag', { params: { limit } }),
+
+  // ── 플로우 테스트 ────────────────────────────────────────────
+  flowTestHealthCheck: () =>
+    api.get<ApiResponse<unknown>>('/settlement/flow-test/health-check'),
 };
 
 export default api;

@@ -4,11 +4,12 @@
 """
 
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal as _Decimal
 from typing import Optional, List
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+from app.schemas.common import FloatDecimal
 
 
 # ============================================================================
@@ -59,10 +60,10 @@ class CounterpartyResponse(BaseModel):
     is_favorite: bool = False  # API 레이어에서 주입
     branch_id: Optional[UUID] = None
     branch_name: Optional[str] = None  # API 레이어에서 주입
-    total_sales: Decimal = Decimal("0")              # 총 판매액 (API 레이어에서 주입)
-    total_purchases: Decimal = Decimal("0")           # 총 매입액 (API 레이어에서 주입)
-    outstanding_receivable: Decimal = Decimal("0")    # 미수 잔액 (API 레이어에서 주입)
-    outstanding_payable: Decimal = Decimal("0")       # 미지급 잔액 (API 레이어에서 주입)
+    total_sales: FloatDecimal = _Decimal("0")              # 총 판매액 (API 레이어에서 주입)
+    total_purchases: FloatDecimal = _Decimal("0")           # 총 매입액 (API 레이어에서 주입)
+    outstanding_receivable: FloatDecimal = _Decimal("0")    # 미수 잔액 (API 레이어에서 주입)
+    outstanding_payable: FloatDecimal = _Decimal("0")       # 미지급 잔액 (API 레이어에서 주입)
     created_at: datetime
     updated_at: datetime
     aliases: List[CounterpartyAliasResponse] = []
@@ -77,10 +78,10 @@ class CounterpartySummary(BaseModel):
     name: str
     code: Optional[str] = None
     counterparty_type: str
-    total_sales_amount: Decimal = Decimal("0")
-    total_purchase_amount: Decimal = Decimal("0")
-    total_receivable: Decimal = Decimal("0")  # 미수 합계
-    total_payable: Decimal = Decimal("0")     # 미지급 합계
+    total_sales_amount: FloatDecimal = _Decimal("0")
+    total_purchase_amount: FloatDecimal = _Decimal("0")
+    total_receivable: FloatDecimal = _Decimal("0")  # 미수 합계
+    total_payable: FloatDecimal = _Decimal("0")     # 미지급 합계
     voucher_count: int = 0
 
 
@@ -95,18 +96,18 @@ class VoucherCreate(BaseModel):
     voucher_number: str = Field(..., min_length=1, max_length=50)
     voucher_type: str = Field(..., description="sales/purchase")
     quantity: int = 0
-    purchase_cost: Optional[Decimal] = None
-    deduction_amount: Optional[Decimal] = None
-    actual_purchase_price: Optional[Decimal] = None
-    avg_unit_price: Optional[Decimal] = None
-    purchase_deduction: Optional[Decimal] = None
-    as_cost: Optional[Decimal] = None
-    sale_amount: Optional[Decimal] = None
-    sale_deduction: Optional[Decimal] = None
-    actual_sale_price: Optional[Decimal] = None
-    profit: Optional[Decimal] = None
-    profit_rate: Optional[Decimal] = None
-    avg_margin: Optional[Decimal] = None
+    purchase_cost: Optional[FloatDecimal] = None
+    deduction_amount: Optional[FloatDecimal] = None
+    actual_purchase_price: Optional[FloatDecimal] = None
+    avg_unit_price: Optional[FloatDecimal] = None
+    purchase_deduction: Optional[FloatDecimal] = None
+    as_cost: Optional[FloatDecimal] = None
+    sale_amount: Optional[FloatDecimal] = None
+    sale_deduction: Optional[FloatDecimal] = None
+    actual_sale_price: Optional[FloatDecimal] = None
+    profit: Optional[FloatDecimal] = None
+    profit_rate: Optional[FloatDecimal] = None
+    avg_margin: Optional[FloatDecimal] = None
     upm_settlement_status: Optional[str] = None
     payment_info: Optional[str] = None
     memo: Optional[str] = None
@@ -115,18 +116,18 @@ class VoucherCreate(BaseModel):
 class VoucherUpdate(BaseModel):
     """전표 수정"""
     quantity: Optional[int] = None
-    purchase_cost: Optional[Decimal] = None
-    deduction_amount: Optional[Decimal] = None
-    actual_purchase_price: Optional[Decimal] = None
-    avg_unit_price: Optional[Decimal] = None
-    purchase_deduction: Optional[Decimal] = None
-    as_cost: Optional[Decimal] = None
-    sale_amount: Optional[Decimal] = None
-    sale_deduction: Optional[Decimal] = None
-    actual_sale_price: Optional[Decimal] = None
-    profit: Optional[Decimal] = None
-    profit_rate: Optional[Decimal] = None
-    avg_margin: Optional[Decimal] = None
+    purchase_cost: Optional[FloatDecimal] = None
+    deduction_amount: Optional[FloatDecimal] = None
+    actual_purchase_price: Optional[FloatDecimal] = None
+    avg_unit_price: Optional[FloatDecimal] = None
+    purchase_deduction: Optional[FloatDecimal] = None
+    as_cost: Optional[FloatDecimal] = None
+    sale_amount: Optional[FloatDecimal] = None
+    sale_deduction: Optional[FloatDecimal] = None
+    actual_sale_price: Optional[FloatDecimal] = None
+    profit: Optional[FloatDecimal] = None
+    profit_rate: Optional[FloatDecimal] = None
+    avg_margin: Optional[FloatDecimal] = None
     upm_settlement_status: Optional[str] = None
     payment_info: Optional[str] = None
     memo: Optional[str] = None
@@ -140,28 +141,28 @@ class VoucherResponse(BaseModel):
     voucher_number: str
     voucher_type: str
     quantity: int
-    total_amount: Decimal
-    purchase_cost: Optional[Decimal] = None
-    deduction_amount: Optional[Decimal] = None
-    actual_purchase_price: Optional[Decimal] = None
-    avg_unit_price: Optional[Decimal] = None
-    purchase_deduction: Optional[Decimal] = None
-    as_cost: Optional[Decimal] = None
-    sale_amount: Optional[Decimal] = None
-    sale_deduction: Optional[Decimal] = None
-    actual_sale_price: Optional[Decimal] = None
-    profit: Optional[Decimal] = None
-    profit_rate: Optional[Decimal] = None
-    avg_margin: Optional[Decimal] = None
+    total_amount: FloatDecimal
+    purchase_cost: Optional[FloatDecimal] = None
+    deduction_amount: Optional[FloatDecimal] = None
+    actual_purchase_price: Optional[FloatDecimal] = None
+    avg_unit_price: Optional[FloatDecimal] = None
+    purchase_deduction: Optional[FloatDecimal] = None
+    as_cost: Optional[FloatDecimal] = None
+    sale_amount: Optional[FloatDecimal] = None
+    sale_deduction: Optional[FloatDecimal] = None
+    actual_sale_price: Optional[FloatDecimal] = None
+    profit: Optional[FloatDecimal] = None
+    profit_rate: Optional[FloatDecimal] = None
+    avg_margin: Optional[FloatDecimal] = None
     upm_settlement_status: Optional[str] = None
     payment_info: Optional[str] = None
     settlement_status: str
     payment_status: str
     memo: Optional[str] = None
     # 계산 필드
-    total_receipts: Decimal = Decimal("0")   # 누적 입금액
-    total_payments: Decimal = Decimal("0")   # 누적 송금액
-    balance: Decimal = Decimal("0")          # 잔액
+    total_receipts: FloatDecimal = _Decimal("0")   # 누적 입금액
+    total_payments: FloatDecimal = _Decimal("0")   # 누적 송금액
+    balance: FloatDecimal = _Decimal("0")          # 잔액
     created_at: datetime
     updated_at: datetime
 
@@ -182,7 +183,7 @@ class VoucherListResponse(BaseModel):
 
 class ReceiptCreate(BaseModel):
     receipt_date: date
-    amount: Decimal = Field(..., gt=0, description="입금액 (양수)")
+    amount: FloatDecimal = Field(..., gt=0, description="입금액 (양수)")
     memo: Optional[str] = None
 
 
@@ -190,7 +191,7 @@ class ReceiptResponse(BaseModel):
     id: UUID
     voucher_id: UUID
     receipt_date: date
-    amount: Decimal
+    amount: FloatDecimal
     memo: Optional[str] = None
     created_by: UUID
     created_at: datetime
@@ -205,7 +206,7 @@ class ReceiptResponse(BaseModel):
 
 class PaymentCreate(BaseModel):
     payment_date: date
-    amount: Decimal = Field(..., gt=0, description="송금액 (양수)")
+    amount: FloatDecimal = Field(..., gt=0, description="송금액 (양수)")
     memo: Optional[str] = None
 
 
@@ -213,7 +214,7 @@ class PaymentResponse(BaseModel):
     id: UUID
     voucher_id: UUID
     payment_date: date
-    amount: Decimal
+    amount: FloatDecimal
     memo: Optional[str] = None
     created_by: UUID
     created_at: datetime
@@ -232,7 +233,7 @@ class AllocationDetailItem(BaseModel):
     transaction_id: UUID
     transaction_date: Optional[date] = None
     transaction_type: Optional[str] = None  # DEPOSIT / WITHDRAWAL
-    allocated_amount: Decimal
+    allocated_amount: FloatDecimal
     memo: Optional[str] = None
     created_at: datetime
 
@@ -385,21 +386,25 @@ class UnmatchedMapRequest(BaseModel):
 
 class DashboardSummary(BaseModel):
     """대시보드 정산 요약"""
-    total_receivable: Decimal = Decimal("0")     # 미수 총액
-    total_payable: Decimal = Decimal("0")        # 미지급 총액
+    total_receivable: FloatDecimal = _Decimal("0")     # 미수 총액 (음수면 초과수금)
+    total_payable: FloatDecimal = _Decimal("0")        # 미지급 총액 (음수면 초과지급)
     settling_count: int = 0                       # 정산중 건수
     locked_count: int = 0                         # 마감 건수
     open_sales_count: int = 0                     # 미정산 판매 건수
     unpaid_purchase_count: int = 0                # 미지급 매입 건수
     pending_changes_count: int = 0                # 대기 중 변경 요청
     unmatched_count: int = 0                      # 미매칭 거래처 수
+    total_deposit: FloatDecimal = _Decimal("0")        # 총 입금
+    total_withdrawal: FloatDecimal = _Decimal("0")     # 총 출금
+    total_sales: FloatDecimal = _Decimal("0")          # 판매 전표 총액
+    total_purchase: FloatDecimal = _Decimal("0")       # 매입 전표 총액
 
 
 class TopCounterpartyItem(BaseModel):
     """미수/미지급 상위 거래처"""
     counterparty_id: UUID
     counterparty_name: str
-    amount: Decimal
+    amount: FloatDecimal
     voucher_count: int
 
 
@@ -411,9 +416,9 @@ class ReceivableItem(BaseModel):
     """미수 현황 항목"""
     counterparty_id: UUID
     counterparty_name: str
-    total_amount: Decimal
-    total_received: Decimal
-    balance: Decimal  # 미수 잔액
+    total_amount: FloatDecimal
+    total_received: FloatDecimal
+    balance: FloatDecimal  # 미수 잔액
     voucher_count: int
 
 
@@ -421,9 +426,9 @@ class PayableItem(BaseModel):
     """미지급 현황 항목"""
     counterparty_id: UUID
     counterparty_name: str
-    total_amount: Decimal
-    total_paid: Decimal
-    balance: Decimal  # 미지급 잔액
+    total_amount: FloatDecimal
+    total_paid: FloatDecimal
+    balance: FloatDecimal  # 미지급 잔액
     voucher_count: int
 
 
@@ -464,7 +469,7 @@ class TransactionCreate(BaseModel):
     counterparty_id: UUID
     transaction_type: str = Field(..., description="deposit/withdrawal")
     transaction_date: date
-    amount: Decimal = Field(..., gt=0, description="금액 (양수)")
+    amount: FloatDecimal = Field(..., gt=0, description="금액 (양수)")
     memo: Optional[str] = None
     bank_reference: Optional[str] = None
 
@@ -472,7 +477,7 @@ class TransactionCreate(BaseModel):
 class TransactionUpdate(BaseModel):
     """입출금 이벤트 수정 (PENDING 상태만)"""
     transaction_date: Optional[date] = None
-    amount: Optional[Decimal] = Field(None, gt=0)
+    amount: Optional[FloatDecimal] = Field(None, gt=0)
     memo: Optional[str] = None
 
 
@@ -482,9 +487,9 @@ class TransactionResponse(BaseModel):
     counterparty_name: Optional[str] = None
     transaction_type: str
     transaction_date: date
-    amount: Decimal
-    allocated_amount: Decimal = Decimal("0")
-    unallocated_amount: Decimal = Decimal("0")
+    amount: FloatDecimal
+    allocated_amount: FloatDecimal = _Decimal("0")
+    unallocated_amount: FloatDecimal = _Decimal("0")
     memo: Optional[str] = None
     source: str
     bank_reference: Optional[str] = None
@@ -529,7 +534,7 @@ class TransactionListResponse(BaseModel):
 class AllocationItem(BaseModel):
     """배분 단일 항목"""
     voucher_id: UUID
-    amount: Decimal = Field(..., gt=0)
+    amount: FloatDecimal = Field(..., gt=0)
 
 
 class AllocationRequest(BaseModel):
@@ -549,8 +554,8 @@ class AllocationResponse(BaseModel):
     voucher_id: UUID
     voucher_number: Optional[str] = None
     voucher_trade_date: Optional[date] = None
-    voucher_total_amount: Optional[Decimal] = None
-    allocated_amount: Decimal
+    voucher_total_amount: Optional[FloatDecimal] = None
+    allocated_amount: FloatDecimal
     allocation_order: int
     memo: Optional[str] = None
     created_at: datetime
@@ -568,9 +573,9 @@ class CounterpartyTimelineItem(BaseModel):
     id: UUID
     transaction_type: str
     transaction_date: date
-    amount: Decimal
-    allocated_amount: Decimal
-    unallocated_amount: Decimal
+    amount: FloatDecimal
+    allocated_amount: FloatDecimal
+    unallocated_amount: FloatDecimal
     source: str
     status: str
     memo: Optional[str] = None
@@ -582,14 +587,14 @@ class CounterpartyBalanceSummary(BaseModel):
     """거래처 잔액 요약"""
     counterparty_id: UUID
     counterparty_name: str
-    total_deposits: Decimal = Decimal("0")
-    total_withdrawals: Decimal = Decimal("0")
-    total_allocated_deposits: Decimal = Decimal("0")
-    total_allocated_withdrawals: Decimal = Decimal("0")
-    unallocated_deposits: Decimal = Decimal("0")
-    unallocated_withdrawals: Decimal = Decimal("0")
-    total_receivable: Decimal = Decimal("0")   # 미수
-    total_payable: Decimal = Decimal("0")      # 미지급
+    total_deposits: FloatDecimal = _Decimal("0")
+    total_withdrawals: FloatDecimal = _Decimal("0")
+    total_allocated_deposits: FloatDecimal = _Decimal("0")
+    total_allocated_withdrawals: FloatDecimal = _Decimal("0")
+    unallocated_deposits: FloatDecimal = _Decimal("0")
+    unallocated_withdrawals: FloatDecimal = _Decimal("0")
+    total_receivable: FloatDecimal = _Decimal("0")   # 미수
+    total_payable: FloatDecimal = _Decimal("0")      # 미지급
 
 
 # ============================================================================
@@ -599,7 +604,7 @@ class CounterpartyBalanceSummary(BaseModel):
 class NettingVoucherItem(BaseModel):
     """상계 전표 항목"""
     voucher_id: UUID
-    amount: Decimal = Field(..., gt=0)
+    amount: FloatDecimal = Field(..., gt=0)
 
 
 class NettingCreateRequest(BaseModel):
@@ -616,8 +621,8 @@ class NettingVoucherLinkResponse(BaseModel):
     voucher_number: Optional[str] = None
     voucher_type: Optional[str] = None
     trade_date: Optional[date] = None
-    total_amount: Optional[Decimal] = None
-    netted_amount: Decimal
+    total_amount: Optional[FloatDecimal] = None
+    netted_amount: FloatDecimal
 
     class Config:
         from_attributes = True
@@ -628,7 +633,7 @@ class NettingResponse(BaseModel):
     counterparty_id: UUID
     counterparty_name: Optional[str] = None
     netting_date: date
-    netting_amount: Decimal
+    netting_amount: FloatDecimal
     status: str
     memo: Optional[str] = None
     created_by: UUID
@@ -660,9 +665,9 @@ class NettingEligibleVoucher(BaseModel):
     voucher_number: str
     voucher_type: str
     trade_date: date
-    total_amount: Decimal
-    already_allocated: Decimal = Decimal("0")
-    available_for_netting: Decimal = Decimal("0")
+    total_amount: FloatDecimal
+    already_allocated: FloatDecimal = _Decimal("0")
+    available_for_netting: FloatDecimal = _Decimal("0")
 
 
 class NettingEligibleResponse(BaseModel):
@@ -671,7 +676,7 @@ class NettingEligibleResponse(BaseModel):
     counterparty_name: str
     sales_vouchers: List[NettingEligibleVoucher] = []
     purchase_vouchers: List[NettingEligibleVoucher] = []
-    max_nettable_amount: Decimal = Decimal("0")
+    max_nettable_amount: FloatDecimal = _Decimal("0")
 
 
 # ============================================================================
@@ -720,13 +725,13 @@ class BankImportLineResponse(BaseModel):
     line_number: int
     transaction_date: date
     description: str
-    amount: Decimal
-    balance_after: Optional[Decimal] = None
+    amount: FloatDecimal
+    balance_after: Optional[FloatDecimal] = None
     counterparty_name_raw: Optional[str] = None
     counterparty_id: Optional[UUID] = None
     counterparty_name: Optional[str] = None  # API에서 주입
     status: str
-    match_confidence: Optional[Decimal] = None
+    match_confidence: Optional[FloatDecimal] = None
     duplicate_key: Optional[str] = None
     bank_reference: Optional[str] = None
     transaction_id: Optional[UUID] = None
@@ -786,7 +791,7 @@ class AdjustmentVoucherCreate(BaseModel):
     adjustment_type: str = Field(..., description="correction/return_/write_off/discount")
     adjustment_reason: str = Field(..., min_length=1, description="조정 사유")
     trade_date: date
-    total_amount: Decimal  # 음수 가능 (반품/대손)
+    total_amount: FloatDecimal  # 음수 가능 (반품/대손)
     quantity: int = 0
     memo: Optional[str] = None
 

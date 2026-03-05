@@ -82,6 +82,7 @@ import CorporateFareIcon from '@mui/icons-material/CorporateFare';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import DonutSmallIcon from '@mui/icons-material/DonutSmall';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import ScienceIcon from '@mui/icons-material/Science';
 import SpeedDial from '@mui/material/SpeedDial';
 import SpeedDialAction from '@mui/material/SpeedDialAction';
 import SpeedDialIcon from '@mui/material/SpeedDialIcon';
@@ -250,6 +251,7 @@ const settlementMenuGroups: MenuGroup[] = [
     items: [
       { id: 'stl-lock', label: '마감 관리', icon: <LockIcon />, path: '/settlement/lock' },
       { id: 'stl-activity', label: '작업 내역', icon: <ActivityIcon />, path: '/settlement/activity' },
+      { id: 'stl-flow-test', label: '플로우 점검', icon: <ScienceIcon />, path: '/settlement/flow-test' },
     ],
   },
 ];

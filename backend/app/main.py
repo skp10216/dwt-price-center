@@ -2,7 +2,10 @@
 단가표 통합 관리 시스템 - FastAPI 메인 애플리케이션
 """
 
+import json
 from contextlib import asynccontextmanager
+from decimal import Decimal
+from typing import Any
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +15,30 @@ from fastapi.exceptions import RequestValidationError
 from app.core.config import settings
 from app.core.database import init_db, AsyncSessionLocal
 from app.api.v1.router import api_router
+
+
+def _convert_decimals(obj: Any) -> Any:
+    """재귀적으로 Decimal을 float로 변환"""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, dict):
+        return {k: _convert_decimals(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_convert_decimals(i) for i in obj]
+    return obj
+
+
+class DecimalJSONResponse(JSONResponse):
+    """Decimal 안전 JSON 응답 — Pydantic 직렬화 후에도 문자열 Decimal을 float 변환"""
+    def render(self, content: Any) -> bytes:
+        content = _convert_decimals(content)
+        return json.dumps(
+            content,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":"),
+        ).encode("utf-8")
 
 
 @asynccontextmanager
@@ -39,6 +66,7 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
+    default_response_class=DecimalJSONResponse,
 )
 
 # CORS 설정

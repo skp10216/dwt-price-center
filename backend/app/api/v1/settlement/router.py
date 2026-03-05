@@ -21,6 +21,7 @@ from app.api.v1.settlement import (
     netting,
     bank_import,
     statistics,
+    flow_test,
 )
 
 settlement_router = APIRouter()
@@ -98,4 +99,9 @@ settlement_router.include_router(
 # 통계
 settlement_router.include_router(
     statistics.router, prefix="/statistics", tags=["정산-통계"]
+)
+
+# 플로우 테스트
+settlement_router.include_router(
+    flow_test.router, prefix="/flow-test", tags=["정산-플로우테스트"]
 )

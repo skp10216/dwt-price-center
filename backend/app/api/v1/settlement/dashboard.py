@@ -132,6 +132,10 @@ async def get_dashboard_summary(
         open_sales_count=open_sales,
         unpaid_purchase_count=unpaid_purchase,
         pending_changes_count=pending_changes,
+        total_deposit=legacy_received + txn_received,
+        total_withdrawal=legacy_paid + txn_paid,
+        total_sales=sales_total,
+        total_purchase=purchase_total,
     )
 
 

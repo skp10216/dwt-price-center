@@ -3,11 +3,24 @@
 API 응답 포맷 및 공통 타입 정의
 """
 
-from typing import Any, Generic, TypeVar, Optional
+from decimal import Decimal
+from typing import Any, Annotated, Generic, TypeVar, Optional
 from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+from pydantic.functional_serializers import PlainSerializer
+
+FloatDecimal = Annotated[
+    Decimal,
+    PlainSerializer(lambda v: float(v) if v is not None else 0.0, return_type=float),
+]
+"""Decimal → float 자동 직렬화 타입. JSON 응답에서 문자열 대신 숫자로 반환됨."""
+
+
+class DecimalSafeModel(BaseModel):
+    """하위 호환용 — settlement 스키마에서 BaseModel 대신 사용"""
+    pass
 
 
 # 제네릭 타입 변수
