@@ -81,6 +81,39 @@ const STEP_LINKS: Record<string, string> = {
 const formatNumber = (n: number) => new Intl.NumberFormat('ko-KR').format(Math.round(n));
 const formatWon = (n: number) => `${formatNumber(n)}원`;
 
+const DETAIL_LABELS: Record<string, string> = {
+  counterparties: '거래처',
+  counterparties_active: '활성 거래처',
+  aliases: '별칭',
+  alias_coverage: '별칭 커버리지(%)',
+  corporate_entities: '법인',
+  branches: '지사',
+  sales_count: '판매 전표',
+  sales_total: '판매 총액',
+  purchase_count: '매입 전표',
+  purchase_total: '매입 총액',
+  status_open: '미정산',
+  status_settling: '정산중',
+  status_settled: '정산완료',
+  status_locked: '마감',
+  deposit_active_count: '입금 건수',
+  deposit_active_total: '입금 총액',
+  withdrawal_active_count: '출금 건수',
+  withdrawal_active_total: '출금 총액',
+  cancelled_count: '취소 건수',
+  allocation_count: '배분 건수',
+  allocation_total: '배분 총액',
+  pending_transactions: '미배분 건수',
+  total_jobs: '작업 수',
+  total_lines: '라인 수',
+  confirmed_lines: '확정 라인',
+  reviewing_jobs: '검수 대기',
+  receivable: '미수금',
+  payable: '미지급',
+  receipts: '입금(레거시)',
+  payments: '송금(레거시)',
+};
+
 export default function FlowTestPage() {
   const theme = useTheme();
   const router = useAppRouter();
@@ -259,7 +292,7 @@ export default function FlowTestPage() {
                         return (
                           <Box key={key} sx={{ minWidth: 80 }}>
                             <Typography variant="caption" color="text.disabled" sx={{ display: 'block' }}>
-                              {key.replace(/_/g, ' ')}
+                              {DETAIL_LABELS[key] || key.replace(/_/g, ' ')}
                             </Typography>
                             <Typography variant="body2" fontWeight={600}>
                               {displayVal}
