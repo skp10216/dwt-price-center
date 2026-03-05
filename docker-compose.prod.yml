@@ -1,16 +1,22 @@
 # 프로덕션 오버라이드 — docker-compose.yml과 함께 사용
-# 실행: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# 로컬 빌드: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# CI 배포:   docker compose -f docker-compose.yml -f docker-compose.prod.yml pull && ... up -d
 
 services:
   postgres:
     # 외부 포트 노출 제거 (보안)
     ports: !override []
+    mem_limit: 512m
+    memswap_limit: 768m
 
   redis:
     # 외부 포트 노출 제거 (보안)
     ports: !override []
+    mem_limit: 128m
+    memswap_limit: 192m
 
   backend:
+    image: ghcr.io/skp10216/dwt-price-center-backend:${IMAGE_TAG:-latest}
     # 소스 마운트 제거, reload 제거
     volumes:
       - upload_files:/app/uploads
@@ -27,18 +33,26 @@ services:
       - USER_DOMAIN=${USER_DOMAIN:-dwt.kr}
       - ADMIN_DOMAIN=${ADMIN_DOMAIN:-admin.dwt.kr}
       - SETTLEMENT_DOMAIN=${SETTLEMENT_DOMAIN:-settlement.dwt.kr}
+    mem_limit: 768m
+    memswap_limit: 1024m
 
   worker:
+    image: ghcr.io/skp10216/dwt-price-center-worker:${IMAGE_TAG:-latest}
     # 소스 마운트 제거
     volumes:
       - upload_files:/app/uploads
+    mem_limit: 512m
+    memswap_limit: 768m
 
   adminer:
     # 외부 포트 노출 제거 (보안)
     ports: !override
       - "127.0.0.1:8180:8080"
+    mem_limit: 128m
+    memswap_limit: 192m
 
   frontend:
+    image: ghcr.io/skp10216/dwt-price-center-frontend:${IMAGE_TAG:-latest}
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
@@ -56,3 +70,5 @@ services:
     environment:
       - NODE_ENV=production
     command: node server.js
+    mem_limit: 256m
+    memswap_limit: 384m

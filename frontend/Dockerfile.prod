@@ -5,7 +5,7 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci --prefer-offline
+RUN npm ci --prefer-offline --no-audit --no-fund
 
 # ── Stage 2: 빌드 ────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
@@ -31,6 +31,7 @@ ENV NEXT_PUBLIC_ADMIN_URL=$NEXT_PUBLIC_ADMIN_URL
 ENV NEXT_PUBLIC_SETTLEMENT_URL=$NEXT_PUBLIC_SETTLEMENT_URL
 
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_OPTIONS="--max-old-space-size=1536"
 RUN npm run build
 
 # ── Stage 3: 런타임 ──────────────────────────────────────────────────

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================================
 #  DWT Price Center — Production Deployment Script
-#  Target: Amazon Linux 2023 (EC2 t3.small)
+#  Target: Amazon Linux 2023 (EC2 t3.medium)
+#  Modes:  --ci (GHCR pull) / default (local build)
 # ============================================================================
 set -euo pipefail
 
 # ── 상수 ────────────────────────────────────────────────────────────────────
-readonly SCRIPT_VERSION="1.0.0"
+readonly SCRIPT_VERSION="2.0.0"
 readonly PROJECT_DIR="/home/ec2-user/dwt-price-center"
 readonly COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml"
 readonly LOG_DIR="${PROJECT_DIR}/logs"
@@ -16,6 +17,7 @@ readonly BACKUP_DIR="${PROJECT_DIR}/backups"
 # 임계값
 readonly MIN_DISK_GB=5          # 최소 여유 디스크 (GB)
 readonly MIN_MEMORY_MB=300      # 최소 여유 메모리 (MB)
+readonly MIN_BUILD_MEMORY_MB=800 # 빌드 전 최소 가용 메모리 (MB)
 readonly HEALTH_TIMEOUT=120     # 헬스체크 타임아웃 (초)
 readonly HEALTH_INTERVAL=3      # 헬스체크 간격 (초)
 readonly MAX_LOG_FILES=20       # 보관할 배포 로그 수
@@ -82,12 +84,14 @@ FORCE_BUILD=false
 SKIP_BACKUP=false
 DRY_RUN=false
 CLEANUP_AFTER=true
+CI_MODE=false
 
 _usage() {
     cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
+  --ci              CI 모드: 이미지를 GHCR에서 pull (서버 빌드 없음)
   --skip-pull       Git pull 건너뛰기
   --force-build     캐시 무시 강제 빌드
   --skip-backup     DB 백업 건너뛰기
@@ -96,7 +100,8 @@ Options:
   -h, --help        도움말
 
 Examples:
-  ./deploy.sh                    # 전체 배포
+  ./deploy.sh                    # 전체 배포 (로컬 빌드)
+  ./deploy.sh --ci               # CI 배포 (GHCR pull)
   ./deploy.sh --skip-pull        # pull 없이 재빌드
   ./deploy.sh --dry-run          # 사전 검증만
   ./deploy.sh --force-build      # 캐시 없이 클린 빌드
@@ -106,6 +111,7 @@ EOF
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --ci)           CI_MODE=true     ;;
         --skip-pull)    SKIP_PULL=true   ;;
         --force-build)  FORCE_BUILD=true ;;
         --skip-backup)  SKIP_BACKUP=true ;;
@@ -170,7 +176,23 @@ fi
 _info "메모리 확인..."
 avail_mem_mb=$(free -m | awk '/^Mem:/{print $7}')
 total_mem_mb=$(free -m | awk '/^Mem:/{print $2}')
-if (( avail_mem_mb < MIN_MEMORY_MB )); then
+if [[ "$CI_MODE" == true ]]; then
+    # CI 모드: 서버에서 빌드 안 함 → 빌드 메모리 검사 불필요
+    _ok "메모리 여유: ${avail_mem_mb}MB / ${total_mem_mb}MB (CI 모드 — 빌드 없음)"
+elif (( avail_mem_mb < MIN_BUILD_MEMORY_MB )); then
+    _warn "빌드 권장 메모리 부족: ${avail_mem_mb}MB (권장 ${MIN_BUILD_MEMORY_MB}MB) — 캐시 정리 시도"
+    # Docker 빌드 캐시 및 미사용 이미지 정리로 메모리 확보
+    docker builder prune -f --keep-storage=500MB 2>/dev/null || true
+    docker image prune -f 2>/dev/null || true
+    sync && sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null || true
+    sleep 2
+    avail_mem_mb=$(free -m | awk '/^Mem:/{print $7}')
+    if (( avail_mem_mb < MIN_MEMORY_MB )); then
+        _die "메모리 확보 실패: ${avail_mem_mb}MB — 빌드를 중단합니다"
+    else
+        _warn "메모리 확보 후: ${avail_mem_mb}MB / ${total_mem_mb}MB — 주의하며 진행"
+    fi
+elif (( avail_mem_mb < MIN_MEMORY_MB )); then
     WARNINGS+=("메모리 여유 부족: ${avail_mem_mb}MB (권장 ${MIN_MEMORY_MB}MB 이상)")
     _warn "메모리 여유: ${avail_mem_mb}MB / ${total_mem_mb}MB — 빌드 중 느려질 수 있음"
 else
@@ -312,18 +334,62 @@ done
 
 build_start=$(date +%s)
 
-BUILD_FLAGS=""
-if [[ "$FORCE_BUILD" == true ]]; then
-    BUILD_FLAGS="--no-cache"
-    _info "강제 빌드 (--no-cache)"
-fi
+if [[ "$CI_MODE" == true ]]; then
+    # ── CI 모드: GHCR에서 이미지 pull (서버 빌드 없음) ──
+    _info "CI 모드 — GHCR에서 이미지 pull..."
 
-_info "이미지 빌드 & 컨테이너 재시작..."
-if docker compose ${COMPOSE_FILES} up -d --build ${BUILD_FLAGS} 2>&1 | tee -a "$LOG_FILE"; then
-    build_end=$(date +%s)
-    _ok "빌드 & 배포 완료 ($(_duration $((build_end - build_start))))"
+    if docker compose ${COMPOSE_FILES} pull backend frontend worker 2>&1 | tee -a "$LOG_FILE"; then
+        _ok "이미지 pull 완료"
+    else
+        _die "이미지 pull 실패 — GHCR 인증 또는 네트워크를 확인하세요"
+    fi
+
+    _info "컨테이너 재시작..."
+    if docker compose ${COMPOSE_FILES} up -d 2>&1 | tee -a "$LOG_FILE"; then
+        build_end=$(date +%s)
+        _ok "CI 배포 완료 ($(_duration $((build_end - build_start))))"
+    else
+        _die "컨테이너 시작 실패 — 로그를 확인하세요: $LOG_FILE"
+    fi
 else
-    _die "빌드 실패 — 로그를 확인하세요: $LOG_FILE"
+    # ── 로컬 빌드 모드: 서버에서 순차 빌드 (메모리 보호) ──
+    BUILD_FLAGS=""
+    if [[ "$FORCE_BUILD" == true ]]; then
+        BUILD_FLAGS="--no-cache"
+        _info "강제 빌드 (--no-cache)"
+    fi
+
+    _info "빌드 전 Docker 캐시 정리..."
+    docker builder prune -f --keep-storage=1GB 2>/dev/null || true
+    docker image prune -f 2>/dev/null || true
+
+    _info "순차 이미지 빌드 시작 (메모리 보호 모드)..."
+    for svc in frontend backend worker; do
+        svc_start=$(date +%s)
+        avail_mem=$(free -m | awk '/^Mem:/{print $7}')
+        _info "${svc} 빌드 시작 (가용 메모리: ${avail_mem}MB)..."
+
+        if (( avail_mem < MIN_MEMORY_MB )); then
+            _warn "  메모리 부족 — 페이지 캐시 정리 시도"
+            sync && sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null || true
+            sleep 2
+        fi
+
+        if docker compose ${COMPOSE_FILES} build ${BUILD_FLAGS} "${svc}" 2>&1 | tee -a "$LOG_FILE"; then
+            svc_end=$(date +%s)
+            _ok "${svc} 빌드 완료 ($(_duration $((svc_end - svc_start))))"
+        else
+            _die "${svc} 빌드 실패 — 로그를 확인하세요: $LOG_FILE"
+        fi
+    done
+
+    _info "컨테이너 시작..."
+    if docker compose ${COMPOSE_FILES} up -d 2>&1 | tee -a "$LOG_FILE"; then
+        build_end=$(date +%s)
+        _ok "빌드 & 배포 완료 ($(_duration $((build_end - build_start))))"
+    else
+        _die "컨테이너 시작 실패 — 로그를 확인하세요: $LOG_FILE"
+    fi
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
