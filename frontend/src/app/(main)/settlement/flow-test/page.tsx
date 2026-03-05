@@ -157,7 +157,7 @@ export default function FlowTestPage() {
                 { label: '배분', value: data.summary.allocations, suffix: '건' },
                 { label: '은행임포트', value: data.summary.bank_import_jobs, suffix: '건' },
               ].map((item) => (
-                <Grid item xs={6} sm={2.4} key={item.label}>
+                <Grid item xs={6} sm={4} md={2} key={item.label}>
                   <Box sx={{ textAlign: 'center' }}>
                     <Typography variant="h6" fontWeight={700}>{formatNumber(item.value)}</Typography>
                     <Typography variant="caption" color="text.secondary">{item.label} ({item.suffix})</Typography>
@@ -253,9 +253,9 @@ export default function FlowTestPage() {
                     {/* 상세 데이터 */}
                     <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                       {Object.entries(check.details).map(([key, val]) => {
-                        if (val === null || val === undefined || typeof val === 'object') return null;
+                        if (val === null || val === undefined || typeof val === 'object' || typeof val === 'boolean') return null;
                         const isAmount = key.includes('total') || key.includes('receivable') || key.includes('payable');
-                        const displayVal = isAmount ? formatWon(val as number) : String(val);
+                        const displayVal = isAmount ? formatWon(Number(val)) : String(val);
                         return (
                           <Box key={key} sx={{ minWidth: 80 }}>
                             <Typography variant="caption" color="text.disabled" sx={{ display: 'block' }}>
@@ -288,9 +288,9 @@ export default function FlowTestPage() {
               { label: '거래처 현황', path: '/settlement/status', color: 'success' },
               { label: '법인 관리', path: '/settlement/corporate-entities', color: 'success' },
               { label: '마감 관리', path: '/settlement/lock', color: 'warning' },
-              { label: '통계', path: '/settlement/statistics', color: 'default' },
+              { label: '통계', path: '/settlement/statistics', color: 'inherit' },
             ].map((item) => (
-              <Grid item xs={6} sm={3} md={2.4} key={item.path}>
+              <Grid item xs={6} sm={3} md={2} key={item.path}>
                 <Button
                   fullWidth
                   variant="outlined"
