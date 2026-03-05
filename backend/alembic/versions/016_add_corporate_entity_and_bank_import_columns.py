@@ -86,9 +86,9 @@ def upgrade() -> None:
     )
 
     # ── 5. AuditAction enum에 법인 관련 값 추가 ──
-    op.execute("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'corporate_entity_create'")
-    op.execute("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'corporate_entity_update'")
-    op.execute("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'corporate_entity_delete'")
+    op.execute("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'CORPORATE_ENTITY_CREATE'")
+    op.execute("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'CORPORATE_ENTITY_UPDATE'")
+    op.execute("ALTER TYPE audit_action ADD VALUE IF NOT EXISTS 'CORPORATE_ENTITY_DELETE'")
 
 
 def downgrade() -> None:

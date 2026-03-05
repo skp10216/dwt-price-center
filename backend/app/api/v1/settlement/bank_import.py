@@ -122,7 +122,7 @@ def _validate_columns(columns: list[str]) -> None:
 
 # ── 업로드 ──────────────────────────────────────────────────────────
 
-@router.post("/upload", response_model=BankImportJobResponse, status_code=201)
+@router.post("/upload", response_model=BankImportJobDetailResponse, status_code=201)
 async def upload_bank_file(
     file: UploadFile = File(...),
     corporate_entity_id: Optional[UUID] = Form(None),
@@ -174,11 +174,16 @@ async def upload_bank_file(
     db.add(job)
     await db.flush()
 
-    # 동기 파싱
+    # 동기 파싱 + 자동매칭
     try:
         await _parse_bank_file(job, file_content, file_ext, db)
         job.status = BankImportJobStatus.PARSED
         job.completed_at = datetime.utcnow()
+
+        # 파싱 성공 시 자동매칭까지 수행
+        matched = await _auto_match_lines(job, db)
+        job.matched_lines = matched
+        job.status = BankImportJobStatus.REVIEWING
     except Exception as e:
         job.status = BankImportJobStatus.FAILED
         job.error_message = str(e)
@@ -192,11 +197,32 @@ async def upload_bank_file(
             "filename": file.filename,
             "corporate_entity_id": str(corporate_entity_id) if corporate_entity_id else None,
             "total_lines": job.total_lines,
+            "matched_lines": job.matched_lines,
             "status": job.status.value if hasattr(job.status, 'value') else job.status,
         },
     ))
 
-    return _job_to_response(job, current_user.name, ce_name)
+    # 위자드용: 라인 정보 포함한 상세 응답
+    lines_result = await db.execute(
+        select(BankImportLine)
+        .where(BankImportLine.import_job_id == job.id)
+        .order_by(BankImportLine.line_number)
+    )
+    lines = lines_result.scalars().all()
+
+    cp_ids = {l.counterparty_id for l in lines if l.counterparty_id}
+    cp_map = {}
+    if cp_ids:
+        cp_result = await db.execute(
+            select(Counterparty.id, Counterparty.name).where(Counterparty.id.in_(cp_ids))
+        )
+        cp_map = {row.id: row.name for row in cp_result.all()}
+
+    job_resp = _job_to_response(job, current_user.name, ce_name)
+    return BankImportJobDetailResponse(
+        **job_resp.model_dump(),
+        lines=[_line_to_response(l, cp_map.get(l.counterparty_id)) for l in lines],
+    )
 
 
 # ── 거래내역조회 전용 파서 ──────────────────────────────────────────
@@ -360,7 +386,7 @@ async def _parse_bank_file(
     job.import_date_to = max_date
     await db.flush()
 
-    # 중복 감지
+    # 중복 감지: 이미 확정된(Transaction 생성된) 라인과만 비교
     for line in lines:
         if not line.duplicate_key:
             continue
@@ -369,7 +395,7 @@ async def _parse_bank_file(
             .where(
                 BankImportLine.duplicate_key == line.duplicate_key,
                 BankImportLine.id != line.id,
-                BankImportLine.status != BankImportLineStatus.EXCLUDED,
+                BankImportLine.status == BankImportLineStatus.CONFIRMED,
             )
         )
         if (existing.scalar() or 0) > 0:
@@ -490,28 +516,15 @@ async def get_job_detail(
     )
 
 
-# ── 자동 매칭 ──────────────────────────────────────────────────────
+# ── 자동 매칭 (내부 공통) ──────────────────────────────────────────
 
-@router.post("/jobs/{job_id}/auto-match")
-async def auto_match(
-    job_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """거래처 자동 매칭 (CounterpartyAlias 기반)"""
-    job = await db.get(BankImportJob, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="임포트 작업을 찾을 수 없습니다")
-    if job.status not in (BankImportJobStatus.PARSED, BankImportJobStatus.REVIEWING):
-        raise HTTPException(status_code=400, detail="파싱 완료 또는 검토 중 상태에서만 매칭 가능합니다")
-
-    # 전체 별칭 로드
+async def _auto_match_lines(job: BankImportJob, db: AsyncSession) -> int:
+    """거래처 자동 매칭 (CounterpartyAlias + 거래처명 기반) — 내부 공통 함수"""
     alias_result = await db.execute(
         select(CounterpartyAlias.alias_name, CounterpartyAlias.counterparty_id)
     )
     alias_map = {row.alias_name.strip().lower(): row.counterparty_id for row in alias_result.all()}
 
-    # 전체 거래처명 로드
     cp_result = await db.execute(
         select(Counterparty.name, Counterparty.id).where(Counterparty.is_active == True)
     )
@@ -520,7 +533,7 @@ async def auto_match(
     lines_result = await db.execute(
         select(BankImportLine)
         .where(
-            BankImportLine.import_job_id == job_id,
+            BankImportLine.import_job_id == job.id,
             BankImportLine.status == BankImportLineStatus.UNMATCHED,
         )
     )
@@ -533,7 +546,6 @@ async def auto_match(
 
         raw_lower = line.counterparty_name_raw.strip().lower()
 
-        # 1. 정확 매칭 (별칭)
         if raw_lower in alias_map:
             line.counterparty_id = alias_map[raw_lower]
             line.status = BankImportLineStatus.MATCHED
@@ -541,7 +553,6 @@ async def auto_match(
             matched_count += 1
             continue
 
-        # 2. 정확 매칭 (거래처명)
         if raw_lower in cp_name_map:
             line.counterparty_id = cp_name_map[raw_lower]
             line.status = BankImportLineStatus.MATCHED
@@ -549,7 +560,6 @@ async def auto_match(
             matched_count += 1
             continue
 
-        # 3. 부분 매칭 (거래처명 포함)
         for cp_name, cp_id in cp_name_map.items():
             if cp_name in raw_lower or raw_lower in cp_name:
                 line.counterparty_id = cp_id
@@ -558,10 +568,55 @@ async def auto_match(
                 matched_count += 1
                 break
 
+    return matched_count
+
+
+# ── 자동 매칭 API ──────────────────────────────────────────────────
+
+@router.post("/jobs/{job_id}/auto-match")
+async def auto_match(
+    job_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """거래처 자동 매칭 (재실행) — 상세 응답 포함"""
+    job = await db.get(BankImportJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="임포트 작업을 찾을 수 없습니다")
+    if job.status not in (BankImportJobStatus.PARSED, BankImportJobStatus.REVIEWING):
+        raise HTTPException(status_code=400, detail="파싱 완료 또는 검토 중 상태에서만 매칭 가능합니다")
+
+    matched_count = await _auto_match_lines(job, db)
     job.matched_lines = matched_count
     job.status = BankImportJobStatus.REVIEWING
 
-    return {"matched_count": matched_count, "total_unmatched": len(lines) - matched_count}
+    # 위자드용: 상세 응답
+    lines_result = await db.execute(
+        select(BankImportLine)
+        .where(BankImportLine.import_job_id == job_id)
+        .order_by(BankImportLine.line_number)
+    )
+    lines = lines_result.scalars().all()
+
+    cp_ids = {l.counterparty_id for l in lines if l.counterparty_id}
+    cp_map = {}
+    if cp_ids:
+        cp_result = await db.execute(
+            select(Counterparty.id, Counterparty.name).where(Counterparty.id.in_(cp_ids))
+        )
+        cp_map = {row.id: row.name for row in cp_result.all()}
+
+    ce_name = None
+    if job.corporate_entity_id:
+        ce = await db.get(CorporateEntity, job.corporate_entity_id)
+        ce_name = ce.name if ce else None
+    user = await db.get(User, job.created_by)
+
+    job_resp = _job_to_response(job, user.name if user else None, ce_name)
+    return BankImportJobDetailResponse(
+        **job_resp.model_dump(),
+        lines=[_line_to_response(l, cp_map.get(l.counterparty_id)) for l in lines],
+    )
 
 
 # ── 라인 수동 매칭 ──────────────────────────────────────────────────
@@ -672,7 +727,33 @@ async def confirm_job(
         },
     ))
 
-    return {"confirmed_count": created_count, "total_matched": len(lines)}
+    # 위자드용: 상세 응답
+    all_lines_result = await db.execute(
+        select(BankImportLine)
+        .where(BankImportLine.import_job_id == job_id)
+        .order_by(BankImportLine.line_number)
+    )
+    all_lines = all_lines_result.scalars().all()
+
+    cp_ids = {l.counterparty_id for l in all_lines if l.counterparty_id}
+    cp_map = {}
+    if cp_ids:
+        cp_r = await db.execute(
+            select(Counterparty.id, Counterparty.name).where(Counterparty.id.in_(cp_ids))
+        )
+        cp_map = {row.id: row.name for row in cp_r.all()}
+
+    ce_name = None
+    if job.corporate_entity_id:
+        ce = await db.get(CorporateEntity, job.corporate_entity_id)
+        ce_name = ce.name if ce else None
+    user = await db.get(User, job.created_by)
+
+    job_resp = _job_to_response(job, user.name if user else None, ce_name)
+    return BankImportJobDetailResponse(
+        **job_resp.model_dump(),
+        lines=[_line_to_response(l, cp_map.get(l.counterparty_id)) for l in all_lines],
+    )
 
 
 # ── 삭제 ──────────────────────────────────────────────────────────
