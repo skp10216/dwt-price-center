@@ -1,8 +1,9 @@
 """
 정산 시스템 — 자동화 시나리오 테스트 러너
-TEST_SCENARIO.md 기반의 12단계 플로우를 자동 실행하고 결과를 반환
+14단계 플로우를 자동 실행하고 결과를 반환
 """
 
+import hashlib
 import time
 import traceback
 import uuid
@@ -76,7 +77,6 @@ def _parse_excel_rows(file_path: Path) -> list[dict]:
     if not rows:
         return []
 
-    # 헤더 찾기: 첫번째 비어있지 않은 행
     header_idx = 0
     for i, row in enumerate(rows):
         if any(cell is not None for cell in row):
@@ -96,6 +96,19 @@ def _parse_excel_rows(file_path: Path) -> list[dict]:
     return result
 
 
+def _serialize_for_json(obj: Any) -> Any:
+    """JSONB 저장을 위해 비직렬화 가능한 값을 변환"""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, dict):
+        return {k: _serialize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_serialize_for_json(v) for v in obj]
+    return obj
+
+
 async def _get_cp_id_by_name(db: AsyncSession, name: str) -> uuid.UUID | None:
     """거래처명으로 ID 조회"""
     result = await db.execute(
@@ -110,13 +123,11 @@ async def _update_voucher_status(voucher_id: uuid.UUID, db: AsyncSession):
     if not v:
         return
 
-    # 기존 배분 합계
     alloc_total = (await db.execute(
         select(func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0))
         .where(TransactionAllocation.voucher_id == v.id)
     )).scalar() or Decimal("0")
 
-    # 레거시 합계
     legacy = Decimal("0")
     if v.voucher_type == VoucherType.SALES:
         legacy = (await db.execute(
@@ -186,7 +197,6 @@ async def step_1_reset(db: AsyncSession, user: User, ctx: dict) -> dict:
         r = await db.execute(delete(model))
         total += r.rowcount
 
-    # 감사로그 (정산 관련만)
     r = await db.execute(
         delete(AuditLog).where(AuditLog.action.in_(SETTLEMENT_ACTIONS))
     )
@@ -228,7 +238,6 @@ async def step_3_counterparties(db: AsyncSession, user: User, ctx: dict) -> dict
         db.add(cp)
         await db.flush()
 
-        # 자동 별칭
         alias = CounterpartyAlias(
             counterparty_id=cp.id,
             alias_name=name,
@@ -258,6 +267,9 @@ async def step_4_aliases(db: AsyncSession, user: User, ctx: dict) -> dict:
     for cp_name, alias_name in alias_map.items():
         cp_id = cp_ids.get(cp_name)
         if not cp_id:
+            cp_uuid = await _get_cp_id_by_name(db, cp_name)
+            cp_id = str(cp_uuid) if cp_uuid else None
+        if not cp_id:
             continue
         alias = CounterpartyAlias(
             counterparty_id=uuid.UUID(cp_id),
@@ -269,7 +281,6 @@ async def step_4_aliases(db: AsyncSession, user: User, ctx: dict) -> dict:
 
     await db.flush()
 
-    # 별칭 총 수 확인
     total_aliases = (await db.execute(
         select(func.count(CounterpartyAlias.id))
     )).scalar() or 0
@@ -294,7 +305,6 @@ async def step_5_sales_vouchers(db: AsyncSession, user: User, ctx: dict) -> dict
     details_by_cp = {}
 
     for row in rows:
-        # 컬럼명 매핑
         trade_date_val = row.get("판매일")
         cp_name = row.get("판매처", "")
         voucher_number = row.get("번호", "")
@@ -306,7 +316,6 @@ async def step_5_sales_vouchers(db: AsyncSession, user: User, ctx: dict) -> dict
         if not trade_date_val or not cp_name:
             continue
 
-        # 날짜 변환
         if isinstance(trade_date_val, datetime):
             td = trade_date_val.date()
         elif isinstance(trade_date_val, date):
@@ -314,10 +323,8 @@ async def step_5_sales_vouchers(db: AsyncSession, user: User, ctx: dict) -> dict
         else:
             td = datetime.strptime(str(trade_date_val), "%Y-%m-%d").date()
 
-        # 거래처 찾기
         cp_id = cp_ids.get(cp_name) or cp_ids.get(f"(주){cp_name}")
         if not cp_id:
-            # 별칭으로 찾기
             cp_id_val = await _get_cp_id_by_name(db, cp_name)
             if cp_id_val:
                 cp_id = str(cp_id_val)
@@ -433,37 +440,52 @@ async def step_6_purchase_vouchers(db: AsyncSession, user: User, ctx: dict) -> d
     }
 
 
-async def step_7_bank_import(db: AsyncSession, user: User, ctx: dict) -> dict:
-    """은행 입출금 임포트 (직접 Transaction 생성)"""
+# ─── Step 7~9: 은행 임포트 (업로드 → 매칭 → 확정) ─────────
+
+async def step_7_bank_import_upload(db: AsyncSession, user: User, ctx: dict) -> dict:
+    """은행 파일 업로드 + 파싱 (BankImportJob/BankImportLine 생성)"""
     file_path = TEST_DATA_DIR / "test_bank_statement.xlsx"
     if not file_path.exists():
         raise FileNotFoundError(f"테스트 파일 없음: {file_path}")
 
-    rows = _parse_excel_rows(file_path)
-    cp_ids = ctx.get("counterparty_ids", {})
     corp_entity_id = ctx.get("corp_entity_id")
+    if not corp_entity_id:
+        ce = (await db.execute(select(CorporateEntity.id).limit(1))).scalar()
+        corp_entity_id = str(ce) if ce else None
 
-    deposits = 0
-    withdrawals = 0
+    file_hash = hashlib.sha256(file_path.read_bytes()).hexdigest()
+
+    job = BankImportJob(
+        file_path=str(file_path),
+        original_filename="test_bank_statement.xlsx",
+        file_hash=file_hash,
+        corporate_entity_id=uuid.UUID(corp_entity_id) if corp_entity_id else None,
+        bank_name="테스트은행",
+        account_number="123-456-789",
+        status=BankImportJobStatus.UPLOADED,
+        total_lines=0,
+        matched_lines=0,
+        confirmed_lines=0,
+        created_by=user.id,
+    )
+    db.add(job)
+    await db.flush()
+
+    rows = _parse_excel_rows(file_path)
+    line_num = 0
+    deposit_count = 0
+    withdrawal_count = 0
     dep_total = Decimal("0")
     wd_total = Decimal("0")
-    txn_ids = []
-
-    # 별칭 매핑 사전 빌드
-    alias_map = {}
-    result = await db.execute(
-        select(CounterpartyAlias.alias_name, CounterpartyAlias.counterparty_id)
-    )
-    for alias_name, cp_id in result.all():
-        alias_map[alias_name] = cp_id
-
-    unmatched = []
+    date_min = None
+    date_max = None
 
     for row in rows:
         txn_date_val = row.get("거래일시")
         description = str(row.get("적요", ""))
         deposit_amt = row.get("입금")
         withdrawal_amt = row.get("출금")
+        balance = row.get("거래후잔액")
         sender_receiver = str(row.get("의뢰인/수취인", "") or row.get("의뢰인수취인", "") or "")
 
         if not txn_date_val:
@@ -476,73 +498,253 @@ async def step_7_bank_import(db: AsyncSession, user: User, ctx: dict) -> dict:
         else:
             td = datetime.strptime(str(txn_date_val).split(" ")[0], "%Y-%m-%d").date()
 
-        # 금액 결정
         dep_val = Decimal(str(deposit_amt or 0))
         wd_val = Decimal(str(withdrawal_amt or 0))
 
         if dep_val > 0:
             amount = dep_val
-            txn_type = TransactionType.DEPOSIT
+            deposit_count += 1
+            dep_total += dep_val
         elif wd_val > 0:
-            amount = wd_val
-            txn_type = TransactionType.WITHDRAWAL
+            amount = -wd_val
+            withdrawal_count += 1
+            wd_total += wd_val
         else:
             continue
 
-        # 거래처 매칭 (의뢰인/수취인 → 별칭)
-        match_name = sender_receiver or description
-        matched_cp_id = alias_map.get(match_name)
-        if not matched_cp_id:
-            # 부분 매칭
+        if date_min is None or td < date_min:
+            date_min = td
+        if date_max is None or td > date_max:
+            date_max = td
+
+        line_num += 1
+        dup_key_src = f"{td.isoformat()}|{amount}|{description}"
+        dup_key = hashlib.sha256(dup_key_src.encode()).hexdigest()
+
+        line = BankImportLine(
+            import_job_id=job.id,
+            line_number=line_num,
+            transaction_date=td,
+            description=description,
+            amount=amount,
+            balance_after=Decimal(str(balance or 0)) if balance else None,
+            counterparty_name_raw=sender_receiver or None,
+            sender_receiver=sender_receiver or None,
+            status=BankImportLineStatus.UNMATCHED,
+            duplicate_key=dup_key,
+            raw_data=_serialize_for_json(row),
+        )
+        db.add(line)
+
+    job.total_lines = line_num
+    job.status = BankImportJobStatus.PARSED
+    job.completed_at = datetime.utcnow()
+    if date_min:
+        job.import_date_from = date_min
+    if date_max:
+        job.import_date_to = date_max
+    await db.flush()
+
+    ctx["bank_import_job_id"] = str(job.id)
+
+    return {
+        "message": f"은행 파일 업로드 + 파싱 완료: {line_num}건 (입금 {deposit_count}, 출금 {withdrawal_count})",
+        "job_id": str(job.id),
+        "total_lines": line_num,
+        "deposits": deposit_count,
+        "withdrawals": withdrawal_count,
+        "deposit_total": float(dep_total),
+        "withdrawal_total": float(wd_total),
+        "status": job.status.value,
+        "date_range": f"{date_min} ~ {date_max}" if date_min else None,
+    }
+
+
+async def step_8_bank_import_match(db: AsyncSession, user: User, ctx: dict) -> dict:
+    """은행 임포트 자동 매칭 (별칭 기반 거래처 매칭)"""
+    job_id = ctx.get("bank_import_job_id")
+    if not job_id:
+        job_row = (await db.execute(
+            select(BankImportJob.id).where(
+                BankImportJob.status.in_([BankImportJobStatus.PARSED, BankImportJobStatus.REVIEWING])
+            ).order_by(BankImportJob.created_at.desc()).limit(1)
+        )).scalar()
+        if not job_row:
+            raise ValueError("매칭 대상 BankImportJob이 없습니다. Step 7을 먼저 실행하세요.")
+        job_id = str(job_row)
+
+    job = await db.get(BankImportJob, uuid.UUID(job_id))
+    if not job:
+        raise ValueError(f"BankImportJob을 찾을 수 없습니다: {job_id}")
+
+    # 별칭 매핑
+    alias_map = {}
+    result = await db.execute(
+        select(CounterpartyAlias.alias_name, CounterpartyAlias.counterparty_id)
+    )
+    for alias_name, cp_id in result.all():
+        alias_map[alias_name] = cp_id
+
+    # 거래처명 매핑
+    cp_name_map = {}
+    cp_result = await db.execute(
+        select(Counterparty.name, Counterparty.id).where(Counterparty.is_active == True)  # noqa: E712
+    )
+    for name, cp_id in cp_result.all():
+        cp_name_map[name] = cp_id
+
+    lines = (await db.execute(
+        select(BankImportLine).where(
+            BankImportLine.import_job_id == uuid.UUID(job_id),
+            BankImportLine.status == BankImportLineStatus.UNMATCHED,
+        )
+    )).scalars().all()
+
+    matched = 0
+    unmatched_count = 0
+    match_details = []
+
+    for line in lines:
+        match_name = line.sender_receiver or line.counterparty_name_raw or line.description
+        matched_cp_id = None
+        confidence = Decimal("0")
+
+        if match_name in alias_map:
+            matched_cp_id = alias_map[match_name]
+            confidence = Decimal("100")
+        elif match_name in cp_name_map:
+            matched_cp_id = cp_name_map[match_name]
+            confidence = Decimal("100")
+        else:
             for alias_name, cp_id in alias_map.items():
                 if alias_name in match_name or match_name in alias_name:
                     matched_cp_id = cp_id
+                    confidence = Decimal("70")
                     break
+            if not matched_cp_id:
+                for cp_name, cp_id in cp_name_map.items():
+                    if cp_name in match_name or match_name in cp_name:
+                        matched_cp_id = cp_id
+                        confidence = Decimal("70")
+                        break
 
-        if not matched_cp_id:
-            unmatched.append(match_name)
-            continue
+        if matched_cp_id:
+            line.counterparty_id = matched_cp_id
+            line.status = BankImportLineStatus.MATCHED
+            line.match_confidence = confidence
+            matched += 1
+            cp = await db.get(Counterparty, matched_cp_id)
+            cp_name_str = cp.name if cp else "?"
+            match_details.append(f"{match_name} → {cp_name_str} ({confidence}%)")
+        else:
+            unmatched_count += 1
+            match_details.append(f"{match_name} → 미매칭")
+
+    job.matched_lines = matched
+    job.status = BankImportJobStatus.REVIEWING
+    await db.flush()
+
+    return {
+        "message": f"자동 매칭 완료: {matched}건 매칭, {unmatched_count}건 미매칭",
+        "matched": matched,
+        "unmatched": unmatched_count,
+        "total_lines": job.total_lines,
+        "match_rate": f"{matched / job.total_lines * 100:.0f}%" if job.total_lines > 0 else "0%",
+        "match_details": match_details,
+        "job_status": job.status.value,
+    }
+
+
+async def step_9_bank_import_confirm(db: AsyncSession, user: User, ctx: dict) -> dict:
+    """은행 임포트 확정 (MATCHED 라인 → CounterpartyTransaction 생성)"""
+    job_id = ctx.get("bank_import_job_id")
+    if not job_id:
+        job_row = (await db.execute(
+            select(BankImportJob.id).where(
+                BankImportJob.status == BankImportJobStatus.REVIEWING
+            ).order_by(BankImportJob.created_at.desc()).limit(1)
+        )).scalar()
+        if not job_row:
+            raise ValueError("확정 대상 BankImportJob이 없습니다. Step 7-8을 먼저 실행하세요.")
+        job_id = str(job_row)
+
+    job = await db.get(BankImportJob, uuid.UUID(job_id))
+    if not job:
+        raise ValueError(f"BankImportJob을 찾을 수 없습니다: {job_id}")
+
+    lines = (await db.execute(
+        select(BankImportLine).where(
+            BankImportLine.import_job_id == uuid.UUID(job_id),
+            BankImportLine.status == BankImportLineStatus.MATCHED,
+            BankImportLine.counterparty_id.isnot(None),
+        )
+    )).scalars().all()
+
+    if not lines:
+        return {"message": "확정 가능한 매칭 라인이 없습니다", "confirmed": 0}
+
+    confirmed = 0
+    deposits = 0
+    withdrawals = 0
+    dep_total = Decimal("0")
+    wd_total = Decimal("0")
+    txn_ids = []
+
+    for line in lines:
+        if line.amount > 0:
+            txn_type = TransactionType.DEPOSIT
+            txn_amount = line.amount
+            deposits += 1
+            dep_total += txn_amount
+        else:
+            txn_type = TransactionType.WITHDRAWAL
+            txn_amount = abs(line.amount)
+            withdrawals += 1
+            wd_total += txn_amount
 
         txn = CounterpartyTransaction(
-            counterparty_id=matched_cp_id,
-            corporate_entity_id=uuid.UUID(corp_entity_id) if corp_entity_id else None,
+            counterparty_id=line.counterparty_id,
+            corporate_entity_id=job.corporate_entity_id,
             transaction_type=txn_type,
-            transaction_date=td,
-            amount=amount,
+            transaction_date=line.transaction_date,
+            amount=txn_amount,
             allocated_amount=Decimal("0"),
-            memo=f"{description} ({sender_receiver})" if sender_receiver else description,
+            memo=f"{line.description} ({line.sender_receiver})" if line.sender_receiver else line.description,
             source=TransactionSource.BANK_IMPORT,
+            bank_import_line_id=line.id,
             status=TransactionStatus.PENDING,
             created_by=user.id,
         )
         db.add(txn)
         await db.flush()
-        txn_ids.append(str(txn.id))
 
-        # 카운터는 실제 생성 후 증가
-        if txn_type == TransactionType.DEPOSIT:
-            deposits += 1
-            dep_total += amount
-        else:
-            withdrawals += 1
-            wd_total += amount
+        line.status = BankImportLineStatus.CONFIRMED
+        line.transaction_id = txn.id
+        txn_ids.append(str(txn.id))
+        confirmed += 1
+
+    job.confirmed_lines = confirmed
+    job.status = BankImportJobStatus.CONFIRMED
+    job.confirmed_at = datetime.utcnow()
+    await db.flush()
 
     ctx["bank_txn_ids"] = txn_ids
 
     return {
-        "message": f"은행 임포트 완료: 입금 {deposits}건({dep_total:,.0f}원), 출금 {withdrawals}건({wd_total:,.0f}원)",
+        "message": f"은행 임포트 확정: {confirmed}건 Transaction 생성 (입금 {deposits}, 출금 {withdrawals})",
+        "confirmed": confirmed,
         "deposits": deposits,
         "withdrawals": withdrawals,
         "deposit_total": float(dep_total),
         "withdrawal_total": float(wd_total),
-        "total_transactions": deposits + withdrawals,
-        "unmatched": unmatched,
+        "job_status": job.status.value,
     }
 
 
-async def step_8_auto_allocate(db: AsyncSession, user: User, ctx: dict) -> dict:
+# ─── Step 10: 자동 배분 ──────────────────────────────────
+
+async def step_10_auto_allocate(db: AsyncSession, user: User, ctx: dict) -> dict:
     """은행 입출금 자동 배분"""
-    # PENDING 상태인 모든 트랜잭션 가져오기
     result = await db.execute(
         select(CounterpartyTransaction)
         .where(CounterpartyTransaction.status == TransactionStatus.PENDING)
@@ -559,7 +761,6 @@ async def step_8_auto_allocate(db: AsyncSession, user: User, ctx: dict) -> dict:
         if remaining <= 0:
             continue
 
-        # DEPOSIT → SALES, WITHDRAWAL → PURCHASE
         target_type = VoucherType.SALES if txn.transaction_type == TransactionType.DEPOSIT else VoucherType.PURCHASE
 
         vouchers = (await db.execute(
@@ -573,7 +774,6 @@ async def step_8_auto_allocate(db: AsyncSession, user: User, ctx: dict) -> dict:
             .order_by(Voucher.trade_date.asc(), Voucher.created_at.asc())
         )).scalars().all()
 
-        # 각 전표의 기존 배분액 조회
         v_ids = [v.id for v in vouchers]
         alloc_map = {}
         if v_ids:
@@ -616,11 +816,9 @@ async def step_8_auto_allocate(db: AsyncSession, user: User, ctx: dict) -> dict:
             allocated_txns += 1
             await _update_transaction_status(txn, db)
 
-            # 관련 전표 상태 업데이트
             for v in vouchers:
                 await _update_voucher_status(v.id, db)
 
-            # 거래처명 가져오기
             cp = await db.get(Counterparty, txn.counterparty_id)
             cp_name = cp.name if cp else "?"
             details.append(
@@ -629,7 +827,6 @@ async def step_8_auto_allocate(db: AsyncSession, user: User, ctx: dict) -> dict:
 
     await db.flush()
 
-    # 배분 후 상태 요약
     settled_count = (await db.execute(
         select(func.count(Voucher.id)).where(
             Voucher.settlement_status == SettlementStatus.SETTLED
@@ -651,14 +848,16 @@ async def step_8_auto_allocate(db: AsyncSession, user: User, ctx: dict) -> dict:
     }
 
 
-async def step_9_manual_transaction(db: AsyncSession, user: User, ctx: dict) -> dict:
+async def step_11_manual_transaction(db: AsyncSession, user: User, ctx: dict) -> dict:
     """수동 입출금 생성 + 자동 배분 (LG전자 출금)"""
     cp_ids = ctx.get("counterparty_ids", {})
     lg_id = cp_ids.get("LG전자")
     if not lg_id:
-        raise ValueError("LG전자 거래처 ID를 찾을 수 없습니다")
+        lg_uuid = await _get_cp_id_by_name(db, "LG전자")
+        if not lg_uuid:
+            raise ValueError("LG전자 거래처를 찾을 수 없습니다. Step 3(거래처 등록)을 먼저 실행하세요.")
+        lg_id = str(lg_uuid)
 
-    # 출금 생성
     txn = CounterpartyTransaction(
         counterparty_id=uuid.UUID(lg_id),
         transaction_type=TransactionType.WITHDRAWAL,
@@ -673,7 +872,6 @@ async def step_9_manual_transaction(db: AsyncSession, user: User, ctx: dict) -> 
     db.add(txn)
     await db.flush()
 
-    # 자동 배분 (LG전자 매입 전표)
     vouchers = (await db.execute(
         select(Voucher)
         .where(
@@ -723,16 +921,18 @@ async def step_9_manual_transaction(db: AsyncSession, user: User, ctx: dict) -> 
     }
 
 
-async def step_10_netting(db: AsyncSession, user: User, ctx: dict) -> dict:
+async def step_12_netting(db: AsyncSession, user: User, ctx: dict) -> dict:
     """삼성전자 상계 생성 + 확정"""
     cp_ids = ctx.get("counterparty_ids", {})
     samsung_id = cp_ids.get("(주)삼성전자")
     if not samsung_id:
-        raise ValueError("(주)삼성전자 거래처 ID를 찾을 수 없습니다")
+        samsung_uuid = await _get_cp_id_by_name(db, "(주)삼성전자")
+        if not samsung_uuid:
+            raise ValueError("(주)삼성전자 거래처를 찾을 수 없습니다.")
+        samsung_id = str(samsung_uuid)
 
     samsung_uuid = uuid.UUID(samsung_id)
 
-    # 미정산 판매 전표 조회
     sales_vouchers = (await db.execute(
         select(Voucher).where(
             Voucher.counterparty_id == samsung_uuid,
@@ -741,7 +941,6 @@ async def step_10_netting(db: AsyncSession, user: User, ctx: dict) -> dict:
         )
     )).scalars().all()
 
-    # 미정산 매입 전표 조회
     purchase_vouchers = (await db.execute(
         select(Voucher).where(
             Voucher.counterparty_id == samsung_uuid,
@@ -758,7 +957,6 @@ async def step_10_netting(db: AsyncSession, user: User, ctx: dict) -> dict:
             "purchase_count": len(purchase_vouchers),
         }
 
-    # 각 전표의 잔여 금액 계산
     async def get_remaining(v: Voucher) -> Decimal:
         alloc = (await db.execute(
             select(func.coalesce(func.sum(TransactionAllocation.allocated_amount), 0))
@@ -766,7 +964,6 @@ async def step_10_netting(db: AsyncSession, user: User, ctx: dict) -> dict:
         )).scalar() or Decimal("0")
         return v.total_amount - alloc
 
-    # 매입 전표의 미지급 잔액 합계
     purchase_remaining = Decimal("0")
     purchase_details = []
     for pv in purchase_vouchers:
@@ -775,12 +972,10 @@ async def step_10_netting(db: AsyncSession, user: User, ctx: dict) -> dict:
             purchase_remaining += rem
             purchase_details.append((pv, rem))
 
-    # 상계 금액 = 매입 미지급 잔액 (판매 미수에서 차감)
     netting_amount = purchase_remaining
     if netting_amount <= 0:
         return {"message": "상계 가능 금액이 없습니다", "status": "skip"}
 
-    # 상계 레코드 생성
     netting = NettingRecord(
         counterparty_id=samsung_uuid,
         netting_date=date(2026, 3, 5),
@@ -792,8 +987,6 @@ async def step_10_netting(db: AsyncSession, user: User, ctx: dict) -> dict:
     db.add(netting)
     await db.flush()
 
-    # 전표 링크 생성
-    # 매입 전표 링크
     for pv, rem in purchase_details:
         link = NettingVoucherLink(
             netting_record_id=netting.id,
@@ -802,7 +995,6 @@ async def step_10_netting(db: AsyncSession, user: User, ctx: dict) -> dict:
         )
         db.add(link)
 
-    # 판매 전표 링크 (상계액만큼)
     remaining_netting = netting_amount
     for sv in sales_vouchers:
         if remaining_netting <= 0:
@@ -821,12 +1013,10 @@ async def step_10_netting(db: AsyncSession, user: User, ctx: dict) -> dict:
 
     await db.flush()
 
-    # 상계 확정: DEPOSIT + WITHDRAWAL Transaction 자동 생성
     netting.status = NettingStatus.CONFIRMED
     netting.confirmed_at = datetime.utcnow()
     netting.confirmed_by = user.id
 
-    # 입금 Transaction (판매 전표에 대한 상계 입금)
     dep_txn = CounterpartyTransaction(
         counterparty_id=samsung_uuid,
         transaction_type=TransactionType.DEPOSIT,
@@ -842,7 +1032,6 @@ async def step_10_netting(db: AsyncSession, user: User, ctx: dict) -> dict:
     db.add(dep_txn)
     await db.flush()
 
-    # 출금 Transaction (매입 전표에 대한 상계 출금)
     wd_txn = CounterpartyTransaction(
         counterparty_id=samsung_uuid,
         transaction_type=TransactionType.WITHDRAWAL,
@@ -858,7 +1047,6 @@ async def step_10_netting(db: AsyncSession, user: User, ctx: dict) -> dict:
     db.add(wd_txn)
     await db.flush()
 
-    # 배분 생성
     order = 0
     remaining_dep = netting_amount
     for sv in sales_vouchers:
@@ -891,7 +1079,6 @@ async def step_10_netting(db: AsyncSession, user: User, ctx: dict) -> dict:
 
     await db.flush()
 
-    # 상태 업데이트
     await _update_transaction_status(dep_txn, db)
     await _update_transaction_status(wd_txn, db)
     for sv in sales_vouchers:
@@ -910,9 +1097,8 @@ async def step_10_netting(db: AsyncSession, user: User, ctx: dict) -> dict:
     }
 
 
-async def step_11_lock(db: AsyncSession, user: User, ctx: dict) -> dict:
-    """마감 테스트: 정산완료 전표 일괄 마감 → 수정 차단 확인 → 1건 해제"""
-    # 정산완료 (SETTLED) 판매 전표
+async def step_13_lock(db: AsyncSession, user: User, ctx: dict) -> dict:
+    """마감 테스트: 정산완료 전표 일괄 마감 → 1건 해제"""
     settled_sales = (await db.execute(
         select(Voucher).where(
             Voucher.voucher_type == VoucherType.SALES,
@@ -920,7 +1106,6 @@ async def step_11_lock(db: AsyncSession, user: User, ctx: dict) -> dict:
         )
     )).scalars().all()
 
-    # 지급완료 (PAID) 매입 전표
     paid_purchases = (await db.execute(
         select(Voucher).where(
             Voucher.voucher_type == VoucherType.PURCHASE,
@@ -943,7 +1128,6 @@ async def step_11_lock(db: AsyncSession, user: User, ctx: dict) -> dict:
 
     await db.flush()
 
-    # 마감 해제 테스트 (1건만)
     unlocked_id = None
     if settled_sales:
         first = settled_sales[0]
@@ -955,13 +1139,12 @@ async def step_11_lock(db: AsyncSession, user: User, ctx: dict) -> dict:
         "message": f"마감 {locked_count}건 완료, 1건 해제 테스트 성공",
         "locked_count": locked_count,
         "unlocked_id": unlocked_id,
-        "locked_voucher_ids": locked_ids[:5],  # 처음 5개만
+        "locked_voucher_ids": locked_ids[:5],
     }
 
 
-async def step_12_final_check(db: AsyncSession, user: User, ctx: dict) -> dict:
+async def step_14_final_check(db: AsyncSession, user: User, ctx: dict) -> dict:
     """최종 플로우 점검 (데이터 정합성 확인)"""
-    # 집계
     cp_count = (await db.execute(select(func.count(Counterparty.id)))).scalar() or 0
     ce_count = (await db.execute(select(func.count(CorporateEntity.id)))).scalar() or 0
     alias_count = (await db.execute(select(func.count(CounterpartyAlias.id)))).scalar() or 0
@@ -1010,13 +1193,29 @@ async def step_12_final_check(db: AsyncSession, user: User, ctx: dict) -> dict:
         )
     )).scalar() or 0
 
-    # 검증 항목
+    # 은행 임포트 검증
+    bi_job_count = (await db.execute(
+        select(func.count(BankImportJob.id)).where(
+            BankImportJob.status == BankImportJobStatus.CONFIRMED
+        )
+    )).scalar() or 0
+    bi_line_confirmed = (await db.execute(
+        select(func.count(BankImportLine.id)).where(
+            BankImportLine.status == BankImportLineStatus.CONFIRMED
+        )
+    )).scalar() or 0
+    bi_line_total = (await db.execute(
+        select(func.count(BankImportLine.id))
+    )).scalar() or 0
+
     checks = []
     checks.append(("거래처 3개", cp_count == 3, f"실제: {cp_count}"))
     checks.append(("법인 1개", ce_count == 1, f"실제: {ce_count}"))
     checks.append(("별칭 5개", alias_count == 5, f"실제: {alias_count}"))
     checks.append(("판매 전표 7건", sales_count == 7, f"실제: {sales_count}"))
     checks.append(("매입 전표 5건", purchase_count == 5, f"실제: {purchase_count}"))
+    checks.append(("은행 임포트 작업 1건(확정)", bi_job_count == 1, f"실제: {bi_job_count}"))
+    checks.append(("은행 임포트 라인 확정", bi_line_confirmed > 0, f"확정: {bi_line_confirmed}/{bi_line_total}"))
     checks.append(("입출금 건 존재", txn_count > 0, f"실제: {txn_count}"))
     checks.append(("배분 건 존재", alloc_count > 0, f"실제: {alloc_count}"))
     checks.append(("상계 1건", netting_count == 1, f"실제: {netting_count}"))
@@ -1049,6 +1248,9 @@ async def step_12_final_check(db: AsyncSession, user: User, ctx: dict) -> dict:
             "nettings": netting_count,
             "settled": settled_count,
             "locked": locked_count,
+            "bank_import_jobs": bi_job_count,
+            "bank_import_lines_confirmed": bi_line_confirmed,
+            "bank_import_lines_total": bi_line_total,
         },
     }
 
@@ -1062,13 +1264,169 @@ STEPS = {
     4: ("별칭 추가 (은행 매칭용)", step_4_aliases),
     5: ("판매 전표 생성 (7건)", step_5_sales_vouchers),
     6: ("매입 전표 생성 (5건)", step_6_purchase_vouchers),
-    7: ("은행 입출금 임포트 (7건)", step_7_bank_import),
-    8: ("자동 배분 (FIFO)", step_8_auto_allocate),
-    9: ("수동 입출금 + 배분", step_9_manual_transaction),
-    10: ("상계 생성 + 확정", step_10_netting),
-    11: ("마감 + 해제 테스트", step_11_lock),
-    12: ("최종 데이터 검증", step_12_final_check),
+    7: ("은행 파일 업로드 + 파싱", step_7_bank_import_upload),
+    8: ("은행 자동 매칭", step_8_bank_import_match),
+    9: ("은행 임포트 확정", step_9_bank_import_confirm),
+    10: ("자동 배분 (FIFO)", step_10_auto_allocate),
+    11: ("수동 입출금 + 배분", step_11_manual_transaction),
+    12: ("상계 생성 + 확정", step_12_netting),
+    13: ("마감 + 해제 테스트", step_13_lock),
+    14: ("최종 데이터 검증", step_14_final_check),
 }
+
+STEP_DESCRIPTIONS: dict[int, dict] = {
+    1: {
+        "description": "기존 정산 데이터를 모두 삭제하고 깨끗한 상태에서 시작합니다.",
+        "checks": [
+            "거래처, 법인, 전표, 입출금, 배분, 상계, 마감 등 모든 테이블이 비워졌는지 확인",
+            "삭제된 총 건수가 표시됩니다",
+        ],
+        "depends_on": [],
+        "phase": "setup",
+    },
+    2: {
+        "description": "테스트용 법인 'DWT 본사'를 등록합니다.",
+        "checks": [
+            "법인이 정상적으로 생성되었는지 확인",
+            "법인 이름, 사업자번호가 올바른지 확인",
+        ],
+        "depends_on": [1],
+        "phase": "setup",
+    },
+    3: {
+        "description": "3개 거래처(삼성전자, 애플코리아, LG전자)를 등록합니다.",
+        "checks": [
+            "3개 거래처가 모두 생성되었는지 확인",
+            "각 거래처에 자동 별칭이 등록되었는지 확인",
+        ],
+        "depends_on": [1],
+        "phase": "setup",
+    },
+    4: {
+        "description": "은행 거래에서 사용되는 추가 별칭을 등록합니다.",
+        "checks": [
+            "거래처별 추가 별칭이 등록되었는지 확인",
+            "총 별칭 수가 5건인지 확인 (자동 3 + 추가 2)",
+        ],
+        "depends_on": [3],
+        "phase": "setup",
+    },
+    5: {
+        "description": "테스트 엑셀에서 판매 전표 7건을 생성합니다.",
+        "checks": [
+            "7건의 판매 전표가 생성되었는지 확인",
+            "전표 상태가 모두 'OPEN(미정산)'인지 확인",
+            "전표 금액이 엑셀 데이터와 일치하는지 확인",
+        ],
+        "depends_on": [2, 3],
+        "phase": "vouchers",
+    },
+    6: {
+        "description": "테스트 엑셀에서 매입 전표 5건을 생성합니다.",
+        "checks": [
+            "5건의 매입 전표가 생성되었는지 확인",
+            "거래처별 매입 금액이 올바른지 확인",
+        ],
+        "depends_on": [2, 3],
+        "phase": "vouchers",
+    },
+    7: {
+        "description": "은행 거래내역 엑셀을 업로드하고 BankImportJob/Line을 생성합니다.",
+        "checks": [
+            "BankImportJob이 PARSED 상태로 생성되었는지 확인",
+            "BankImportLine이 올바르게 파싱되었는지 확인",
+            "입금/출금 건수 및 금액이 정확한지 확인",
+            "날짜 범위가 설정되었는지 확인",
+        ],
+        "depends_on": [2],
+        "phase": "bank_import",
+    },
+    8: {
+        "description": "파싱된 라인에 대해 거래처 별칭 기반 자동 매칭을 수행합니다.",
+        "checks": [
+            "별칭 매칭이 올바르게 되었는지 확인",
+            "매칭율(%)이 표시되는지 확인",
+            "미매칭 건이 있다면 사유 확인",
+            "Job 상태가 REVIEWING으로 전환되었는지 확인",
+        ],
+        "depends_on": [4, 7],
+        "phase": "bank_import",
+    },
+    9: {
+        "description": "매칭된 라인을 확정하여 CounterpartyTransaction을 생성합니다.",
+        "checks": [
+            "MATCHED 라인이 CONFIRMED로 전환되는지 확인",
+            "각 라인에 대해 Transaction이 생성되는지 확인",
+            "입금/출금 구분이 정확한지 확인",
+            "Job 상태가 CONFIRMED로 전환되었는지 확인",
+        ],
+        "depends_on": [8],
+        "phase": "bank_import",
+    },
+    10: {
+        "description": "입금은 판매 전표에, 출금은 매입 전표에 FIFO 방식으로 자동 배분합니다.",
+        "checks": [
+            "배분이 생성되었는지 확인",
+            "입금 → 판매, 출금 → 매입 매칭 확인",
+            "전표 상태가 'SETTLING' 또는 'SETTLED'로 변경되었는지 확인",
+            "부분 배분 건의 잔액 확인",
+        ],
+        "depends_on": [5, 6, 9],
+        "phase": "settlement",
+    },
+    11: {
+        "description": "수동으로 LG전자 출금을 추가하고 매입 전표에 배분합니다.",
+        "checks": [
+            "수동 입출금이 정상 생성되었는지 확인",
+            "배분이 특정 전표에 올바르게 연결되었는지 확인",
+            "배분 후 전표 상태 변경 확인",
+        ],
+        "depends_on": [10],
+        "phase": "settlement",
+    },
+    12: {
+        "description": "삼성전자 채권/채무 상계 → 확정 → 입출금 자동 생성 → 배분을 테스트합니다.",
+        "checks": [
+            "상계 레코드가 생성되었는지 확인",
+            "확정 시 입금/출금이 자동 생성되는지 확인",
+            "자동 생성된 입출금이 전표에 배분되는지 확인",
+            "미수/미지급 잔액 변동 확인",
+        ],
+        "depends_on": [10],
+        "phase": "settlement",
+    },
+    13: {
+        "description": "정산완료 전표를 일괄 마감(LOCKED) 후 1건 해제까지 테스트합니다.",
+        "checks": [
+            "마감 처리 정상 실행 확인",
+            "마감 전표 상태가 'LOCKED'로 변경 확인",
+            "마감 해제 후 상태 복원 확인",
+        ],
+        "depends_on": [10],
+        "phase": "finalize",
+    },
+    14: {
+        "description": "전체 플로우 완료 후 데이터 정합성을 최종 검증합니다.",
+        "checks": [
+            "전표 총 건수(판매 7 + 매입 5 = 12건) 확인",
+            "은행 임포트 작업 확정 상태 확인",
+            "은행 임포트 라인 확정 건수 확인",
+            "입출금 총 건수 확인",
+            "배분 총 건수 및 금액 확인",
+            "상태별 전표 건수 확인",
+        ],
+        "depends_on": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+        "phase": "finalize",
+    },
+}
+
+PHASES = [
+    {"id": "setup", "label": "초기 설정", "description": "시스템 초기화 및 기초 데이터 설정", "steps": [1, 2, 3, 4]},
+    {"id": "vouchers", "label": "전표 생성", "description": "판매/매입 전표 등록", "steps": [5, 6]},
+    {"id": "bank_import", "label": "은행 임포트", "description": "은행 파일 업로드 → 매칭 → 확정", "steps": [7, 8, 9]},
+    {"id": "settlement", "label": "배분·정산", "description": "자동/수동 배분 및 상계 처리", "steps": [10, 11, 12]},
+    {"id": "finalize", "label": "마감·검증", "description": "마감 처리 및 최종 데이터 검증", "steps": [13, 14]},
+]
 
 
 # ─── API 엔드포인트 ─────────────────────────────────────────
@@ -1079,10 +1437,7 @@ async def run_scenario_step(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """시나리오 테스트 단계 실행
-
-    각 단계를 순차적으로 실행합니다. context에 이전 단계의 결과를 전달합니다.
-    """
+    """시나리오 테스트 단계 실행"""
     step_num = data.step
     ctx = dict(data.context)
 
@@ -1135,8 +1490,13 @@ async def get_scenario_steps(
     """시나리오 테스트 단계 목록 조회"""
     return {
         "total_steps": len(STEPS),
+        "phases": PHASES,
         "steps": [
-            {"step": num, "name": name}
+            {
+                "step": num,
+                "name": name,
+                **(STEP_DESCRIPTIONS.get(num, {})),
+            }
             for num, (name, _) in STEPS.items()
         ],
     }

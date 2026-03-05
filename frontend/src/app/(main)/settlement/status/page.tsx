@@ -329,6 +329,31 @@ export default function CounterpartyStatusPage() {
   const isReceivables = tab === 'receivables';
   const accentColor = isReceivables ? theme.palette.success.main : theme.palette.error.main;
 
+  // ─── 필터 활성 여부 & 필터된 KPI 계산 ───
+  const isFiltered = searchQuery !== '' || favoritesOnly;
+
+  const filteredOverview = useMemo<OverviewSummary>(() => {
+    if (!isFiltered) return overview;
+    // 필터된 데이터에서 현재 탭 기준 합산
+    const totalAmount = filteredData.reduce((s, r) => s + r.total_amount, 0);
+    const paidAmount = filteredData.reduce((s, r) => s + r.paid_amount, 0);
+    const balance = filteredData.reduce((s, r) => s + r.balance, 0);
+    if (isReceivables) {
+      return {
+        ...overview,
+        totalSales: totalAmount,
+        totalDeposit: paidAmount,
+        totalReceivable: balance,
+      };
+    }
+    return {
+      ...overview,
+      totalPurchase: totalAmount,
+      totalWithdrawal: paidAmount,
+      totalPayable: balance,
+    };
+  }, [isFiltered, overview, filteredData, isReceivables]);
+
   // ─── 빈 상태 안내 ───
   const emptyStateProps = useMemo(() => {
     if (data.length === 0) {
@@ -494,8 +519,8 @@ export default function CounterpartyStatusPage() {
     <ArrowForwardIcon sx={{ fontSize: 16, color: 'text.disabled', flexShrink: 0, mx: 0.5 }} />
   );
 
-  const salesRate = overview.totalSales > 0 ? Math.round((overview.totalDeposit / overview.totalSales) * 100) : 0;
-  const purchaseRate = overview.totalPurchase > 0 ? Math.round((overview.totalWithdrawal / overview.totalPurchase) * 100) : 0;
+  const salesRate = filteredOverview.totalSales > 0 ? Math.round((filteredOverview.totalDeposit / filteredOverview.totalSales) * 100) : 0;
+  const purchaseRate = filteredOverview.totalPurchase > 0 ? Math.round((filteredOverview.totalWithdrawal / filteredOverview.totalPurchase) * 100) : 0;
 
   return (
     <AppPageContainer sx={{ maxWidth: 1600, mx: 'auto' }}>
@@ -531,6 +556,10 @@ export default function CounterpartyStatusPage() {
           <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: 1.5 }}>
             <TrendingUpIcon sx={{ fontSize: 18, color: 'success.main' }} />
             <Typography variant="body2" fontWeight={700} color="success.main">미수 현황</Typography>
+            {isFiltered && isReceivables && (
+              <Chip label={`${filteredData.length}개 거래처 기준`} size="small" variant="outlined" color="info"
+                sx={{ height: 20, fontSize: '0.65rem', fontWeight: 600 }} />
+            )}
             <Chip
               label={`수금률 ${salesRate}%`}
               size="small"
@@ -539,16 +568,16 @@ export default function CounterpartyStatusPage() {
             />
           </Stack>
           <Stack direction="row" alignItems="center" spacing={0.5}>
-            {renderKpiBlock('총 매출', overview.totalSales,
+            {renderKpiBlock('총 매출', filteredOverview.totalSales,
               <ReceiptLongIcon sx={{ fontSize: 14, color: 'text.secondary' }} />, 'text.primary')}
             {renderArrow()}
-            {renderKpiBlock('입금 완료', overview.totalDeposit,
+            {renderKpiBlock('입금 완료', filteredOverview.totalDeposit,
               <CallReceivedIcon sx={{ fontSize: 14, color: 'info.main' }} />, theme.palette.info.main)}
             {renderArrow()}
-            {renderKpiBlock('미수 잔액', overview.totalReceivable,
+            {renderKpiBlock('미수 잔액', filteredOverview.totalReceivable,
               <TrendingUpIcon sx={{ fontSize: 14, color: 'success.main' }} />, theme.palette.success.main, true)}
           </Stack>
-          {overview.totalSales > 0 && (
+          {filteredOverview.totalSales > 0 && (
             <LinearProgress
               variant="determinate"
               value={salesRate}
@@ -567,6 +596,10 @@ export default function CounterpartyStatusPage() {
           <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: 1.5 }}>
             <TrendingDownIcon sx={{ fontSize: 18, color: 'error.main' }} />
             <Typography variant="body2" fontWeight={700} color="error.main">미지급 현황</Typography>
+            {isFiltered && !isReceivables && (
+              <Chip label={`${filteredData.length}개 거래처 기준`} size="small" variant="outlined" color="info"
+                sx={{ height: 20, fontSize: '0.65rem', fontWeight: 600 }} />
+            )}
             <Chip
               label={`지급률 ${purchaseRate}%`}
               size="small"
@@ -575,16 +608,16 @@ export default function CounterpartyStatusPage() {
             />
           </Stack>
           <Stack direction="row" alignItems="center" spacing={0.5}>
-            {renderKpiBlock('총 매입', overview.totalPurchase,
+            {renderKpiBlock('총 매입', filteredOverview.totalPurchase,
               <ReceiptLongIcon sx={{ fontSize: 14, color: 'text.secondary' }} />, 'text.primary')}
             {renderArrow()}
-            {renderKpiBlock('출금 완료', overview.totalWithdrawal,
+            {renderKpiBlock('출금 완료', filteredOverview.totalWithdrawal,
               <CallMadeIcon sx={{ fontSize: 14, color: 'warning.main' }} />, theme.palette.warning.main)}
             {renderArrow()}
-            {renderKpiBlock('미지급 잔액', overview.totalPayable,
+            {renderKpiBlock('미지급 잔액', filteredOverview.totalPayable,
               <TrendingDownIcon sx={{ fontSize: 14, color: 'error.main' }} />, theme.palette.error.main, true)}
           </Stack>
-          {overview.totalPurchase > 0 && (
+          {filteredOverview.totalPurchase > 0 && (
             <LinearProgress
               variant="determinate"
               value={purchaseRate}
