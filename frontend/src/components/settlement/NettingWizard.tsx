@@ -6,9 +6,16 @@ import {
   Button, TextField, Stack, Typography, Box,
   Table, TableBody, TableCell, TableHead, TableRow,
   Stepper, Step, StepLabel, Alert, Chip,
-  FormControl, InputLabel, Select, MenuItem,
   InputAdornment, Divider, CircularProgress,
+  List, ListItemButton, ListItemText, ListItemIcon,
+  ToggleButtonGroup, ToggleButton, alpha,
 } from '@mui/material';
+import {
+  Search as SearchIcon,
+  Star as StarIcon,
+  StarBorder as StarBorderIcon,
+  Business as BusinessIcon,
+} from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import { settlementApi } from '@/lib/api';
 
@@ -17,6 +24,8 @@ import { settlementApi } from '@/lib/api';
 interface CounterpartyOption {
   id: string;
   name: string;
+  is_favorite?: boolean;
+  counterparty_type?: string;
 }
 
 interface EligibleVoucher {
@@ -48,6 +57,8 @@ export default function NettingWizard({ open, onClose, onCreated }: NettingWizar
   const [cpLoading, setCpLoading] = useState(false);
   const [selectedCpId, setSelectedCpId] = useState('');
   const [selectedCpName, setSelectedCpName] = useState('');
+  const [cpSearch, setCpSearch] = useState('');
+  const [cpFilter, setCpFilter] = useState<'all' | 'favorite'>('all');
 
   // Step 2: 전표 선택
   const [eligibleVouchers, setEligibleVouchers] = useState<EligibleVoucher[]>([]);
@@ -76,6 +87,8 @@ export default function NettingWizard({ open, onClose, onCreated }: NettingWizar
       setActiveStep(0);
       setSelectedCpId('');
       setSelectedCpName('');
+      setCpSearch('');
+      setCpFilter('all');
       setEligibleVouchers([]);
       setNettingAmounts({});
       setMemo('');
@@ -255,28 +268,98 @@ export default function NettingWizard({ open, onClose, onCreated }: NettingWizar
               <Alert severity="info" variant="outlined">
                 상계할 거래처를 선택하세요. 매출(AR)과 매입(AP) 전표가 모두 있는 거래처만 상계 가능합니다.
               </Alert>
+
+              {/* 검색 + 즐겨찾기 필터 */}
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                <TextField
+                  size="small"
+                  placeholder="거래처명 검색"
+                  value={cpSearch}
+                  onChange={(e) => setCpSearch(e.target.value)}
+                  sx={{ flex: 1 }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>
+                    ),
+                  }}
+                  autoFocus
+                />
+                <ToggleButtonGroup
+                  size="small"
+                  exclusive
+                  value={cpFilter}
+                  onChange={(_, v) => { if (v) setCpFilter(v); }}
+                >
+                  <ToggleButton value="all">전체</ToggleButton>
+                  <ToggleButton value="favorite">
+                    <StarIcon fontSize="small" sx={{ mr: 0.5, color: cpFilter === 'favorite' ? 'warning.main' : 'inherit' }} />
+                    즐겨찾기
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+
+              {/* 거래처 리스트 */}
               {cpLoading ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                   <CircularProgress size={24} />
                 </Box>
-              ) : (
-                <FormControl size="small" fullWidth>
-                  <InputLabel>거래처</InputLabel>
-                  <Select
-                    value={selectedCpId}
-                    label="거래처"
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setSelectedCpId(id);
-                      const cp = counterparties.find((c) => c.id === id);
-                      setSelectedCpName(cp?.name || '');
+              ) : (() => {
+                const keyword = cpSearch.trim().toLowerCase();
+                const filtered = counterparties.filter((cp) => {
+                  if (cpFilter === 'favorite' && !cp.is_favorite) return false;
+                  if (keyword && !cp.name.toLowerCase().includes(keyword)) return false;
+                  return true;
+                });
+                const favoriteCount = counterparties.filter((c) => c.is_favorite).length;
+                return filtered.length === 0 ? (
+                  <Alert severity="info" variant="outlined">
+                    {cpFilter === 'favorite'
+                      ? (favoriteCount === 0 ? '즐겨찾기된 거래처가 없습니다. 거래처 목록에서 ★를 눌러 즐겨찾기를 추가하세요.' : '검색 결과가 없습니다.')
+                      : '검색 결과가 없습니다.'}
+                  </Alert>
+                ) : (
+                  <List
+                    dense
+                    sx={{
+                      maxHeight: 320,
+                      overflow: 'auto',
+                      border: 1,
+                      borderColor: 'divider',
+                      borderRadius: 1,
                     }}
                   >
-                    {counterparties.map((cp) => (
-                      <MenuItem key={cp.id} value={cp.id}>{cp.name}</MenuItem>
+                    {filtered.map((cp) => (
+                      <ListItemButton
+                        key={cp.id}
+                        selected={selectedCpId === cp.id}
+                        onClick={() => { setSelectedCpId(cp.id); setSelectedCpName(cp.name); }}
+                        sx={(theme) => ({
+                          ...(selectedCpId === cp.id && {
+                            bgcolor: alpha(theme.palette.primary.main, 0.08),
+                            borderLeft: `3px solid ${theme.palette.primary.main}`,
+                          }),
+                        })}
+                      >
+                        <ListItemIcon sx={{ minWidth: 36 }}>
+                          {cp.is_favorite
+                            ? <StarIcon fontSize="small" sx={{ color: 'warning.main' }} />
+                            : <BusinessIcon fontSize="small" color="disabled" />
+                          }
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={cp.name}
+                          primaryTypographyProps={{ fontWeight: selectedCpId === cp.id ? 700 : 400 }}
+                        />
+                      </ListItemButton>
                     ))}
-                  </Select>
-                </FormControl>
+                  </List>
+                );
+              })()}
+
+              {selectedCpId && (
+                <Typography variant="body2" color="primary.main" fontWeight={600}>
+                  선택: {selectedCpName}
+                </Typography>
               )}
             </Stack>
           )}
