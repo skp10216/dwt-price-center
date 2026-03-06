@@ -702,7 +702,7 @@ async def get_counterparty_summary(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """거래처 요약 (미수/미지급/매출/매입 합계)"""
+    """거래처 요약 (미수/미지급/매출/매입 합계) — 원자적 단일 스냅샷 조회"""
     result = await db.execute(
         select(Counterparty).where(Counterparty.id == counterparty_id)
     )
@@ -710,80 +710,58 @@ async def get_counterparty_summary(
     if not cp:
         raise HTTPException(status_code=404, detail="거래처를 찾을 수 없습니다")
 
-    # 판매 전표 합계 (미수)
-    sales_q = select(
-        func.coalesce(func.sum(Voucher.total_amount), 0),
-        func.count(Voucher.id),
-    ).where(
-        Voucher.counterparty_id == counterparty_id,
-        Voucher.voucher_type == VoucherType.SALES,
-    )
-    sales_result = (await db.execute(sales_q)).one()
-    total_sales = sales_result[0]
-    sales_count = sales_result[1]
+    # 단일 쿼리로 전표 합계 + 레거시 입금/송금 + 트랜잭션 입출금 원자적 조회
+    from sqlalchemy import text
+    summary_result = await db.execute(text("""
+        WITH voucher_summary AS (
+            SELECT
+                COALESCE(SUM(CASE WHEN voucher_type = 'sales' THEN total_amount ELSE 0 END), 0) AS total_sales,
+                COALESCE(SUM(CASE WHEN voucher_type = 'purchase' THEN total_amount ELSE 0 END), 0) AS total_purchases,
+                COUNT(*) AS voucher_count
+            FROM vouchers
+            WHERE counterparty_id = :cp_id
+        ),
+        legacy_receipts AS (
+            SELECT COALESCE(SUM(r.amount), 0) AS total
+            FROM receipts r
+            JOIN vouchers v ON r.voucher_id = v.id
+            WHERE v.counterparty_id = :cp_id
+        ),
+        legacy_payments AS (
+            SELECT COALESCE(SUM(p.amount), 0) AS total
+            FROM payments p
+            JOIN vouchers v ON p.voucher_id = v.id
+            WHERE v.counterparty_id = :cp_id
+        ),
+        txn_summary AS (
+            SELECT
+                COALESCE(SUM(CASE WHEN transaction_type = 'deposit' THEN amount ELSE 0 END), 0) AS total_deposits,
+                COALESCE(SUM(CASE WHEN transaction_type = 'withdrawal' THEN amount ELSE 0 END), 0) AS total_withdrawals
+            FROM counterparty_transactions
+            WHERE counterparty_id = :cp_id
+              AND status NOT IN ('cancelled', 'hidden')
+        )
+        SELECT
+            vs.total_sales,
+            vs.total_purchases,
+            vs.voucher_count,
+            vs.total_sales - lr.total - ts.total_deposits AS total_receivable,
+            vs.total_purchases - lp.total - ts.total_withdrawals AS total_payable
+        FROM voucher_summary vs, legacy_receipts lr, legacy_payments lp, txn_summary ts
+    """), {"cp_id": str(counterparty_id)})
 
-    _active_txn_filter = CounterpartyTransaction.status.notin_([
-        TransactionStatus.CANCELLED, TransactionStatus.HIDDEN,
-    ])
-
-    # 누적 입금 (레거시 Receipt)
-    receipts_q = select(func.coalesce(func.sum(Receipt.amount), 0)).join(
-        Voucher, Receipt.voucher_id == Voucher.id
-    ).where(Voucher.counterparty_id == counterparty_id)
-    legacy_received = (await db.execute(receipts_q)).scalar() or 0
-
-    # 누적 입금 (DEPOSIT 트랜잭션 직접 합산, 배분 여부 무관)
-    txn_received_q = select(
-        func.coalesce(func.sum(CounterpartyTransaction.amount), 0)
-    ).where(
-        CounterpartyTransaction.counterparty_id == counterparty_id,
-        CounterpartyTransaction.transaction_type == TransactionType.DEPOSIT,
-        _active_txn_filter,
-    )
-    txn_received = (await db.execute(txn_received_q)).scalar() or 0
-
-    total_received = legacy_received + txn_received
-
-    # 매입 전표 합계 (미지급)
-    purchase_q = select(
-        func.coalesce(func.sum(Voucher.total_amount), 0),
-        func.count(Voucher.id),
-    ).where(
-        Voucher.counterparty_id == counterparty_id,
-        Voucher.voucher_type == VoucherType.PURCHASE,
-    )
-    purchase_result = (await db.execute(purchase_q)).one()
-    total_purchase = purchase_result[0]
-    purchase_count = purchase_result[1]
-
-    # 누적 송금 (레거시 Payment)
-    payments_q = select(func.coalesce(func.sum(Payment.amount), 0)).join(
-        Voucher, Payment.voucher_id == Voucher.id
-    ).where(Voucher.counterparty_id == counterparty_id)
-    legacy_paid = (await db.execute(payments_q)).scalar() or 0
-
-    # 누적 송금 (WITHDRAWAL 트랜잭션 직접 합산, 배분 여부 무관)
-    txn_paid_q = select(
-        func.coalesce(func.sum(CounterpartyTransaction.amount), 0)
-    ).where(
-        CounterpartyTransaction.counterparty_id == counterparty_id,
-        CounterpartyTransaction.transaction_type == TransactionType.WITHDRAWAL,
-        _active_txn_filter,
-    )
-    txn_paid = (await db.execute(txn_paid_q)).scalar() or 0
-
-    total_paid = legacy_paid + txn_paid
+    row = summary_result.one()
 
     return CounterpartySummary(
         id=cp.id,
         name=cp.name,
         code=cp.code,
         counterparty_type=cp.counterparty_type.value if hasattr(cp.counterparty_type, 'value') else cp.counterparty_type,
-        total_sales_amount=total_sales,
-        total_purchase_amount=total_purchase,
-        total_receivable=total_sales - total_received,
-        total_payable=total_purchase - total_paid,
-        voucher_count=sales_count + purchase_count,
+        total_sales_amount=row[0],
+        total_purchase_amount=row[1],
+        total_receivable=row[3],
+        total_payable=row[4],
+        voucher_count=row[2],
     )
 
 

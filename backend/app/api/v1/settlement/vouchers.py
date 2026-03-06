@@ -220,6 +220,10 @@ async def create_voucher(
     current_user: User = Depends(get_current_user),
 ):
     """전표 생성 (수동)"""
+    # 기간 마감 검증
+    from app.api.v1.settlement.helpers import check_period_not_locked
+    await check_period_not_locked(data.trade_date, db)
+
     # 거래처 확인
     cp = await db.get(Counterparty, data.counterparty_id)
     if not cp:
@@ -354,6 +358,10 @@ async def update_voucher(
     if not v:
         raise HTTPException(status_code=404, detail="전표를 찾을 수 없습니다")
 
+    # 기간 마감 검증
+    from app.api.v1.settlement.helpers import check_period_not_locked
+    await check_period_not_locked(v.trade_date, db)
+
     # 마감 체크
     if v.settlement_status == SettlementStatus.LOCKED or v.payment_status == PaymentStatus.LOCKED:
         raise HTTPException(status_code=400, detail="마감된 전표는 수정할 수 없습니다")
@@ -384,8 +392,12 @@ async def delete_voucher(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """전표 삭제 (마감된 전표 삭제 불가)"""
-    v = await db.get(Voucher, voucher_id)
+    """전표 삭제 (마감된 전표 삭제 불가) — 비관적 락으로 원자성 확보"""
+    # 전표에 비관적 락 적용 (삭제 중 배분 추가 방지)
+    v_result = await db.execute(
+        select(Voucher).where(Voucher.id == voucher_id).with_for_update()
+    )
+    v = v_result.scalar_one_or_none()
     if not v:
         raise HTTPException(status_code=404, detail="전표를 찾을 수 없습니다")
 
@@ -393,25 +405,17 @@ async def delete_voucher(
     if v.settlement_status == SettlementStatus.LOCKED or v.payment_status == PaymentStatus.LOCKED:
         raise HTTPException(status_code=400, detail="마감된 전표는 삭제할 수 없습니다")
 
-    # 연결된 입금/송금 내역 확인 (레거시)
-    receipt_count = (await db.execute(
-        select(func.count(Receipt.id)).where(Receipt.voucher_id == voucher_id)
-    )).scalar() or 0
-    payment_count = (await db.execute(
-        select(func.count(Payment.id)).where(Payment.voucher_id == voucher_id)
-    )).scalar() or 0
-
-    # 신규 배분 내역 확인
-    allocation_count = (await db.execute(
-        select(func.count(TransactionAllocation.id))
-        .where(TransactionAllocation.voucher_id == voucher_id)
-    )).scalar() or 0
-
-    # 상계 내역 확인
-    netting_count = (await db.execute(
-        select(func.count(NettingVoucherLink.id))
-        .where(NettingVoucherLink.voucher_id == voucher_id)
-    )).scalar() or 0
+    # 연결된 입금/송금/배분/상계 내역을 단일 쿼리로 원자적 확인
+    from sqlalchemy import text
+    link_result = await db.execute(text("""
+        SELECT
+            (SELECT COUNT(*) FROM receipts WHERE voucher_id = :vid) AS receipt_count,
+            (SELECT COUNT(*) FROM payments WHERE voucher_id = :vid) AS payment_count,
+            (SELECT COUNT(*) FROM transaction_allocations WHERE voucher_id = :vid) AS allocation_count,
+            (SELECT COUNT(*) FROM netting_voucher_links WHERE voucher_id = :vid) AS netting_count
+    """), {"vid": str(voucher_id)})
+    counts = link_result.one()
+    receipt_count, payment_count, allocation_count, netting_count = counts[0], counts[1], counts[2], counts[3]
 
     linked_count = receipt_count + payment_count + allocation_count + netting_count
     if linked_count > 0:
@@ -454,13 +458,23 @@ async def batch_delete_vouchers(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """전표 일괄 삭제 (마감된 전표, 입금/송금 내역이 있는 전표 제외)"""
+    """전표 일괄 삭제 (마감된 전표, 입금/송금 내역이 있는 전표 제외) — 비관적 락으로 원자성 확보"""
+    from sqlalchemy import text
+
     deleted_count = 0
     skipped_count = 0
     errors = []
 
+    # 비관적 락으로 대상 전표 일괄 조회 (삭제 중 배분 추가 방지)
+    v_result = await db.execute(
+        select(Voucher)
+        .where(Voucher.id.in_(voucher_ids))
+        .with_for_update()
+    )
+    vouchers_map = {v.id: v for v in v_result.scalars().all()}
+
     for vid in voucher_ids:
-        v = await db.get(Voucher, vid)
+        v = vouchers_map.get(vid)
         if not v:
             skipped_count += 1
             errors.append(f"전표 ID {vid}를 찾을 수 없습니다.")
@@ -472,21 +486,16 @@ async def batch_delete_vouchers(
             errors.append(f"전표 '{v.voucher_number}' (ID: {vid})는 마감 상태입니다.")
             continue
 
-        # 연결된 입금/송금/배분 내역 확인
-        receipt_count = (await db.execute(
-            select(func.count(Receipt.id)).where(Receipt.voucher_id == vid)
-        )).scalar() or 0
-        payment_count = (await db.execute(
-            select(func.count(Payment.id)).where(Payment.voucher_id == vid)
-        )).scalar() or 0
-        allocation_count = (await db.execute(
-            select(func.count(TransactionAllocation.id))
-            .where(TransactionAllocation.voucher_id == vid)
-        )).scalar() or 0
-        netting_count = (await db.execute(
-            select(func.count(NettingVoucherLink.id))
-            .where(NettingVoucherLink.voucher_id == vid)
-        )).scalar() or 0
+        # 연결된 입금/송금/배분/상계 내역을 단일 쿼리로 원자적 확인
+        link_result = await db.execute(text("""
+            SELECT
+                (SELECT COUNT(*) FROM receipts WHERE voucher_id = :vid) AS receipt_count,
+                (SELECT COUNT(*) FROM payments WHERE voucher_id = :vid) AS payment_count,
+                (SELECT COUNT(*) FROM transaction_allocations WHERE voucher_id = :vid) AS allocation_count,
+                (SELECT COUNT(*) FROM netting_voucher_links WHERE voucher_id = :vid) AS netting_count
+        """), {"vid": str(vid)})
+        counts = link_result.one()
+        receipt_count, payment_count, allocation_count, netting_count = counts[0], counts[1], counts[2], counts[3]
 
         linked_count = receipt_count + payment_count + allocation_count + netting_count
         if linked_count > 0:

@@ -33,8 +33,19 @@ from app.models.enums import (
     NettingStatus,
 )
 from app.api.v1.settlement.activity import SETTLEMENT_ACTIONS
+from app.api.v1.settlement.helpers import run_full_integrity_check
 
 router = APIRouter()
+
+
+@router.get("/integrity-check")
+async def integrity_check(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """정산 데이터 정합성 검증 — 배분/전표/상계 간 금액 불일치 검출"""
+    result = await run_full_integrity_check(db)
+    return result
 
 
 @router.get("/health-check")

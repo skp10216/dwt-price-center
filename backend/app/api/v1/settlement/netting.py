@@ -272,12 +272,14 @@ async def create_netting(
     db.add(nr)
     await db.flush()
 
-    # 전표 배치 로드 + 배분액 배치 계산
+    # 전표 배치 로드 + 비관적 락 (동시 상계/배분 방지)
     all_items = data.sales_vouchers + data.purchase_vouchers
     all_voucher_ids = [item.voucher_id for item in all_items]
 
     voucher_result = await db.execute(
-        select(Voucher).where(Voucher.id.in_(all_voucher_ids))
+        select(Voucher)
+        .where(Voucher.id.in_(all_voucher_ids))
+        .with_for_update()
     )
     voucher_map = {v.id: v for v in voucher_result.scalars().all()}
 
@@ -424,11 +426,13 @@ async def confirm_netting(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """상계 확정 → Transaction 2건 자동 생성 + 배분"""
+    """상계 확정 → Transaction 2건 자동 생성 + 배분 (비관적 락 적용)"""
+    # 상계 레코드에 비관적 락 적용
     result = await db.execute(
         select(NettingRecord)
         .options(selectinload(NettingRecord.voucher_links))
         .where(NettingRecord.id == netting_id)
+        .with_for_update()
     )
     nr = result.scalar_one_or_none()
     if not nr:
@@ -436,10 +440,12 @@ async def confirm_netting(
     if nr.status != NettingStatus.DRAFT:
         raise HTTPException(status_code=400, detail="초안 상태에서만 확정할 수 있습니다")
 
-    # 전표 1회 배치 로드 (3중 조회 → 1회)
+    # 전표에 비관적 락 적용 (동시 배분/상계로 잔액 초과 방지)
     link_voucher_ids = [link.voucher_id for link in nr.voucher_links]
     v_result = await db.execute(
-        select(Voucher).where(Voucher.id.in_(link_voucher_ids))
+        select(Voucher)
+        .where(Voucher.id.in_(link_voucher_ids))
+        .with_for_update()
     )
     voucher_map = {v.id: v for v in v_result.scalars().all()}
 
