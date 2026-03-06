@@ -17,6 +17,8 @@ import {
   ChevronRight as ChevronRightIcon,
   CalendarMonth as CalendarIcon,
   Download as DownloadIcon,
+  Clear as ClearIcon,
+  FilterAltOff as FilterAltOffIcon,
 } from '@mui/icons-material';
 import { useAppRouter } from '@/lib/navigation';
 import { settlementApi } from '@/lib/api';
@@ -187,6 +189,29 @@ export default function VouchersPage() {
   // 삭제 다이얼로그 상태
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // ─── 활성 필터 개수 + 초기화 ──────────────────────────────────────────────────
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (searchQuery) count++;
+    if (voucherType) count++;
+    if (settlementStatus) count++;
+    if (paymentStatus) count++;
+    if (datePreset !== 'all') count++;
+    return count;
+  }, [searchQuery, voucherType, settlementStatus, paymentStatus, datePreset]);
+
+  const handleResetFilters = () => {
+    setSearchInput('');
+    setSearchQuery('');
+    setVoucherType('');
+    setSettlementStatus('');
+    setPaymentStatus('');
+    setDatePreset('all');
+    setDateFrom('');
+    setDateTo('');
+    setPage(0);
+  };
 
   // ─── 날짜 프리셋 핸들러 ────────────────────────────────────────────────────
   const handlePreset = (preset: string) => {
@@ -538,6 +563,13 @@ export default function VouchersPage() {
                     <SearchIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
                   </InputAdornment>
                 ),
+                endAdornment: searchInput ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => { setSearchInput(''); setSearchQuery(''); setPage(0); }}>
+                      <ClearIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </InputAdornment>
+                ) : undefined,
               }}
               sx={{ minWidth: { xs: 0, sm: 200 }, flex: { xs: 1, sm: 'none' } }}
             />
@@ -593,6 +625,20 @@ export default function VouchersPage() {
                 엑셀
               </Button>
             </Tooltip>
+            {activeFilterCount > 0 && (
+              <Tooltip title="모든 필터 초기화">
+                <Button
+                  variant="text"
+                  size="small"
+                  startIcon={<FilterAltOffIcon />}
+                  onClick={handleResetFilters}
+                  color="warning"
+                  sx={{ fontWeight: 600, ml: 0.5 }}
+                >
+                  필터 초기화 ({activeFilterCount})
+                </Button>
+              </Tooltip>
+            )}
           </Box>
         }
       />

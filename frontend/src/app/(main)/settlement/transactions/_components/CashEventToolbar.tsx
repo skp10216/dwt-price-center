@@ -1,11 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Box, TextField, MenuItem, Select, InputLabel, FormControl,
-  InputAdornment, Button, Tooltip,
+  InputAdornment, Button, Tooltip, IconButton,
 } from '@mui/material';
-import { Search as SearchIcon, Download as DownloadIcon } from '@mui/icons-material';
+import {
+  Search as SearchIcon,
+  Download as DownloadIcon,
+  Clear as ClearIcon,
+  FilterAltOff as FilterAltOffIcon,
+} from '@mui/icons-material';
 import { AppPageToolbar } from '@/components/ui';
 import { settlementApi } from '@/lib/api';
 import { exportToExcel, type ExcelColumn } from '@/lib/excel-export';
@@ -17,7 +22,20 @@ import ViewToggle from './ViewToggle';
 interface CorporateEntityOption { id: string; name: string; }
 
 export default function CashEventToolbar() {
-  const { filters, setFilter, transactions } = useCashEvent();
+  const { filters, setFilter, resetFilters, transactions } = useCashEvent();
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filters.search) count++;
+    if (filters.transactionType) count++;
+    if (filters.status) count++;
+    if (filters.source) count++;
+    if (filters.corporateEntityId) count++;
+    if (filters.amountMin) count++;
+    if (filters.amountMax) count++;
+    if (filters.datePreset !== 'all') count++;
+    return count;
+  }, [filters]);
 
   const handleExcelDownload = async () => {
     const cols: ExcelColumn<TransactionRow>[] = [
@@ -67,6 +85,13 @@ export default function CashEventToolbar() {
                 startAdornment: (
                   <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>
                 ),
+                endAdornment: filters.search ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setFilter('search', '')}>
+                      <ClearIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </InputAdornment>
+                ) : undefined,
               }}
             />
             <FormControl size="small" sx={{ minWidth: { xs: 0, sm: 100 }, flex: { xs: 1, sm: 'none' } }}>
@@ -153,6 +178,20 @@ export default function CashEventToolbar() {
                 엑셀
               </Button>
             </Tooltip>
+            {activeFilterCount > 0 && (
+              <Tooltip title="모든 필터 초기화">
+                <Button
+                  variant="text"
+                  size="small"
+                  startIcon={<FilterAltOffIcon />}
+                  onClick={resetFilters}
+                  color="warning"
+                  sx={{ fontWeight: 600, ml: 0.5 }}
+                >
+                  필터 초기화 ({activeFilterCount})
+                </Button>
+              </Tooltip>
+            )}
           </Box>
         }
       />
