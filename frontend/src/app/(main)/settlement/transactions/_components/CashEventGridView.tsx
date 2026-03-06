@@ -128,9 +128,10 @@ export default function CashEventGridView({
       field: 'source',
       headerName: '출처',
       sortable: false,
-      renderCell: (row) => (
-        <Chip label={SOURCE_LABELS[row.source] || row.source} size="small" variant="outlined" />
-      ),
+      renderCell: (row) => {
+        const info = SOURCE_LABELS[row.source];
+        return <Chip label={info?.label ?? row.source} color={info?.color ?? 'default'} size="small" variant="outlined" />;
+      },
     },
     {
       field: 'status',

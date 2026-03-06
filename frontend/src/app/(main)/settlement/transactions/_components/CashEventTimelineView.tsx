@@ -65,7 +65,7 @@ function groupByDate(txns: TransactionRow[]): DateGroup[] {
 
 function TimelineCard({ txn, onClick }: { txn: TransactionRow; onClick: () => void }) {
   const statusInfo = STATUS_LABELS[txn.status];
-  const sourceLabel = SOURCE_LABELS[txn.source] || txn.source;
+  const sourceLabel = SOURCE_LABELS[txn.source]?.label || txn.source;
   const isDeposit = txn.transaction_type === 'deposit';
   const allocPct = txn.amount > 0 ? Math.min(100, (txn.allocated_amount / txn.amount) * 100) : 0;
   const isHold = txn.status === 'on_hold';

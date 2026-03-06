@@ -294,7 +294,8 @@ export default function CashEventDetailDrawer({ onAllocate }: CashEventDetailDra
                   size="small"
                 />
                 <Chip
-                  label={SOURCE_LABELS[detail.source] || detail.source}
+                  label={SOURCE_LABELS[detail.source]?.label || detail.source}
+                  color={SOURCE_LABELS[detail.source]?.color ?? 'default'}
                   size="small"
                   variant="outlined"
                   sx={{ ml: 'auto' }}

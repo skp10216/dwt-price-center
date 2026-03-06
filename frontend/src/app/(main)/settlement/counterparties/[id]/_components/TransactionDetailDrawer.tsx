@@ -48,20 +48,10 @@ interface TransactionDetail {
   hide_reason?: string | null;
 }
 
-const STATUS_LABELS: Record<string, { label: string; color: 'error' | 'warning' | 'success' | 'default' | 'info' }> = {
-  pending: { label: '미배분', color: 'error' },
-  partial: { label: '부분배분', color: 'warning' },
-  allocated: { label: '전액배분', color: 'success' },
-  on_hold: { label: '보류', color: 'warning' },
-  hidden: { label: '숨김', color: 'default' },
-  cancelled: { label: '취소', color: 'default' },
-};
-
-const SOURCE_LABELS: Record<string, string> = {
-  MANUAL: '수동', manual: '수동',
-  BANK_IMPORT: '은행', bank_import: '은행',
-  NETTING: '상계', netting: '상계',
-};
+import {
+  TRANSACTION_STATUS_LABELS as STATUS_LABELS,
+  getSourceLabel,
+} from '@/lib/settlement-constants';
 
 const fmt = (n: number) => new Intl.NumberFormat('ko-KR').format(n);
 
@@ -204,7 +194,7 @@ export default function TransactionDetailDrawer({ transactionId, onClose }: Tran
               />
             </InfoRow>
             <InfoRow label="출처">
-              <Typography variant="body2">{SOURCE_LABELS[detail.source] || detail.source}</Typography>
+              <Typography variant="body2">{getSourceLabel(detail.source)}</Typography>
             </InfoRow>
             {detail.bank_reference && (
               <InfoRow label="은행참조번호">

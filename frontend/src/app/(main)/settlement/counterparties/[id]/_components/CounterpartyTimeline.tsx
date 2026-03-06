@@ -36,20 +36,11 @@ export interface TransactionItem {
   created_at?: string;
 }
 
-const STATUS_LABELS: Record<string, { label: string; color: 'error' | 'warning' | 'success' | 'default' | 'info' }> = {
-  pending: { label: '미배분', color: 'error' },
-  partial: { label: '부분배분', color: 'warning' },
-  allocated: { label: '전액배분', color: 'success' },
-  on_hold: { label: '보류', color: 'warning' },
-  hidden: { label: '숨김', color: 'default' },
-  cancelled: { label: '취소', color: 'default' },
-};
-
-const SOURCE_LABELS: Record<string, string> = {
-  MANUAL: '수동', manual: '수동',
-  BANK_IMPORT: '은행', bank_import: '은행',
-  NETTING: '상계', netting: '상계',
-};
+import {
+  TRANSACTION_STATUS_LABELS as STATUS_LABELS,
+  TRANSACTION_SOURCE_LABELS as SOURCE_LABELS_MAP,
+  getSourceLabel,
+} from '@/lib/settlement-constants';
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 const fmt = (n: number) => new Intl.NumberFormat('ko-KR').format(n);
@@ -91,7 +82,7 @@ function TransactionTimelineCard({
   const theme = useTheme();
   const isDeposit = txn.transaction_type === 'deposit';
   const statusInfo = STATUS_LABELS[txn.status];
-  const sourceLabel = SOURCE_LABELS[txn.source] || txn.source;
+  const sourceLabel = getSourceLabel(txn.source);
   const allocPct = txn.amount > 0 ? Math.min(100, (txn.allocated_amount / txn.amount) * 100) : 0;
   const isHold = txn.status === 'on_hold';
   const isHidden = txn.status === 'hidden';
@@ -130,6 +121,7 @@ function TransactionTimelineCard({
           />
           <Chip
             label={sourceLabel}
+            color={SOURCE_LABELS_MAP[txn.source]?.color ?? 'default'}
             size="small"
             variant="outlined"
             sx={{ height: 22, fontSize: '0.65rem' }}
