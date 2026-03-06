@@ -43,7 +43,7 @@ import StepConnector, { stepConnectorClasses } from '@mui/material/StepConnector
 import { StepIconProps } from '@mui/material/StepIcon';
 import { styled } from '@mui/material/styles';
 import Avatar from '@mui/material/Avatar';
-import { settlementApi } from '@/lib/api';
+import { settlementApi, getErrorMessage } from '@/lib/api';
 import { useSnackbar } from 'notistack';
 import {
   AppPageContainer,
@@ -312,9 +312,7 @@ export default function BankImportPage() {
       enqueueSnackbar(`${file.name} 업로드 및 자동매칭 완료 (${job.matched_lines}/${job.total_lines}건 매칭)`, { variant: 'success' });
       setActiveStep(1);
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } };
-      const detail = axiosErr?.response?.data?.detail;
-      enqueueSnackbar(detail || '파일 업로드에 실패했습니다.', { variant: 'error', autoHideDuration: 8000 });
+      enqueueSnackbar(getErrorMessage(err, '파일 업로드에 실패했습니다.'), { variant: 'error', autoHideDuration: 8000 });
     } finally {
       setUploading(false);
     }

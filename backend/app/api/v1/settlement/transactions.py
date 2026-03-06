@@ -1557,7 +1557,9 @@ async def confirm_transaction_upload(
             created_count += 1
 
         except Exception as e:
-            errors.append({"row": idx + 1, "error": str(e)})
+            import logging
+            logging.getLogger(__name__).warning(f"[ExcelImport] 행 {idx+1} 처리 실패: {e}")
+            errors.append({"row": idx + 1, "error": "데이터 형식이 올바르지 않습니다."})
 
     await db.commit()
 

@@ -33,7 +33,7 @@ import { DataGrid, GridColDef, GridActionsCellItem, GridRenderCellParams } from 
 import { useSnackbar } from 'notistack';
 import { format } from 'date-fns';
 import PageHeader from '@/components/ui/PageHeader';
-import { usersApi } from '@/lib/api';
+import { usersApi, getErrorMessage } from '@/lib/api';
 
 interface User {
   id: string;
@@ -121,7 +121,7 @@ export default function UsersPage() {
       setDialogOpen(false);
       fetchUsers();
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '저장에 실패했습니다';
+      const message = getErrorMessage(error, '저장에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     }
   };

@@ -1477,8 +1477,8 @@ async def run_scenario_step(
             name=name,
             status="fail",
             duration_ms=duration,
-            message=f"실패: {str(e)}",
-            error=traceback.format_exc(),
+            message="테스트 단계 실행 중 오류가 발생했습니다.",
+            error=traceback.format_exc(),  # 시나리오 러너는 내부 디버그 도구이므로 상세 유지
             context=ctx,
         )
 

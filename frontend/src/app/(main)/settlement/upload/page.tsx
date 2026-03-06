@@ -67,7 +67,7 @@ import { StepIconProps } from '@mui/material/StepIcon';
 import { styled, keyframes } from '@mui/material/styles';
 import Avatar from '@mui/material/Avatar';
 import Skeleton from '@mui/material/Skeleton';
-import { settlementApi } from '@/lib/api';
+import { settlementApi, getErrorMessage } from '@/lib/api';
 import { useSnackbar } from 'notistack';
 import { useAppRouter } from '@/lib/navigation';
 import { AppPageContainer, AppPageHeader } from '@/components/ui';
@@ -398,8 +398,7 @@ export default function UploadWizardPage() {
       // 폴링 시작
       pollJobStatus(data.id);
     } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setError(detail || '업로드에 실패했습니다.');
+      setError(getErrorMessage(err, '업로드에 실패했습니다.'));
       setUploading(false);
     }
   };

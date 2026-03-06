@@ -14,7 +14,7 @@ import {
   Search as SearchIcon,
   Business as EntityIcon,
 } from '@mui/icons-material';
-import { settlementApi } from '@/lib/api';
+import { settlementApi, getErrorMessage } from '@/lib/api';
 import { useSnackbar } from 'notistack';
 import {
   AppPageContainer,
@@ -122,9 +122,7 @@ export default function CorporateEntitiesPage() {
       setDialogOpen(false);
       loadData();
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } };
-      const detail = axiosErr?.response?.data?.detail;
-      enqueueSnackbar(detail || '저장에 실패했습니다.', { variant: 'error' });
+      enqueueSnackbar(getErrorMessage(err, '저장에 실패했습니다.'), { variant: 'error' });
     } finally {
       setSaving(false);
     }
@@ -139,9 +137,7 @@ export default function CorporateEntitiesPage() {
       enqueueSnackbar('법인이 삭제되었습니다.', { variant: 'success' });
       loadData();
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } };
-      const detail = axiosErr?.response?.data?.detail;
-      enqueueSnackbar(detail || '삭제에 실패했습니다.', { variant: 'error' });
+      enqueueSnackbar(getErrorMessage(err, '삭제에 실패했습니다.'), { variant: 'error' });
     }
   };
 

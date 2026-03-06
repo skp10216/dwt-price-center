@@ -185,8 +185,10 @@ async def upload_bank_file(
         job.matched_lines = matched
         job.status = BankImportJobStatus.REVIEWING
     except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"[BankImport] 파싱 실패: {e}", exc_info=True)
         job.status = BankImportJobStatus.FAILED
-        job.error_message = str(e)
+        job.error_message = "파일 파싱 중 오류가 발생했습니다. 파일 형식을 확인해 주세요."
 
     db.add(AuditLog(
         user_id=current_user.id,

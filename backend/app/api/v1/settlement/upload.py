@@ -278,8 +278,8 @@ async def _handle_preview(
     try:
         df = pd.read_excel(io.BytesIO(contents), engine="openpyxl", header=header_row)
     except Exception as e:
-        logger.error(f"[Preview] 엑셀 파싱 실패: {e}")
-        raise HTTPException(status_code=400, detail=f"엑셀 파일 읽기 실패: {str(e)}")
+        logger.error(f"[Preview] 엑셀 파싱 실패: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail="엑셀 파일을 읽을 수 없습니다. 파일 형식을 확인해 주세요.")
 
     if df.empty:
         raise HTTPException(status_code=400, detail="엑셀 파일이 비어있습니다")
@@ -579,10 +579,10 @@ async def _handle_voucher_upload(
         )
         logger.info(f"[Upload] Job {job.id} → RQ 큐 enqueue 완료")
     except Exception as enq_err:
-        logger.error(f"[Upload] RQ enqueue 실패: {enq_err}")
+        logger.error(f"[Upload] RQ enqueue 실패: {enq_err}", exc_info=True)
         # enqueue 실패 시 job 상태를 FAILED로 변경
         job.status = JobStatus.FAILED
-        job.error_message = f"작업 큐 등록 실패: {str(enq_err)}"
+        job.error_message = "작업 처리를 시작할 수 없습니다. 잠시 후 다시 시도해 주세요."
         await db.commit()
 
     return UploadJobResponse.model_validate(job)

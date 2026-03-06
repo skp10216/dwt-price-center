@@ -33,7 +33,7 @@ import {
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import PageHeader from '@/components/ui/PageHeader';
-import { gradesApi } from '@/lib/api';
+import { gradesApi, getErrorMessage } from '@/lib/api';
 
 interface Grade {
   id: string;
@@ -104,7 +104,7 @@ export default function GradesPage() {
       setDialogOpen(false);
       fetchGrades();
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '저장에 실패했습니다';
+      const message = getErrorMessage(error, '저장에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     }
   };

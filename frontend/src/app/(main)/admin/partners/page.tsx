@@ -45,7 +45,7 @@ import { DataGrid, GridColDef, GridActionsCellItem } from '@mui/x-data-grid';
 import { useSnackbar } from 'notistack';
 import PageHeader from '@/components/ui/PageHeader';
 import ConfirmDeleteDialog from '@/components/ui/ConfirmDeleteDialog';
-import { partnersApi, branchesApi } from '@/lib/api';
+import { partnersApi, branchesApi, getErrorMessage, parseApiError } from '@/lib/api';
 
 interface Partner {
   id: string;
@@ -202,12 +202,13 @@ export default function PartnersPage() {
       setDialogOpen(false);
       fetchPartners();
     } catch (error: any) {
-      if (error.response?.status === 409) {
+      const parsed = parseApiError(error);
+      if (parsed.status === 409) {
         enqueueSnackbar('다른 사용자가 수정했습니다. 새로고침합니다.', { variant: 'warning' });
         fetchPartners();
         setDialogOpen(false);
       } else {
-        const message = error.response?.data?.error?.message || '저장에 실패했습니다';
+        const message = getErrorMessage(error, '저장에 실패했습니다');
         enqueueSnackbar(message, { variant: 'error' });
       }
     }
@@ -244,7 +245,8 @@ export default function PartnersPage() {
       setDeletingPartner(null);
       fetchPartners();
     } catch (error: any) {
-      if (error.response?.status === 409) {
+      const parsed = parseApiError(error);
+      if (parsed.status === 409) {
         enqueueSnackbar('다른 사용자가 수정했습니다. 새로고침합니다.', { variant: 'warning' });
         fetchPartners();
         setDeleteDialogOpen(false);
@@ -284,7 +286,8 @@ export default function PartnersPage() {
       setMoveDialogOpen(false);
       fetchPartners();
     } catch (error: any) {
-      if (error.response?.status === 409) {
+      const parsed = parseApiError(error);
+      if (parsed.status === 409) {
         enqueueSnackbar('다른 사용자가 수정했습니다. 새로고침합니다.', { variant: 'warning' });
         fetchPartners();
         setMoveDialogOpen(false);

@@ -39,7 +39,7 @@ import {
   Layers as LayersIcon,
   RestoreFromTrash,
 } from '@mui/icons-material';
-import { settlementApi } from '@/lib/api';
+import { settlementApi, getErrorMessage } from '@/lib/api';
 import { useSnackbar } from 'notistack';
 import { AppPageContainer, AppPageHeader } from '@/components/ui';
 
@@ -286,9 +286,7 @@ export default function ActivityPage() {
       setTotal((raw.total ?? 0) as number);
     } catch (e: unknown) {
       console.error('[Activity] API error:', e);
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-        ?? '작업 내역을 불러오는 중 오류가 발생했습니다.';
-      setError(String(msg));
+      setError(getErrorMessage(e, '작업 내역을 불러오는 중 오류가 발생했습니다.'));
       setLogs([]); setTotal(0);
     } finally {
       setLoading(false);
