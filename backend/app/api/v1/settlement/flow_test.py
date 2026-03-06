@@ -9,7 +9,7 @@ from sqlalchemy import select, func, case, literal, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.voucher import Voucher
 from app.models.counterparty import Counterparty, CounterpartyAlias, UserCounterpartyFavorite
@@ -41,7 +41,7 @@ router = APIRouter()
 @router.get("/integrity-check")
 async def integrity_check(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """정산 데이터 정합성 검증 — 배분/전표/상계 간 금액 불일치 검출"""
     result = await run_full_integrity_check(db)
@@ -51,7 +51,7 @@ async def integrity_check(
 @router.get("/health-check")
 async def flow_health_check(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """전체 업무 플로우 상태 점검 — 한눈에 시스템 건강도 파악"""
 
@@ -296,7 +296,7 @@ async def flow_health_check(
 @router.delete("/reset-all")
 async def reset_all_data(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """전체 정산 데이터 초기화 — 모든 정산 관련 테이블 데이터 삭제
 

@@ -22,7 +22,7 @@ import pandas as pd
 
 from app.core.config import settings
 from app.core.database import get_db, get_redis
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.upload_job import UploadJob
 from app.models.enums import JobType, JobStatus, AuditAction
@@ -237,7 +237,7 @@ async def preview_sales_upload(
     file: UploadFile = File(..., description="UPM 판매 전표 엑셀"),
     template_id: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """UPM 판매 전표 미리보기 검증 (업로드 전 데이터 확인)"""
     return await _handle_preview(file, "sales", db, template_id)
@@ -248,7 +248,7 @@ async def preview_purchase_upload(
     file: UploadFile = File(..., description="UPM 매입 전표 엑셀"),
     template_id: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """UPM 매입 전표 미리보기 검증 (업로드 전 데이터 확인)"""
     return await _handle_preview(file, "purchase", db, template_id)
@@ -278,8 +278,8 @@ async def _handle_preview(
     try:
         df = pd.read_excel(io.BytesIO(contents), engine="openpyxl", header=header_row)
     except Exception as e:
-        logger.error(f"[Preview] 엑셀 파싱 실패: {e}")
-        raise HTTPException(status_code=400, detail=f"엑셀 파일 읽기 실패: {str(e)}")
+        logger.error(f"[Preview] 엑셀 파싱 실패: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail="엑셀 파일을 읽을 수 없습니다. 파일 형식을 확인해 주세요.")
 
     if df.empty:
         raise HTTPException(status_code=400, detail="엑셀 파일이 비어있습니다")
@@ -464,7 +464,7 @@ async def upload_sales_excel(
     file: UploadFile = File(..., description="UPM 판매 전표 엑셀"),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """UPM 판매 전표 엑셀 업로드"""
     return await _handle_voucher_upload(
@@ -481,7 +481,7 @@ async def upload_purchase_excel(
     file: UploadFile = File(..., description="UPM 매입 전표 엑셀"),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """UPM 매입 전표 엑셀 업로드"""
     return await _handle_voucher_upload(
@@ -579,10 +579,10 @@ async def _handle_voucher_upload(
         )
         logger.info(f"[Upload] Job {job.id} → RQ 큐 enqueue 완료")
     except Exception as enq_err:
-        logger.error(f"[Upload] RQ enqueue 실패: {enq_err}")
+        logger.error(f"[Upload] RQ enqueue 실패: {enq_err}", exc_info=True)
         # enqueue 실패 시 job 상태를 FAILED로 변경
         job.status = JobStatus.FAILED
-        job.error_message = f"작업 큐 등록 실패: {str(enq_err)}"
+        job.error_message = "작업 처리를 시작할 수 없습니다. 잠시 후 다시 시도해 주세요."
         await db.commit()
 
     return UploadJobResponse.model_validate(job)
@@ -608,7 +608,7 @@ async def list_upload_jobs(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """업로드 작업 내역 조회"""
     query = select(UploadJob).options(
@@ -653,7 +653,7 @@ async def get_upload_job(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """업로드 작업 상세 조회 (미리보기 포함)"""
     result = await db.execute(
@@ -688,7 +688,7 @@ async def delete_upload_job(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """업로드 작업 삭제 (QUEUED/FAILED 상태만 가능, RUNNING은 거부)"""
     job = await db.get(UploadJob, job_id)
@@ -734,7 +734,7 @@ async def batch_delete_upload_jobs(
     job_ids: list[str] = Body(..., description="삭제할 작업 ID 목록"),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """업로드 작업 일괄 삭제 (RUNNING 제외)"""
     if not job_ids:
@@ -802,7 +802,7 @@ async def rematch_upload_job(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """
     업로드 작업 재매칭 — 미매칭 거래처를 현재 거래처/별칭 테이블로 다시 매칭 시도.
@@ -922,7 +922,7 @@ async def confirm_upload_job(
     exclude_conflicts: bool = Query(True, description="변경 충돌 건은 변경요청으로 보낼지"),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """업로드 확정 → UPSERT 실행"""
     from app.models.voucher import Voucher

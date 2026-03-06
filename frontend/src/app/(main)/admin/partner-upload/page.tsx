@@ -26,7 +26,7 @@ import PageHeader from '@/components/ui/PageHeader';
 import UploadDropzone from '@/components/upload/UploadDropzone';
 import JobStatusBanner from '@/components/upload/JobStatusBanner';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
-import { uploadsApi, partnersApi } from '@/lib/api';
+import { uploadsApi, partnersApi, getErrorMessage } from '@/lib/api';
 
 type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
@@ -117,7 +117,7 @@ export default function PartnerUploadPage() {
       enqueueSnackbar('업로드가 시작되었습니다', { variant: 'info' });
       pollJobStatus(jobData.id);
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '업로드에 실패했습니다';
+      const message = getErrorMessage(error, '업로드에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     } finally {
       setUploading(false);
@@ -135,7 +135,7 @@ export default function PartnerUploadPage() {
       setConfirmDialogOpen(false);
       pollJobStatus(job.id);
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '저장에 실패했습니다';
+      const message = getErrorMessage(error, '저장에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     } finally {
       setProcessing(false);

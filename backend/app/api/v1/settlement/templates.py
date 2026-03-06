@@ -13,7 +13,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.upload_template import UploadTemplate
 from app.models.enums import AuditAction
@@ -29,7 +29,7 @@ router = APIRouter()
 async def list_templates(
     voucher_type: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """업로드 템플릿 목록"""
     query = select(UploadTemplate)
@@ -49,7 +49,7 @@ async def list_templates(
 async def create_template(
     data: UploadTemplateCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """업로드 템플릿 생성"""
     # default 설정 시 기존 default 해제
@@ -90,7 +90,7 @@ async def update_template(
     template_id: UUID,
     data: UploadTemplateUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """업로드 템플릿 수정"""
     template = await db.get(UploadTemplate, template_id)
@@ -129,7 +129,7 @@ async def update_template(
 async def delete_template(
     template_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """업로드 템플릿 삭제"""
     template = await db.get(UploadTemplate, template_id)
@@ -143,7 +143,7 @@ async def delete_template(
 @router.post("/seed", response_model=dict)
 async def seed_default_templates(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """기본 업로드 템플릿 시드 데이터 로드"""
     seed_file = Path(__file__).resolve().parents[5] / "seeds" / "settlement-templates.json"

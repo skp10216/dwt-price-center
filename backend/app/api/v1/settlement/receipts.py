@@ -14,7 +14,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.voucher import Voucher
 from app.models.receipt import Receipt
@@ -72,7 +72,7 @@ async def create_receipt(
     data: ReceiptCreate,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """입금 등록 [DEPRECATED — /settlement/transactions 사용 권장]"""
     response.headers["Deprecation"] = "true"
@@ -115,7 +115,7 @@ async def list_receipts(
     voucher_id: UUID,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """전표의 입금 이력 조회 [DEPRECATED]"""
     response.headers["Deprecation"] = "true"
@@ -135,7 +135,7 @@ async def delete_receipt(
     receipt_id: UUID,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """입금 삭제 [DEPRECATED]"""
     response.headers["Deprecation"] = "true"

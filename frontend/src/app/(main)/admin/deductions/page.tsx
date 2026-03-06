@@ -37,7 +37,7 @@ import {
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import PageHeader from '@/components/ui/PageHeader';
-import { deductionsApi } from '@/lib/api';
+import { deductionsApi, getErrorMessage } from '@/lib/api';
 
 interface DeductionLevel {
   id: string;
@@ -127,7 +127,7 @@ export default function DeductionsPage() {
       setItemDialogOpen(false);
       fetchItems();
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '저장에 실패했습니다';
+      const message = getErrorMessage(error, '저장에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     }
   };
@@ -147,7 +147,7 @@ export default function DeductionsPage() {
       setLevelDialogOpen(false);
       fetchItems();
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '저장에 실패했습니다';
+      const message = getErrorMessage(error, '저장에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     }
   };

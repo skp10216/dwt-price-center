@@ -22,7 +22,7 @@ import PageHeader from '@/components/ui/PageHeader';
 import UploadDropzone from '@/components/upload/UploadDropzone';
 import JobStatusBanner from '@/components/upload/JobStatusBanner';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
-import { uploadsApi } from '@/lib/api';
+import { uploadsApi, getErrorMessage } from '@/lib/api';
 
 type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
@@ -100,7 +100,7 @@ export default function HQUploadPage() {
       // 폴링 시작
       pollJobStatus(jobData.id);
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '업로드에 실패했습니다';
+      const message = getErrorMessage(error, '업로드에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     } finally {
       setUploading(false);
@@ -118,7 +118,7 @@ export default function HQUploadPage() {
       setConfirmDialogOpen(false);
       pollJobStatus(job.id);
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '확정에 실패했습니다';
+      const message = getErrorMessage(error, '확정에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     } finally {
       setProcessing(false);
@@ -136,7 +136,7 @@ export default function HQUploadPage() {
       setApplyDialogOpen(false);
       pollJobStatus(job.id);
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '적용에 실패했습니다';
+      const message = getErrorMessage(error, '적용에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     } finally {
       setProcessing(false);

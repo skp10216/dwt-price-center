@@ -29,6 +29,7 @@ import {
   AppPageHeader,
   AppSectionCard,
 } from '@/components/ui';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
 // ─── 타입 ───
 interface LockEntry {
@@ -89,6 +90,9 @@ export default function LockManagementPage() {
   const [lockTarget, setLockTarget] = useState<string>('');
   const [lockDescription, setLockDescription] = useState('');
   const [lockProcessing, setLockProcessing] = useState(false);
+
+  // ─── 마감 해제 확인 상태 ───
+  const [unlockTarget, setUnlockTarget] = useState<string | null>(null);
 
   // ─── 감사 로그 상태 ───
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -171,14 +175,20 @@ export default function LockManagementPage() {
     }
   };
 
-  const handleUnlock = async (yearMonth: string) => {
-    if (!confirm(`${yearMonth} 마감을 해제하시겠습니까? 이 작업은 감사 로그에 기록됩니다.`)) return;
+  const handleUnlock = (yearMonth: string) => {
+    setUnlockTarget(yearMonth);
+  };
+
+  const handleUnlockConfirm = async () => {
+    if (!unlockTarget) return;
     try {
-      await settlementApi.releaseLock(yearMonth, '관리자 마감 해제');
-      enqueueSnackbar(`${yearMonth} 마감이 해제되었습니다`, { variant: 'success' });
+      await settlementApi.releaseLock(unlockTarget, '관리자 마감 해제');
+      enqueueSnackbar(`${unlockTarget} 마감이 해제되었습니다`, { variant: 'success' });
       loadLocks();
     } catch {
       enqueueSnackbar('마감 해제에 실패했습니다', { variant: 'error' });
+    } finally {
+      setUnlockTarget(null);
     }
   };
 
@@ -514,6 +524,17 @@ export default function LockManagementPage() {
           </Box>
         </Fade>
       )}
+
+      {/* ─── 마감 해제 확인 다이얼로그 ─── */}
+      <ConfirmDialog
+        open={unlockTarget !== null}
+        title="마감 해제"
+        message={`${unlockTarget} 마감을 해제하시겠습니까? 이 작업은 감사 로그에 기록됩니다.`}
+        confirmColor="warning"
+        confirmLabel="해제"
+        onConfirm={handleUnlockConfirm}
+        onCancel={() => setUnlockTarget(null)}
+      />
 
       {/* ─── 마감 다이얼로그 ─── */}
       <Dialog open={lockDialogOpen} onClose={() => setLockDialogOpen(false)} maxWidth="xs" fullWidth>

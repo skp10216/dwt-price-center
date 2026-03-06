@@ -62,7 +62,7 @@ import {
 } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
-import { ssotModelsApi, BulkValidateResponse } from '@/lib/api';
+import { ssotModelsApi, BulkValidateResponse, getErrorMessage } from '@/lib/api';
 import { shadows, transitions } from '@/theme/tokens';
 import {
   GroupedModel,
@@ -355,7 +355,7 @@ export function ModelEditModal({
       // 모달 닫기 (shouldRefresh=true로 부모에서 데이터 갱신)
       onClose(true);
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '수정에 실패했습니다';
+      const message = getErrorMessage(error, '수정에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     } finally {
       setSaving(false);
@@ -403,7 +403,7 @@ export function ModelEditModal({
         setStorageAddDialogOpen(true);
       }
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '검증에 실패했습니다';
+      const message = getErrorMessage(error, '검증에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     } finally {
       setValidating(false);
@@ -428,7 +428,7 @@ export function ModelEditModal({
       // 모달 닫기 (shouldRefresh=true로 부모에서 데이터 갱신)
       onClose(true);
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '추가에 실패했습니다';
+      const message = getErrorMessage(error, '추가에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     } finally {
       setAddingStorage(false);
@@ -459,7 +459,7 @@ export function ModelEditModal({
       // 모달 닫기 (shouldRefresh=true로 부모에서 데이터 갱신)
       onClose(true);
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '삭제에 실패했습니다';
+      const message = getErrorMessage(error, '삭제에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     } finally {
       setDeleting(false);

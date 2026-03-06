@@ -3,18 +3,22 @@
 """
 
 import json
+import logging
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from typing import Any
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
 from app.core.config import settings
 from app.core.database import init_db, AsyncSessionLocal
+from app.core.errors import AppError, classify_exception, ErrorCode
 from app.api.v1.router import api_router
+
+logger = logging.getLogger(__name__)
 
 
 def _convert_decimals(obj: Any) -> Any:
@@ -79,7 +83,54 @@ app.add_middleware(
 )
 
 
-# 예외 핸들러
+# ── 예외 핸들러 ──
+
+@app.exception_handler(AppError)
+async def app_error_handler(request: Request, exc: AppError):
+    """구조화된 AppError 핸들러 — 에러 코드 + 사용자 친화 메시지 반환"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": exc.error_code.value,
+                "message": exc.error_message,
+                "details": exc.error_details,
+            }
+        }
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """
+    기존 HTTPException 호환 핸들러.
+    detail이 구조화된 dict면 그대로, 문자열이면 감싸서 반환.
+    """
+    detail = exc.detail
+
+    # 이미 구조화된 에러 (code/message 포함)
+    if isinstance(detail, dict) and "code" in detail and "message" in detail:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": detail}
+        )
+
+    # 문자열 detail — 기존 한국어 메시지는 그대로 사용
+    message = detail if isinstance(detail, str) else str(detail)
+    code = _status_to_error_code(exc.status_code)
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": code,
+                "message": message,
+                "details": None,
+            }
+        }
+    )
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """유효성 검증 예외 핸들러"""
@@ -89,13 +140,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "field": ".".join(str(loc) for loc in error["loc"]),
             "message": error["msg"],
         })
-    
+
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "error": {
-                "code": "VALIDATION_ERROR",
-                "message": "입력값 검증에 실패했습니다",
+                "code": ErrorCode.VALIDATION_ERROR.value,
+                "message": "입력값 검증에 실패했습니다.",
                 "details": {"errors": errors}
             }
         }
@@ -104,17 +155,46 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
-    """일반 예외 핸들러"""
+    """
+    모든 미처리 예외 핸들러.
+    DB 에러(serialization, deadlock, integrity)를 자동으로 사용자 친화 메시지로 변환.
+    원본 에러는 서버 로그에만 기록.
+    """
+    # 서버 로그에 원본 에러 기록 (디버깅/모니터링용)
+    logger.error(
+        f"[{request.method} {request.url.path}] Unhandled exception: {type(exc).__name__}: {exc}",
+        exc_info=True,
+    )
+
+    # DB/시스템 에러를 사용자 친화 에러로 자동 변환
+    app_error = classify_exception(exc)
+
     return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        status_code=app_error.status_code,
         content={
             "error": {
-                "code": "INTERNAL_ERROR",
-                "message": "서버 내부 오류가 발생했습니다",
-                "details": {"error": str(exc)} if settings.DEBUG else None
+                "code": app_error.error_code.value,
+                "message": app_error.error_message,
+                # DEBUG 모드에서도 시스템 에러 원문은 노출하지 않음
+                "details": None,
             }
         }
     )
+
+
+def _status_to_error_code(status_code: int) -> str:
+    """HTTP 상태 코드 → 에러 코드 문자열"""
+    mapping = {
+        400: ErrorCode.VALIDATION_ERROR.value,
+        401: ErrorCode.UNAUTHORIZED.value,
+        403: ErrorCode.FORBIDDEN.value,
+        404: ErrorCode.NOT_FOUND.value,
+        409: ErrorCode.CONCURRENT_MODIFICATION.value,
+        413: ErrorCode.FILE_TOO_LARGE.value,
+        422: ErrorCode.VALIDATION_ERROR.value,
+        423: ErrorCode.RESOURCE_LOCKED.value,
+    }
+    return mapping.get(status_code, ErrorCode.INTERNAL_ERROR.value)
 
 
 # API 라우터 등록

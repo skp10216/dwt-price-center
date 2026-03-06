@@ -22,6 +22,7 @@ import {
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
 // ─── 타입 ──────────────────────────────────────────────────────────
 
@@ -190,6 +191,9 @@ export default function VoucherDetailPage() {
   const [loading, setLoading] = useState(true);
   const [adjustments, setAdjustments] = useState<AdjustmentRow[]>([]);
 
+  // 삭제 확인 다이얼로그
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'receipt' | 'payment'; id: string } | null>(null);
+
   // 조정전표 다이얼로그
   const [adjOpen, setAdjOpen] = useState(false);
   const [adjType, setAdjType] = useState('correction');
@@ -225,7 +229,6 @@ export default function VoucherDetailPage() {
   // ─── 액션 핸들러 ────────────────────────────────────────────────
 
   const handleDeleteReceipt = async (receiptId: string) => {
-    if (!confirm('이 입금 내역을 삭제하시겠습니까?')) return;
     try {
       await settlementApi.deleteReceipt(voucherId, receiptId);
       enqueueSnackbar('입금이 삭제되었습니다', { variant: 'success' });
@@ -236,7 +239,6 @@ export default function VoucherDetailPage() {
   };
 
   const handleDeletePayment = async (paymentId: string) => {
-    if (!confirm('이 송금 내역을 삭제하시겠습니까?')) return;
     try {
       await settlementApi.deletePayment(voucherId, paymentId);
       enqueueSnackbar('송금이 삭제되었습니다', { variant: 'success' });
@@ -244,6 +246,16 @@ export default function VoucherDetailPage() {
     } catch {
       enqueueSnackbar('송금 삭제에 실패했습니다', { variant: 'error' });
     }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    if (deleteTarget.type === 'receipt') {
+      await handleDeleteReceipt(deleteTarget.id);
+    } else {
+      await handleDeletePayment(deleteTarget.id);
+    }
+    setDeleteTarget(null);
   };
 
   const handleCreateAdjustment = async () => {
@@ -586,7 +598,7 @@ export default function VoucherDetailPage() {
                     <TableCell>{formatDate(r.created_at)}</TableCell>
                     {!isLocked && (
                       <TableCell align="center">
-                        <IconButton size="small" color="error" onClick={() => handleDeleteReceipt(r.id)}>
+                        <IconButton size="small" color="error" onClick={() => setDeleteTarget({ type: 'receipt', id: r.id })}>
                           <DeleteIcon fontSize="small" />
                         </IconButton>
                       </TableCell>
@@ -629,7 +641,7 @@ export default function VoucherDetailPage() {
                     <TableCell>{formatDate(p.created_at)}</TableCell>
                     {!isLocked && (
                       <TableCell align="center">
-                        <IconButton size="small" color="error" onClick={() => handleDeletePayment(p.id)}>
+                        <IconButton size="small" color="error" onClick={() => setDeleteTarget({ type: 'payment', id: p.id })}>
                           <DeleteIcon fontSize="small" />
                         </IconButton>
                       </TableCell>
@@ -764,6 +776,17 @@ export default function VoucherDetailPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* ── 삭제 확인 다이얼로그 ───────────────────────────── */}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={deleteTarget?.type === 'receipt' ? '입금 내역 삭제' : '송금 내역 삭제'}
+        message={deleteTarget?.type === 'receipt' ? '이 입금 내역을 삭제하시겠습니까?' : '이 송금 내역을 삭제하시겠습니까?'}
+        confirmColor="error"
+        confirmLabel="삭제"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </Box>
   );
 }

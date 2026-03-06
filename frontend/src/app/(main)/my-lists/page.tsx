@@ -34,7 +34,7 @@ import {
 import { useSnackbar } from 'notistack';
 import PageHeader from '@/components/ui/PageHeader';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
-import { myListsApi } from '@/lib/api';
+import { myListsApi, getErrorMessage } from '@/lib/api';
 
 interface UserList {
   id: string;
@@ -134,9 +134,8 @@ export default function MyListsPage() {
       setListName('');
       setListDescription('');
       fetchLists();
-    } catch (error: any) {
-      const message = error.response?.data?.error?.message || '저장에 실패했습니다';
-      enqueueSnackbar(message, { variant: 'error' });
+    } catch (error: unknown) {
+      enqueueSnackbar(getErrorMessage(error, '저장에 실패했습니다'), { variant: 'error' });
     }
   };
   

@@ -65,6 +65,7 @@ import {
   ssotModelsApi,
   BulkValidateResponse,
   ValidateRowResult,
+  getErrorMessage,
 } from '@/lib/api';
 import { DeviceType, Manufacturer, deviceTypeLabels, manufacturerLabels } from './types';
 
@@ -382,7 +383,7 @@ export function ModelRegisterModal({
         enqueueSnackbar(`검증 완료: ${response.data.data.valid_count}개 모델 생성 가능`, { variant: 'success' });
       }
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '검증에 실패했습니다';
+      const message = getErrorMessage(error, '검증에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     } finally {
       setValidating(false);
@@ -431,7 +432,7 @@ export function ModelRegisterModal({
         enqueueSnackbar(`검증 완료: ${response.data.data.valid_count}개 유효`, { variant: 'success' });
       }
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '검증에 실패했습니다';
+      const message = getErrorMessage(error, '검증에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     } finally {
       setValidating(false);
@@ -469,7 +470,7 @@ export function ModelRegisterModal({
       onClose();
       onSuccess();
     } catch (error: any) {
-      const message = error.response?.data?.error?.message || '커밋에 실패했습니다';
+      const message = getErrorMessage(error, '커밋에 실패했습니다');
       enqueueSnackbar(message, { variant: 'error' });
     } finally {
       setCommitting(false);

@@ -11,7 +11,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db, get_redis
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.upload_job import UploadJob
 from app.models.voucher_change import VoucherChangeRequest
@@ -43,7 +43,7 @@ async def list_change_requests(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """변경 요청 목록"""
     query = select(VoucherChangeRequest)
@@ -101,7 +101,7 @@ async def approve_change(
     change_id: UUID,
     data: ChangeRequestReview,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """변경 요청 승인 → 전표에 반영"""
     cr = await db.get(VoucherChangeRequest, change_id)
@@ -160,7 +160,7 @@ async def reject_change(
     change_id: UUID,
     data: ChangeRequestReview,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """변경 요청 거부"""
     cr = await db.get(VoucherChangeRequest, change_id)
@@ -212,7 +212,7 @@ async def reject_change(
 async def list_unmatched_counterparties(
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """미매칭 거래처 목록 (미확정 Job들에서 수집)"""
     # 미확정 + 성공 상태인 정산 Job 조회
@@ -270,7 +270,7 @@ async def map_unmatched_counterparty(
     alias_name: str,
     data: UnmatchedMapRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """미매칭 거래처 매핑 (기존 거래처에 별칭 추가 또는 새 거래처 생성)"""
 

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.audit_log import AuditLog
 from app.models.enums import AuditAction
@@ -186,7 +186,7 @@ async def list_activity_logs(
     end_date: Optional[datetime] = Query(None),
     search: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """
     정산 작업 내역 조회 (인증된 사용자 전용)
@@ -297,7 +297,7 @@ async def list_activity_logs(
 async def get_trace_logs(
     trace_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """특정 trace_id의 모든 작업 내역 (일괄 처리 상세 조회)"""
     try:
@@ -334,7 +334,7 @@ async def get_trace_logs(
 @router.delete("/clear", response_model=dict)
 async def clear_activity_logs(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """테스트용: 정산 관련 모든 작업 내역 삭제"""
     result = await db.execute(

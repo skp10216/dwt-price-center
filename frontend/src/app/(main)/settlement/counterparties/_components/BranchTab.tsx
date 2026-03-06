@@ -21,7 +21,7 @@ import {
   Business as BusinessIcon,
   TouchApp as TouchAppIcon,
 } from '@mui/icons-material';
-import { branchesApi, settlementApi } from '@/lib/api';
+import { branchesApi, settlementApi, parseApiError } from '@/lib/api';
 import BranchAssignDialog from './BranchAssignDialog';
 import { useSnackbar } from 'notistack';
 import {
@@ -183,16 +183,12 @@ export default function BranchTab() {
       }
       setDialogOpen(false);
       fetchBranches();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
-      if (error.response?.status === 409) {
-        enqueueSnackbar('다른 사용자가 수정했습니다. 새로고침합니다.', { variant: 'warning' });
+    } catch (error: unknown) {
+      const parsed = parseApiError(error, '저장에 실패했습니다');
+      enqueueSnackbar(parsed.message, { variant: parsed.variant });
+      if (parsed.isConflict) {
         fetchBranches();
         setDialogOpen(false);
-      } else {
-        const detail = error.response?.data?.detail;
-        const message = (typeof detail === 'object' ? detail?.message : detail) || '저장에 실패했습니다';
-        enqueueSnackbar(message, { variant: 'error' });
       }
     } finally {
       setSaving(false);

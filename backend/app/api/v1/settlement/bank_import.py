@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.config import settings
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.corporate_entity import CorporateEntity
 from app.models.counterparty import Counterparty, CounterpartyAlias
@@ -129,7 +129,7 @@ async def upload_bank_file(
     bank_name: Optional[str] = Form(None),
     account_number: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """은행 파일 업로드 (거래내역조회 Excel 전용)"""
     # 파일 확장자 검증 (CSV 제거 — Excel만 허용)
@@ -185,8 +185,10 @@ async def upload_bank_file(
         job.matched_lines = matched
         job.status = BankImportJobStatus.REVIEWING
     except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"[BankImport] 파싱 실패: {e}", exc_info=True)
         job.status = BankImportJobStatus.FAILED
-        job.error_message = str(e)
+        job.error_message = "파일 파싱 중 오류가 발생했습니다. 파일 형식을 확인해 주세요."
 
     db.add(AuditLog(
         user_id=current_user.id,
@@ -412,7 +414,7 @@ async def list_jobs(
     status: Optional[str] = Query(None, description="상태 필터"),
     corporate_entity_id: Optional[UUID] = Query(None, description="법인 필터"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """임포트 작업 목록"""
     filters = []
@@ -479,7 +481,7 @@ async def list_jobs(
 async def get_job_detail(
     job_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """작업 상세 + 라인 목록"""
     job = await db.get(BankImportJob, job_id)
@@ -577,7 +579,7 @@ async def _auto_match_lines(job: BankImportJob, db: AsyncSession) -> int:
 async def auto_match(
     job_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처 자동 매칭 (재실행) — 상세 응답 포함"""
     job = await db.get(BankImportJob, job_id)
@@ -627,7 +629,7 @@ async def update_line(
     line_id: UUID,
     data: BankImportLineUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """라인 수동 매칭/수정"""
     line = await db.execute(
@@ -663,7 +665,7 @@ async def update_line(
 async def confirm_job(
     job_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """매칭 완료 라인 확정 → CounterpartyTransaction 일괄 생성"""
     job = await db.get(BankImportJob, job_id)
@@ -762,7 +764,7 @@ async def confirm_job(
 async def delete_job(
     job_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """임포트 작업 삭제"""
     job = await db.get(BankImportJob, job_id)

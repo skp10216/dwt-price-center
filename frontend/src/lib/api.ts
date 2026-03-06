@@ -4,6 +4,7 @@
 
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { useAuthStore } from '@/lib/store';
+import { parseApiError } from '@/lib/error-messages';
 
 // API 기본 URL
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8100';
@@ -108,6 +109,10 @@ api.interceptors.response.use(
         window.location.href = '/login';
       }
     }
+    // 에러 객체에 파싱된 사용자 메시지를 첨부 (각 컴포넌트에서 활용)
+    const parsed = parseApiError(error);
+    (error as AxiosError & { _parsed?: typeof parsed })._parsed = parsed;
+
     return Promise.reject(error);
   }
 );
@@ -129,6 +134,10 @@ export interface ApiError {
     details?: Record<string, unknown>;
   };
 }
+
+// 에러 유틸리티 re-export (컴포넌트에서 import { getErrorMessage } from '@/lib/api' 가능)
+export { parseApiError, getErrorMessage, getErrorVariant } from '@/lib/error-messages';
+export type { ParsedError } from '@/lib/error-messages';
 
 // API 함수들
 export const authApi = {
