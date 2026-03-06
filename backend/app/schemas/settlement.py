@@ -8,8 +8,11 @@ from decimal import Decimal as _Decimal
 from typing import Optional, List
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from app.schemas.common import FloatDecimal
+
+# 금액 최대값 상수 (Numeric(18,2) 범위)
+_MAX_AMOUNT = _Decimal("9999999999999999.99")
 
 
 # ============================================================================
@@ -95,7 +98,14 @@ class VoucherCreate(BaseModel):
     counterparty_id: UUID
     voucher_number: str = Field(..., min_length=1, max_length=50)
     voucher_type: str = Field(..., description="sales/purchase")
-    quantity: int = 0
+    quantity: int = Field(default=0, ge=0)
+
+    @field_validator("voucher_type")
+    @classmethod
+    def validate_voucher_type(cls, v: str) -> str:
+        if v not in ("sales", "purchase"):
+            raise ValueError("voucher_type은 'sales' 또는 'purchase'만 가능합니다")
+        return v
     purchase_cost: Optional[FloatDecimal] = None
     deduction_amount: Optional[FloatDecimal] = None
     actual_purchase_price: Optional[FloatDecimal] = None
@@ -183,8 +193,16 @@ class VoucherListResponse(BaseModel):
 
 class ReceiptCreate(BaseModel):
     receipt_date: date
-    amount: FloatDecimal = Field(..., gt=0, description="입금액 (양수)")
+    amount: FloatDecimal = Field(..., gt=0, le=_MAX_AMOUNT, description="입금액 (양수)")
     memo: Optional[str] = None
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount_precision(cls, v: _Decimal) -> _Decimal:
+        """소수점 2자리 초과 방지"""
+        if v is not None and v.as_tuple().exponent < -2:
+            raise ValueError("금액은 소수점 2자리까지만 허용됩니다")
+        return v
 
 
 class ReceiptResponse(BaseModel):
@@ -206,8 +224,16 @@ class ReceiptResponse(BaseModel):
 
 class PaymentCreate(BaseModel):
     payment_date: date
-    amount: FloatDecimal = Field(..., gt=0, description="송금액 (양수)")
+    amount: FloatDecimal = Field(..., gt=0, le=_MAX_AMOUNT, description="송금액 (양수)")
     memo: Optional[str] = None
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount_precision(cls, v: _Decimal) -> _Decimal:
+        """소수점 2자리 초과 방지"""
+        if v is not None and v.as_tuple().exponent < -2:
+            raise ValueError("금액은 소수점 2자리까지만 허용됩니다")
+        return v
 
 
 class PaymentResponse(BaseModel):
@@ -469,9 +495,24 @@ class TransactionCreate(BaseModel):
     counterparty_id: UUID
     transaction_type: str = Field(..., description="deposit/withdrawal")
     transaction_date: date
-    amount: FloatDecimal = Field(..., gt=0, description="금액 (양수)")
+    amount: FloatDecimal = Field(..., gt=0, le=_MAX_AMOUNT, description="금액 (양수)")
     memo: Optional[str] = None
     bank_reference: Optional[str] = None
+
+    @field_validator("transaction_type")
+    @classmethod
+    def validate_transaction_type(cls, v: str) -> str:
+        if v not in ("deposit", "withdrawal"):
+            raise ValueError("transaction_type은 'deposit' 또는 'withdrawal'만 가능합니다")
+        return v
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount_precision(cls, v: _Decimal) -> _Decimal:
+        """소수점 2자리 초과 방지"""
+        if v is not None and v.as_tuple().exponent < -2:
+            raise ValueError("금액은 소수점 2자리까지만 허용됩니다")
+        return v
 
 
 class TransactionUpdate(BaseModel):
@@ -538,12 +579,27 @@ class TransactionListResponse(BaseModel):
 class AllocationItem(BaseModel):
     """배분 단일 항목"""
     voucher_id: UUID
-    amount: FloatDecimal = Field(..., gt=0)
+    amount: FloatDecimal = Field(..., gt=0, le=_MAX_AMOUNT)
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount_precision(cls, v: _Decimal) -> _Decimal:
+        if v is not None and v.as_tuple().exponent < -2:
+            raise ValueError("금액은 소수점 2자리까지만 허용됩니다")
+        return v
 
 
 class AllocationRequest(BaseModel):
     """수동 배분 요청"""
-    allocations: List[AllocationItem]
+    allocations: List[AllocationItem] = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def validate_no_duplicate_vouchers(self) -> "AllocationRequest":
+        """동일 전표에 중복 배분 요청 방지"""
+        voucher_ids = [a.voucher_id for a in self.allocations]
+        if len(voucher_ids) != len(set(voucher_ids)):
+            raise ValueError("동일 전표에 중복 배분할 수 없습니다")
+        return self
 
 
 class AutoAllocateRequest(BaseModel):
@@ -608,16 +664,38 @@ class CounterpartyBalanceSummary(BaseModel):
 class NettingVoucherItem(BaseModel):
     """상계 전표 항목"""
     voucher_id: UUID
-    amount: FloatDecimal = Field(..., gt=0)
+    amount: FloatDecimal = Field(..., gt=0, le=_MAX_AMOUNT)
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount_precision(cls, v: _Decimal) -> _Decimal:
+        if v is not None and v.as_tuple().exponent < -2:
+            raise ValueError("금액은 소수점 2자리까지만 허용됩니다")
+        return v
 
 
 class NettingCreateRequest(BaseModel):
     """상계 초안 생성"""
     counterparty_id: UUID
     netting_date: date
-    sales_vouchers: List[NettingVoucherItem]
-    purchase_vouchers: List[NettingVoucherItem]
+    sales_vouchers: List[NettingVoucherItem] = Field(..., min_length=1)
+    purchase_vouchers: List[NettingVoucherItem] = Field(..., min_length=1)
     memo: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_netting_balance(self) -> "NettingCreateRequest":
+        """매출/매입 합계 일치 + 중복 전표 방지"""
+        sales_total = sum(v.amount for v in self.sales_vouchers)
+        purchase_total = sum(v.amount for v in self.purchase_vouchers)
+        if sales_total != purchase_total:
+            raise ValueError(
+                f"매출 합계({sales_total})와 매입 합계({purchase_total})가 일치해야 합니다"
+            )
+        # 동일 전표 중복 참여 방지
+        all_ids = [v.voucher_id for v in self.sales_vouchers] + [v.voucher_id for v in self.purchase_vouchers]
+        if len(all_ids) != len(set(all_ids)):
+            raise ValueError("동일 전표를 중복하여 상계에 참여시킬 수 없습니다")
+        return self
 
 
 class NettingVoucherLinkResponse(BaseModel):

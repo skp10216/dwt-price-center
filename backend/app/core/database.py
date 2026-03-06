@@ -19,6 +19,8 @@ engine = create_async_engine(
     pool_pre_ping=True,   # 연결 상태 확인
     pool_size=10,         # 커넥션 풀 크기
     max_overflow=20,      # 추가 연결 허용 수
+    isolation_level="REPEATABLE READ",  # 정산 도메인 동시성 안전 보장
+    pool_recycle=3600,    # 1시간마다 연결 재생성
 )
 
 # Redis 연결 풀 (싱글톤)

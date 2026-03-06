@@ -285,6 +285,10 @@ async def create_transaction(
     current_user: User = Depends(get_current_user),
 ):
     """수동 입출금 이벤트 등록"""
+    # 기간 마감 검증
+    from app.api.v1.settlement.helpers import check_period_not_locked
+    await check_period_not_locked(data.transaction_date, db)
+
     cp = await db.get(Counterparty, data.counterparty_id)
     if not cp:
         raise HTTPException(status_code=404, detail="거래처를 찾을 수 없습니다")
@@ -660,8 +664,14 @@ async def auto_allocate(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """FIFO 자동 배분"""
-    txn = await db.get(CounterpartyTransaction, transaction_id)
+    """FIFO 자동 배분 — 비관적 락으로 동시성 안전 보장"""
+    # Transaction에 비관적 락 적용 (동시 배분 방지)
+    txn_result = await db.execute(
+        select(CounterpartyTransaction)
+        .where(CounterpartyTransaction.id == transaction_id)
+        .with_for_update()
+    )
+    txn = txn_result.scalar_one_or_none()
     if not txn:
         raise HTTPException(status_code=404, detail="입출금 이벤트를 찾을 수 없습니다")
     if txn.status in (TransactionStatus.CANCELLED, TransactionStatus.HIDDEN):
@@ -679,6 +689,7 @@ async def auto_allocate(
     else:
         target_type = VoucherType.PURCHASE
 
+    # 대상 전표에 비관적 락 적용 (동시 배분으로 잔액 초과 방지)
     query = (
         select(Voucher)
         .where(
@@ -688,6 +699,7 @@ async def auto_allocate(
             Voucher.payment_status != PaymentStatus.LOCKED,
         )
         .order_by(Voucher.trade_date.asc(), Voucher.created_at.asc())
+        .with_for_update()
     )
     if data.voucher_ids:
         query = query.where(Voucher.id.in_(data.voucher_ids))
@@ -814,8 +826,14 @@ async def manual_allocate(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """수동 배분 (전표 지정)"""
-    txn = await db.get(CounterpartyTransaction, transaction_id)
+    """수동 배분 (전표 지정) — 비관적 락으로 동시성 안전 보장"""
+    # Transaction에 비관적 락 적용 (동시 배분 방지)
+    txn_result = await db.execute(
+        select(CounterpartyTransaction)
+        .where(CounterpartyTransaction.id == transaction_id)
+        .with_for_update()
+    )
+    txn = txn_result.scalar_one_or_none()
     if not txn:
         raise HTTPException(status_code=404, detail="입출금 이벤트를 찾을 수 없습니다")
     if txn.status in (TransactionStatus.CANCELLED, TransactionStatus.HIDDEN, TransactionStatus.ALLOCATED):
@@ -839,9 +857,13 @@ async def manual_allocate(
         .where(TransactionAllocation.transaction_id == txn.id)
     )).scalar() or 0
 
-    # 전표 배치 로드 + 배분액 배치 계산
+    # 전표 배치 로드 + 비관적 락 (동시 배분으로 잔액 초과 방지)
     req_voucher_ids = [item.voucher_id for item in data.allocations]
-    v_result = await db.execute(select(Voucher).where(Voucher.id.in_(req_voucher_ids)))
+    v_result = await db.execute(
+        select(Voucher)
+        .where(Voucher.id.in_(req_voucher_ids))
+        .with_for_update()
+    )
     voucher_map = {v.id: v for v in v_result.scalars().all()}
 
     alloc_result = await db.execute(
