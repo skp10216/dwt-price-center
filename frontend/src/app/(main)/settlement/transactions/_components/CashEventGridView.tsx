@@ -82,6 +82,16 @@ export default function CashEventGridView({
       ),
     },
     {
+      field: 'corporate_entity_name',
+      headerName: '법인',
+      sortable: false,
+      renderCell: (row) => (
+        <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 120 }}>
+          {row.corporate_entity_name || '-'}
+        </Typography>
+      ),
+    },
+    {
       field: 'amount',
       headerName: '금액',
       align: 'right',

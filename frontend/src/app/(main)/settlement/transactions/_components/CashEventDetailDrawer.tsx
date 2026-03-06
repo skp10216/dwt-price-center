@@ -49,6 +49,10 @@ interface TransactionDetail {
   memo: string | null;
   source: string;
   bank_reference: string | null;
+  corporate_entity_id: string | null;
+  corporate_entity_name: string | null;
+  bank_name: string | null;
+  account_number: string | null;
   status: string;
   created_by: string;
   created_at: string;
@@ -417,8 +421,30 @@ export default function CashEventDetailDrawer({ onAllocate }: CashEventDetailDra
             <Divider />
 
             {/* 상세 정보 */}
-            <CollapsibleSection title="상세 정보" defaultOpen={false}>
-              <Box sx={{ display: 'grid', gridTemplateColumns: '72px 1fr', gap: 0.75 }}>
+            <CollapsibleSection title="상세 정보" defaultOpen={!!detail.corporate_entity_name}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: 0.75 }}>
+                {detail.corporate_entity_name && (
+                  <>
+                    <Typography variant="caption" color="text.secondary">법인</Typography>
+                    <Typography variant="caption" fontWeight={600}>
+                      {detail.corporate_entity_name}
+                    </Typography>
+                  </>
+                )}
+                {detail.bank_name && (
+                  <>
+                    <Typography variant="caption" color="text.secondary">은행</Typography>
+                    <Typography variant="caption">{detail.bank_name}</Typography>
+                  </>
+                )}
+                {detail.account_number && (
+                  <>
+                    <Typography variant="caption" color="text.secondary">계좌번호</Typography>
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
+                      {detail.account_number}
+                    </Typography>
+                  </>
+                )}
                 {detail.bank_reference && (
                   <>
                     <Typography variant="caption" color="text.secondary">은행참조</Typography>

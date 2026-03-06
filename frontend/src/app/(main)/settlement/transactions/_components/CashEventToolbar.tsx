@@ -1,17 +1,31 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import {
   Box, TextField, MenuItem, Select, InputLabel, FormControl,
   InputAdornment,
 } from '@mui/material';
 import { Search as SearchIcon } from '@mui/icons-material';
 import { AppPageToolbar } from '@/components/ui';
+import { settlementApi } from '@/lib/api';
 import { useCashEvent } from './CashEventProvider';
 import DatePresetBar from './DatePresetBar';
 import ViewToggle from './ViewToggle';
 
+interface CorporateEntityOption { id: string; name: string; }
+
 export default function CashEventToolbar() {
   const { filters, setFilter } = useCashEvent();
+
+  const [corporateEntities, setCorporateEntities] = useState<CorporateEntityOption[]>([]);
+  useEffect(() => {
+    settlementApi.listCorporateEntities({ page_size: 100, is_active: true })
+      .then(res => {
+        const data = res.data as unknown as { corporate_entities: CorporateEntityOption[] };
+        setCorporateEntities(data.corporate_entities || []);
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <>
@@ -78,6 +92,21 @@ export default function CashEventToolbar() {
                 <MenuItem value="NETTING">상계</MenuItem>
               </Select>
             </FormControl>
+            {corporateEntities.length > 0 && (
+              <FormControl size="small" sx={{ minWidth: { xs: 0, sm: 120 }, flex: { xs: 1, sm: 'none' } }}>
+                <InputLabel>법인</InputLabel>
+                <Select
+                  value={filters.corporateEntityId}
+                  label="법인"
+                  onChange={(e) => setFilter('corporateEntityId', e.target.value)}
+                >
+                  <MenuItem value="">전체</MenuItem>
+                  {corporateEntities.map((ce) => (
+                    <MenuItem key={ce.id} value={ce.id}>{ce.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
             <TextField
               size="small"
               placeholder="최소 금액"

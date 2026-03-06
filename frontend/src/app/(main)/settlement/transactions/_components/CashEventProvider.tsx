@@ -27,6 +27,10 @@ export interface TransactionRow {
   memo: string | null;
   source: string;
   bank_reference: string | null;
+  corporate_entity_id: string | null;
+  corporate_entity_name: string | null;
+  bank_name: string | null;
+  account_number: string | null;
   status: string;
   created_by: string;
   created_at: string;
@@ -41,6 +45,7 @@ export interface CashEventFilters {
   transactionType: string;
   status: string;       // 쉼표 구분 복수 가능
   source: string;
+  corporateEntityId: string;
   dateFrom: string;
   dateTo: string;
   datePreset: string;
@@ -95,6 +100,7 @@ const DEFAULT_FILTERS: CashEventFilters = {
   transactionType: '',
   status: '',
   source: '',
+  corporateEntityId: '',
   dateFrom: '',
   dateTo: '',
   datePreset: 'all',
@@ -137,6 +143,7 @@ function parseUrlFilters(searchParams: URLSearchParams): Partial<CashEventFilter
   if (searchParams.get('type')) f.transactionType = searchParams.get('type')!;
   if (searchParams.get('status')) f.status = searchParams.get('status')!;
   if (searchParams.get('source')) f.source = searchParams.get('source')!;
+  if (searchParams.get('entity')) f.corporateEntityId = searchParams.get('entity')!;
   if (searchParams.get('from')) f.dateFrom = searchParams.get('from')!;
   if (searchParams.get('to')) f.dateTo = searchParams.get('to')!;
   if (searchParams.get('preset')) f.datePreset = searchParams.get('preset')!;
@@ -185,6 +192,7 @@ export default function CashEventProvider({ children }: { children: ReactNode })
     if (f.transactionType) params.set('type', f.transactionType);
     if (f.status) params.set('status', f.status);
     if (f.source) params.set('source', f.source);
+    if (f.corporateEntityId) params.set('entity', f.corporateEntityId);
     if (f.datePreset && f.datePreset !== 'all') params.set('preset', f.datePreset);
     if (f.dateFrom && f.datePreset === 'custom') params.set('from', f.dateFrom);
     if (f.dateTo && f.datePreset === 'custom') params.set('to', f.dateTo);
@@ -211,6 +219,7 @@ export default function CashEventProvider({ children }: { children: ReactNode })
       if (filters.transactionType) params.transaction_type = filters.transactionType;
       if (filters.status) params.status = filters.status;
       if (filters.source) params.source = filters.source;
+      if (filters.corporateEntityId) params.corporate_entity_id = filters.corporateEntityId;
       if (filters.dateFrom) params.date_from = filters.dateFrom;
       if (filters.dateTo) params.date_to = filters.dateTo;
       if (filters.amountMin) params.amount_min = Number(filters.amountMin);

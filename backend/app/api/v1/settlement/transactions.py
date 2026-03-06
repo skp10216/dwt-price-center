@@ -21,6 +21,8 @@ from app.models.user import User
 from app.models.counterparty import Counterparty, CounterpartyAlias
 from app.models.voucher import Voucher
 from app.models.counterparty_transaction import CounterpartyTransaction
+from app.models.corporate_entity import CorporateEntity
+from app.models.bank_import import BankImportJob, BankImportLine
 from app.models.transaction_allocation import TransactionAllocation
 from app.models.receipt import Receipt
 from app.models.payment import Payment
@@ -111,7 +113,13 @@ async def _update_transaction_status(txn: CounterpartyTransaction, db: AsyncSess
         txn.status = TransactionStatus.PENDING
 
 
-def _txn_to_response(txn: CounterpartyTransaction, counterparty_name: str = None) -> TransactionResponse:
+def _txn_to_response(
+    txn: CounterpartyTransaction,
+    counterparty_name: str = None,
+    corporate_entity_name: str = None,
+    bank_name: str = None,
+    account_number: str = None,
+) -> TransactionResponse:
     """Transaction → Response 변환"""
     return TransactionResponse(
         id=txn.id,
@@ -126,6 +134,10 @@ def _txn_to_response(txn: CounterpartyTransaction, counterparty_name: str = None
         source=txn.source.value if hasattr(txn.source, 'value') else txn.source,
         bank_reference=txn.bank_reference,
         netting_record_id=txn.netting_record_id,
+        corporate_entity_id=txn.corporate_entity_id,
+        corporate_entity_name=corporate_entity_name,
+        bank_name=bank_name,
+        account_number=account_number,
         status=txn.status.value if hasattr(txn.status, 'value') else txn.status,
         created_by=txn.created_by,
         created_at=txn.created_at,
@@ -146,6 +158,7 @@ async def list_transactions(
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     search: Optional[str] = Query(None, description="거래처명 + 메모 통합 검색"),
+    corporate_entity_id: Optional[UUID] = Query(None, description="법인 필터"),
     amount_min: Optional[Decimal] = Query(None, description="최소 금액"),
     amount_max: Optional[Decimal] = Query(None, description="최대 금액"),
     page: int = Query(1, ge=1),
@@ -173,6 +186,8 @@ async def list_transactions(
 
     if source:
         filters.append(CounterpartyTransaction.source == source)
+    if corporate_entity_id:
+        filters.append(CounterpartyTransaction.corporate_entity_id == corporate_entity_id)
     if date_from:
         filters.append(CounterpartyTransaction.transaction_date >= date_from)
     if date_to:
@@ -224,8 +239,39 @@ async def list_transactions(
         )
         cp_map = {row.id: row.name for row in cp_result.all()}
 
+    # 법인명 일괄 로드
+    ce_ids = {t.corporate_entity_id for t in txns if t.corporate_entity_id}
+    ce_map = {}
+    if ce_ids:
+        ce_result = await db.execute(
+            select(CorporateEntity.id, CorporateEntity.name)
+            .where(CorporateEntity.id.in_(ce_ids))
+        )
+        ce_map = {row.id: row.name for row in ce_result.all()}
+
+    # 은행 정보 일괄 로드 (bank_import_line_id → BankImportJob)
+    bil_ids = {t.bank_import_line_id for t in txns if t.bank_import_line_id}
+    bank_map: dict = {}  # {bank_import_line_id: (bank_name, account_number)}
+    if bil_ids:
+        bank_result = await db.execute(
+            select(BankImportLine.id, BankImportJob.bank_name, BankImportJob.account_number)
+            .join(BankImportJob, BankImportLine.import_job_id == BankImportJob.id)
+            .where(BankImportLine.id.in_(bil_ids))
+        )
+        bank_map = {row.id: (row.bank_name, row.account_number) for row in bank_result.all()}
+
+    def _build_response(t):
+        bank_info = bank_map.get(t.bank_import_line_id, (None, None))
+        return _txn_to_response(
+            t,
+            counterparty_name=cp_map.get(t.counterparty_id),
+            corporate_entity_name=ce_map.get(t.corporate_entity_id),
+            bank_name=bank_info[0],
+            account_number=bank_info[1],
+        )
+
     return TransactionListResponse(
-        transactions=[_txn_to_response(t, cp_map.get(t.counterparty_id)) for t in txns],
+        transactions=[_build_response(t) for t in txns],
         total=total,
         page=page,
         page_size=page_size,
@@ -293,6 +339,24 @@ async def get_transaction(
 
     cp = await db.get(Counterparty, txn.counterparty_id)
 
+    # 법인명 로드
+    ce_name = None
+    if txn.corporate_entity_id:
+        ce = await db.get(CorporateEntity, txn.corporate_entity_id)
+        ce_name = ce.name if ce else None
+
+    # 은행 정보 로드 (bank_import_line → job)
+    b_name, b_account = None, None
+    if txn.bank_import_line_id:
+        bil_result = await db.execute(
+            select(BankImportJob.bank_name, BankImportJob.account_number)
+            .join(BankImportLine, BankImportLine.import_job_id == BankImportJob.id)
+            .where(BankImportLine.id == txn.bank_import_line_id)
+        )
+        bil_row = bil_result.first()
+        if bil_row:
+            b_name, b_account = bil_row.bank_name, bil_row.account_number
+
     # 배분 내역에 전표 정보 배치 로드
     alloc_voucher_ids = [alloc.voucher_id for alloc in txn.allocations]
     voucher_map = {}
@@ -318,7 +382,7 @@ async def get_transaction(
             created_at=alloc.created_at,
         ))
 
-    resp = _txn_to_response(txn, cp.name if cp else None)
+    resp = _txn_to_response(txn, cp.name if cp else None, ce_name, b_name, b_account)
     return TransactionDetailResponse(
         **resp.model_dump(),
         allocations=alloc_responses,

@@ -494,6 +494,10 @@ class TransactionResponse(BaseModel):
     source: str
     bank_reference: Optional[str] = None
     netting_record_id: Optional[UUID] = None
+    corporate_entity_id: Optional[UUID] = None
+    corporate_entity_name: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
     status: str
     created_by: UUID
     created_at: datetime
