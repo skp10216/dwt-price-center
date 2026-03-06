@@ -996,9 +996,9 @@ export default function SettlementDashboardPage() {
 
             <Grid container spacing={1.5}>
               {[
-                { label: '미정산 판매', value: data?.open_sales_count ?? 0, icon: <ReceiptIcon />, color: theme.palette.error.main, path: '/settlement/vouchers', actionLabel: '전표 확인' },
-                { label: '미지급 매입', value: data?.unpaid_purchase_count ?? 0, icon: <ShoppingCartIcon />, color: theme.palette.warning.main, path: '/settlement/vouchers', actionLabel: '전표 확인' },
-                { label: '미배분 입출금', value: (txnKpi?.pending_count ?? 0) + (txnKpi?.partial_count ?? 0), icon: <DepositIcon />, color: theme.palette.info.main, path: '/settlement/transactions', actionLabel: '배분하기' },
+                { label: '미정산 판매', value: data?.open_sales_count ?? 0, icon: <ReceiptIcon />, color: theme.palette.error.main, path: '/settlement/vouchers', actionLabel: '전표 확인', voucherFilter: { voucherType: 'sales', settlementStatus: 'open' } },
+                { label: '미지급 매입', value: data?.unpaid_purchase_count ?? 0, icon: <ShoppingCartIcon />, color: theme.palette.warning.main, path: '/settlement/vouchers', actionLabel: '전표 확인', voucherFilter: { voucherType: 'purchase', paymentStatus: 'unpaid' } },
+                { label: '미배분 입출금', value: (txnKpi?.pending_count ?? 0) + (txnKpi?.partial_count ?? 0), icon: <DepositIcon />, color: theme.palette.info.main, path: '/settlement/transactions?status=pending,partial', actionLabel: '배분하기' },
                 { label: '상계 대기', value: nettingKpi?.draft_count ?? 0, icon: <BalanceIcon />, color: '#7b1fa2', path: '/settlement/netting', actionLabel: '상계 확인' },
                 { label: '은행 임포트 검수', value: bankKpi?.reviewing_count ?? 0, icon: <BankImportIcon />, color: '#00838f', path: '/settlement/bank-import', actionLabel: '검수하기' },
                 { label: '미매칭 거래처', value: data?.unmatched_count ?? 0, icon: <AccountBalanceIcon />, color: theme.palette.warning.main, path: '/settlement/counterparties', actionLabel: '거래처 확인' },
@@ -1008,7 +1008,14 @@ export default function SettlementDashboardPage() {
                 <Grid item xs={6} key={card.label}>
                   <Paper
                     elevation={0}
-                    onClick={() => card.path && router.push(card.path)}
+                    onClick={() => {
+                      if (!card.path) return;
+                      if ('voucherFilter' in card && card.voucherFilter) {
+                        const filter = { search: '', voucherType: '', settlementStatus: '', paymentStatus: '', datePreset: 'all', dateFrom: '', dateTo: '', page: 0, pageSize: 100, ...card.voucherFilter };
+                        sessionStorage.setItem('vouchers-filter', JSON.stringify(filter));
+                      }
+                      router.push(card.path);
+                    }}
                     sx={{
                       p: 2, borderRadius: 2,
                       border: `1px solid ${alpha(card.color, hasIssue ? 0.35 : 0.15)}`,
