@@ -50,15 +50,18 @@ async def lifespan(app: FastAPI):
     """애플리케이션 시작/종료 이벤트"""
     # 시작 시
     await init_db()
-    
+
+    # PostgreSQL enum 동기화 (Python enum에 추가된 값을 DB에 자동 반영)
+    await sync_pg_enums()
+
     # 초기 관리자 계정 생성
     await create_initial_admin()
-    
+
     # 기본 등급 생성
     await create_default_grades()
-    
+
     yield
-    
+
     # 종료 시
     pass
 
@@ -206,6 +209,72 @@ app.include_router(api_router, prefix="/api/v1")
 async def health_check():
     """헬스 체크"""
     return {"status": "healthy", "version": settings.APP_VERSION}
+
+
+async def sync_pg_enums():
+    """
+    Python enum에 정의된 값 중 PostgreSQL enum 타입에 없는 값을 자동 추가.
+    앱 시작마다 실행되어, enums.py 수정 후 DB 수동 ALTER를 잊는 문제를 방지.
+    """
+    from sqlalchemy import text
+    from app.core.database import engine
+
+    # SQLAlchemy model에서 사용하는 (PythonEnum, pg_enum_name) 매핑
+    # models/ 디렉터리의 SQLEnum(..., name="xxx") 선언과 일치해야 함
+    from app.models import enums as E
+    enum_map: dict[str, type] = {
+        "audit_action": E.AuditAction,
+        "voucher_type": E.VoucherType,
+        "settlement_status": E.SettlementStatus,
+        "payment_status": E.PaymentStatus,
+        "transaction_type": E.TransactionType,
+        "transaction_source": E.TransactionSource,
+        "transaction_status": E.TransactionStatus,
+        "netting_status": E.NettingStatus,
+        "counterparty_type": E.CounterpartyType,
+        "user_role": E.UserRole,
+        "job_type": E.JobType,
+        "job_status": E.JobStatus,
+        "period_lock_status": E.PeriodLockStatus,
+        "bank_import_job_status": E.BankImportJobStatus,
+        "bank_import_line_status": E.BankImportLineStatus,
+        "change_request_status": E.ChangeRequestStatus,
+        "adjustment_type": E.AdjustmentType,
+        "device_type": E.DeviceType,
+        "manufacturer": E.Manufacturer,
+        "connectivity": E.Connectivity,
+    }
+
+    async with engine.connect() as conn:
+        # 현재 DB에 존재하는 enum 값 조회
+        result = await conn.execute(text(
+            "SELECT t.typname, e.enumlabel "
+            "FROM pg_enum e JOIN pg_type t ON e.enumtypid = t.oid "
+            "ORDER BY t.typname, e.enumsortorder"
+        ))
+        db_values: dict[str, set[str]] = {}
+        for row in result:
+            db_values.setdefault(row[0], set()).add(row[1])
+
+        added = []
+        for pg_name, py_enum in enum_map.items():
+            existing = db_values.get(pg_name, set())
+            if not existing:
+                continue  # DB에 enum 타입 자체가 없으면 건너뜀 (create_all에서 생성)
+            for member in py_enum:
+                # SQLAlchemy는 기본적으로 enum의 .name (대문자)을 DB에 저장
+                if member.name not in existing:
+                    await conn.execute(text(
+                        f"ALTER TYPE {pg_name} ADD VALUE IF NOT EXISTS :val"
+                    ), {"val": member.name})
+                    added.append(f"{pg_name}.{member.name}")
+
+        await conn.commit()
+
+        if added:
+            logger.info(f"[sync_pg_enums] DB enum에 {len(added)}개 값 추가: {', '.join(added)}")
+        else:
+            logger.debug("[sync_pg_enums] 모든 enum 동기화 완료 — 추가 없음")
 
 
 async def create_initial_admin():
