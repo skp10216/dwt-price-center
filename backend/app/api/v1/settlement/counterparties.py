@@ -715,8 +715,8 @@ async def get_counterparty_summary(
     summary_result = await db.execute(text("""
         WITH voucher_summary AS (
             SELECT
-                COALESCE(SUM(CASE WHEN voucher_type = 'sales' THEN total_amount ELSE 0 END), 0) AS total_sales,
-                COALESCE(SUM(CASE WHEN voucher_type = 'purchase' THEN total_amount ELSE 0 END), 0) AS total_purchases,
+                COALESCE(SUM(CASE WHEN voucher_type = 'SALES' THEN total_amount ELSE 0 END), 0) AS total_sales,
+                COALESCE(SUM(CASE WHEN voucher_type = 'PURCHASE' THEN total_amount ELSE 0 END), 0) AS total_purchases,
                 COUNT(*) AS voucher_count
             FROM vouchers
             WHERE counterparty_id = :cp_id
@@ -735,11 +735,11 @@ async def get_counterparty_summary(
         ),
         txn_summary AS (
             SELECT
-                COALESCE(SUM(CASE WHEN transaction_type = 'deposit' THEN amount ELSE 0 END), 0) AS total_deposits,
-                COALESCE(SUM(CASE WHEN transaction_type = 'withdrawal' THEN amount ELSE 0 END), 0) AS total_withdrawals
+                COALESCE(SUM(CASE WHEN transaction_type = 'DEPOSIT' THEN amount ELSE 0 END), 0) AS total_deposits,
+                COALESCE(SUM(CASE WHEN transaction_type = 'WITHDRAWAL' THEN amount ELSE 0 END), 0) AS total_withdrawals
             FROM counterparty_transactions
             WHERE counterparty_id = :cp_id
-              AND status NOT IN ('cancelled', 'hidden')
+              AND status NOT IN ('CANCELLED', 'HIDDEN')
         )
         SELECT
             vs.total_sales,

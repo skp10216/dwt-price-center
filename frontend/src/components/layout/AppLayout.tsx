@@ -414,6 +414,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         }
         localStorage.setItem('dwt_lastSeen_sales_confirmed_at', latestSales.confirmed_at);
         setLatestSalesDate(formatKSTShort(latestSales.confirmed_at));
+      } else {
+        localStorage.removeItem('dwt_lastSeen_sales_confirmed_at');
+        setLatestSalesDate(null);
       }
 
       if (latestPurchase?.confirmed_at) {
@@ -431,6 +434,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         }
         localStorage.setItem('dwt_lastSeen_purchase_confirmed_at', latestPurchase.confirmed_at);
         setLatestPurchaseDate(formatKSTShort(latestPurchase.confirmed_at));
+      } else {
+        localStorage.removeItem('dwt_lastSeen_purchase_confirmed_at');
+        setLatestPurchaseDate(null);
       }
     } catch {
       // 조용히 실패 (헤더 기능이므로 오류 표시 불필요)

@@ -12,10 +12,12 @@ import {
   Visibility as ViewIcon,
   CheckCircle as ConfirmIcon,
   Cancel as CancelIcon,
+  Download as DownloadIcon,
 } from '@mui/icons-material';
 import { useAppRouter } from '@/lib/navigation';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
+import { exportToExcel, type ExcelColumn } from '@/lib/excel-export';
 import {
   AppPageContainer,
   AppPageHeader,
@@ -107,6 +109,23 @@ export default function NettingPage() {
   }, [page, pageSize, search, statusFilter, dateFrom, dateTo, enqueueSnackbar]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // ─── 엑셀 다운로드 ──────────────────────────────────────────────
+  const handleExcelDownload = useCallback(async () => {
+    const STATUS_KO: Record<string, string> = { draft: '초안', confirmed: '확정', cancelled: '취소' };
+    const cols: ExcelColumn<NettingRow>[] = [
+      { header: '상계일', field: 'netting_date', width: 12 },
+      { header: '거래처', field: 'counterparty_name', width: 20 },
+      { header: '상계금액', field: 'netting_amount', width: 15, format: 'currency' },
+      { header: '전표수', field: 'voucher_count', width: 8, format: 'number' },
+      { header: '상태', field: (r) => STATUS_KO[r.status] ?? r.status, width: 10 },
+      { header: '생성자', field: 'created_by_name', width: 12 },
+      { header: '확정일', field: (r) => r.confirmed_at ? new Date(r.confirmed_at).toLocaleDateString('ko-KR') : '', width: 12 },
+      { header: '메모', field: (r) => r.memo ?? '', width: 20 },
+    ];
+    await exportToExcel({ filename: '상계내역', sheetName: '상계', columns: cols, rows: nettings });
+    enqueueSnackbar('엑셀 파일이 다운로드되었습니다', { variant: 'success' });
+  }, [nettings, enqueueSnackbar]);
 
   // ─── 액션 ──────────────────────────────────────────────────────
 
@@ -262,6 +281,18 @@ export default function NettingPage() {
               InputLabelProps={{ shrink: true }}
               sx={{ width: 150 }}
             />
+            <Tooltip title="엑셀 다운로드">
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={handleExcelDownload}
+                disabled={nettings.length === 0}
+                sx={{ fontWeight: 600 }}
+              >
+                엑셀
+              </Button>
+            </Tooltip>
           </Box>
         }
       />

@@ -5,7 +5,7 @@
 
 from decimal import Decimal
 from fastapi import APIRouter, Depends
-from sqlalchemy import select, func, case, literal, delete
+from sqlalchemy import select, func, case, literal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -34,6 +34,7 @@ from app.models.enums import (
 )
 from app.api.v1.settlement.activity import SETTLEMENT_ACTIONS
 from app.api.v1.settlement.helpers import run_full_integrity_check
+from app.api.v1.settlement.scenario_runner import cleanup_test_data
 
 router = APIRouter()
 
@@ -298,93 +299,11 @@ async def reset_all_data(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_settlement_user),
 ):
-    """전체 정산 데이터 초기화 — 모든 정산 관련 테이블 데이터 삭제
+    """시나리오 테스트 데이터 초기화 — 테스트에서 생성한 데이터만 선별 삭제
 
-    FK 제약 조건을 고려한 순서로 삭제합니다.
-    주의: 이 작업은 되돌릴 수 없습니다.
+    레지스트리에 등록된 테스트 루트 엔티티(거래처, 법인, 은행임포트)로부터
+    FK 체인을 따라 캐스케이드 삭제합니다.
+    사용자가 직접 등록한 데이터는 영향받지 않습니다.
     """
-    summary = {}
-
-    # FK 의존성 역순으로 삭제 (자식 → 부모)
-
-    # 1. 배분 (transaction_allocations)
-    r = await db.execute(delete(TransactionAllocation))
-    summary["transaction_allocations"] = r.rowcount
-
-    # 2. 상계-전표 매핑
-    r = await db.execute(delete(NettingVoucherLink))
-    summary["netting_voucher_links"] = r.rowcount
-
-    # 3. 상계 기록
-    r = await db.execute(delete(NettingRecord))
-    summary["netting_records"] = r.rowcount
-
-    # 4. 은행 임포트 라인 → 작업
-    r = await db.execute(delete(BankImportLine))
-    summary["bank_import_lines"] = r.rowcount
-
-    r = await db.execute(delete(BankImportJob))
-    summary["bank_import_jobs"] = r.rowcount
-
-    # 5. 레거시 입금/송금
-    r = await db.execute(delete(Receipt))
-    summary["receipts"] = r.rowcount
-
-    r = await db.execute(delete(Payment))
-    summary["payments"] = r.rowcount
-
-    # 6. 전표 변경 요청
-    r = await db.execute(delete(VoucherChangeRequest))
-    summary["voucher_change_requests"] = r.rowcount
-
-    # 7. 전표
-    r = await db.execute(delete(Voucher))
-    summary["vouchers"] = r.rowcount
-
-    # 8. 입출금 이벤트
-    r = await db.execute(delete(CounterpartyTransaction))
-    summary["counterparty_transactions"] = r.rowcount
-
-    # 9. 거래처 관련 (별칭 → 즐겨찾기 → 거래처)
-    r = await db.execute(delete(CounterpartyAlias))
-    summary["counterparty_aliases"] = r.rowcount
-
-    r = await db.execute(delete(UserCounterpartyFavorite))
-    summary["user_counterparty_favorites"] = r.rowcount
-
-    r = await db.execute(delete(Counterparty))
-    summary["counterparties"] = r.rowcount
-
-    # 10. 법인
-    r = await db.execute(delete(CorporateEntity))
-    summary["corporate_entities"] = r.rowcount
-
-    # 11. 지사 (소프트 삭제 포함 전체 제거)
-    r = await db.execute(delete(Branch))
-    summary["branches"] = r.rowcount
-
-    # 12. 기간 마감
-    r = await db.execute(delete(PeriodLock))
-    summary["period_locks"] = r.rowcount
-
-    # 13. 업로드 템플릿
-    r = await db.execute(delete(UploadTemplate))
-    summary["upload_templates"] = r.rowcount
-
-    # 14. 업로드 작업
-    r = await db.execute(delete(UploadJob))
-    summary["upload_jobs"] = r.rowcount
-
-    # 15. 감사로그 (정산 관련만)
-    r = await db.execute(
-        delete(AuditLog).where(AuditLog.action.in_(SETTLEMENT_ACTIONS))
-    )
-    summary["audit_logs"] = r.rowcount
-
-    await db.commit()
-
-    total_deleted = sum(summary.values())
-    return {
-        "total_deleted": total_deleted,
-        "summary": summary,
-    }
+    result = await cleanup_test_data(db)
+    return result

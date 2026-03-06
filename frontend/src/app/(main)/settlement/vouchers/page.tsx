@@ -5,7 +5,7 @@ import {
   Box, TextField, MenuItem, Select, InputLabel, FormControl,
   Chip, Button, InputAdornment, ToggleButton, ToggleButtonGroup,
   Dialog, DialogTitle, DialogContent, DialogActions, Alert, AlertTitle,
-  Typography, IconButton,
+  Typography, IconButton, Tooltip,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -16,10 +16,12 @@ import {
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
   CalendarMonth as CalendarIcon,
+  Download as DownloadIcon,
 } from '@mui/icons-material';
 import { useAppRouter } from '@/lib/navigation';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
+import { exportToExcel, type ExcelColumn } from '@/lib/excel-export';
 import {
   AppPageContainer,
   AppPageHeader,
@@ -247,6 +249,26 @@ export default function VouchersPage() {
   }, [page, pageSize, searchQuery, voucherType, settlementStatus, paymentStatus, dateFrom, dateTo, enqueueSnackbar]);
 
   useEffect(() => { loadVouchers(); }, [loadVouchers]);
+
+  // ─── 엑셀 다운로드 ────────────────────────────────────────────────────────
+  const handleExcelDownload = useCallback(async () => {
+    const STATUS_KO: Record<string, string> = { open: '미정산', settling: '정산중', settled: '정산완료', locked: '마감' };
+    const PAY_KO: Record<string, string> = { unpaid: '미지급', partial: '부분지급', paid: '지급완료', locked: '마감' };
+    const TYPE_KO: Record<string, string> = { sales: '판매', purchase: '매입' };
+    const cols: ExcelColumn<VoucherRow>[] = [
+      { header: '거래일', field: 'trade_date', width: 12 },
+      { header: '거래처', field: 'counterparty_name', width: 20 },
+      { header: '전표번호', field: 'voucher_number', width: 15 },
+      { header: '타입', field: (r) => TYPE_KO[r.voucher_type] ?? r.voucher_type, width: 8 },
+      { header: '수량', field: 'quantity', width: 8, format: 'number' },
+      { header: '금액', field: 'total_amount', width: 15, format: 'currency' },
+      { header: '정산상태', field: (r) => STATUS_KO[r.settlement_status] ?? r.settlement_status, width: 10 },
+      { header: '지급상태', field: (r) => PAY_KO[r.payment_status] ?? r.payment_status, width: 10 },
+      { header: '잔액', field: 'balance', width: 15, format: 'currency' },
+    ];
+    await exportToExcel({ filename: '전표원장', sheetName: '전표', columns: cols, rows: vouchers });
+    enqueueSnackbar('엑셀 파일이 다운로드되었습니다', { variant: 'success' });
+  }, [vouchers, enqueueSnackbar]);
 
   // ─── 일괄 삭제 ──────────────────────────────────────────────────────────────
 
@@ -559,6 +581,18 @@ export default function VouchersPage() {
                 <MenuItem value="locked">마감</MenuItem>
               </Select>
             </FormControl>
+            <Tooltip title="엑셀 다운로드">
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon />}
+                onClick={handleExcelDownload}
+                disabled={vouchers.length === 0}
+                sx={{ fontWeight: 600, ml: 0.5 }}
+              >
+                엑셀
+              </Button>
+            </Tooltip>
           </Box>
         }
       />

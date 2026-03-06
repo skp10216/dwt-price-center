@@ -15,7 +15,7 @@ from typing import Any
 import openpyxl
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -43,10 +43,177 @@ from app.models.enums import (
     NettingStatus,
 )
 from app.api.v1.settlement.activity import SETTLEMENT_ACTIONS
+from app.models.scenario_test_record import ScenarioTestRecord
 
 router = APIRouter()
 
 TEST_DATA_DIR = Path("/app/test-data")
+
+
+# ─── 테스트 데이터 레지스트리 헬퍼 ─────────────────────────
+
+async def _register_test_record(db: AsyncSession, table_name: str, record_id: uuid.UUID):
+    """테스트에서 생성한 루트 엔티티를 레지스트리에 등록"""
+    db.add(ScenarioTestRecord(table_name=table_name, record_id=record_id))
+
+
+async def cleanup_test_data(db: AsyncSession) -> dict:
+    """레지스트리 기반 테스트 데이터만 선별 삭제 (사용자 데이터 보호)
+
+    루트 엔티티(거래처, 법인, 은행임포트 job)로부터
+    FK 체인을 따라 캐스케이드 삭제합니다.
+    """
+    summary: dict[str, int] = {}
+
+    # 1. 레지스트리에서 루트 엔티티 ID 조회
+    result = await db.execute(
+        select(ScenarioTestRecord.table_name, ScenarioTestRecord.record_id)
+    )
+    registry: dict[str, list[uuid.UUID]] = {}
+    for table_name, record_id in result.all():
+        registry.setdefault(table_name, []).append(record_id)
+
+    if not registry:
+        return {"total_deleted": 0, "summary": {}}
+
+    test_cp_ids = registry.get("counterparties", [])
+    test_ce_ids = registry.get("corporate_entities", [])
+    test_bij_ids = registry.get("bank_import_jobs", [])
+
+    # 2. 파생 ID 조회 (캐스케이드용)
+    test_voucher_ids: list[uuid.UUID] = []
+    test_txn_ids: list[uuid.UUID] = []
+
+    if test_cp_ids:
+        vr = await db.execute(
+            select(Voucher.id).where(Voucher.counterparty_id.in_(test_cp_ids))
+        )
+        test_voucher_ids = [r[0] for r in vr.all()]
+
+        tr = await db.execute(
+            select(CounterpartyTransaction.id).where(
+                CounterpartyTransaction.counterparty_id.in_(test_cp_ids)
+            )
+        )
+        test_txn_ids = [r[0] for r in tr.all()]
+
+    # 3. FK 안전 순서로 삭제 (자식 → 부모)
+
+    # 3-1. TransactionAllocation
+    if test_voucher_ids or test_txn_ids:
+        conditions = []
+        if test_voucher_ids:
+            conditions.append(TransactionAllocation.voucher_id.in_(test_voucher_ids))
+        if test_txn_ids:
+            conditions.append(TransactionAllocation.transaction_id.in_(test_txn_ids))
+        r = await db.execute(delete(TransactionAllocation).where(or_(*conditions)))
+        summary["transaction_allocations"] = r.rowcount
+
+    # 3-2. NettingVoucherLink
+    if test_voucher_ids:
+        r = await db.execute(
+            delete(NettingVoucherLink).where(NettingVoucherLink.voucher_id.in_(test_voucher_ids))
+        )
+        summary["netting_voucher_links"] = r.rowcount
+
+    # 3-3. Receipt / Payment (레거시)
+    if test_voucher_ids:
+        r = await db.execute(delete(Receipt).where(Receipt.voucher_id.in_(test_voucher_ids)))
+        summary["receipts"] = r.rowcount
+        r = await db.execute(delete(Payment).where(Payment.voucher_id.in_(test_voucher_ids)))
+        summary["payments"] = r.rowcount
+
+    # 3-4. VoucherChangeRequest
+    if test_voucher_ids:
+        r = await db.execute(
+            delete(VoucherChangeRequest).where(VoucherChangeRequest.voucher_id.in_(test_voucher_ids))
+        )
+        summary["voucher_change_requests"] = r.rowcount
+
+    # 3-5. Voucher
+    if test_cp_ids:
+        r = await db.execute(
+            delete(Voucher).where(Voucher.counterparty_id.in_(test_cp_ids))
+        )
+        summary["vouchers"] = r.rowcount
+
+    # 3-6. CounterpartyTransaction (bank_import_line_id, netting_record_id 는 SET NULL이므로 바로 삭제 가능)
+    if test_cp_ids:
+        r = await db.execute(
+            delete(CounterpartyTransaction).where(
+                CounterpartyTransaction.counterparty_id.in_(test_cp_ids)
+            )
+        )
+        summary["counterparty_transactions"] = r.rowcount
+
+    # 3-7. NettingRecord
+    if test_cp_ids:
+        r = await db.execute(
+            delete(NettingRecord).where(NettingRecord.counterparty_id.in_(test_cp_ids))
+        )
+        summary["netting_records"] = r.rowcount
+
+    # 3-8. BankImportLine → BankImportJob
+    if test_bij_ids:
+        r = await db.execute(
+            delete(BankImportLine).where(BankImportLine.import_job_id.in_(test_bij_ids))
+        )
+        summary["bank_import_lines"] = r.rowcount
+        r = await db.execute(
+            delete(BankImportJob).where(BankImportJob.id.in_(test_bij_ids))
+        )
+        summary["bank_import_jobs"] = r.rowcount
+
+    # 3-9. CounterpartyAlias / UserCounterpartyFavorite
+    if test_cp_ids:
+        r = await db.execute(
+            delete(CounterpartyAlias).where(CounterpartyAlias.counterparty_id.in_(test_cp_ids))
+        )
+        summary["counterparty_aliases"] = r.rowcount
+        r = await db.execute(
+            delete(UserCounterpartyFavorite).where(
+                UserCounterpartyFavorite.counterparty_id.in_(test_cp_ids)
+            )
+        )
+        summary["user_counterparty_favorites"] = r.rowcount
+
+    # 3-10. Counterparty
+    if test_cp_ids:
+        r = await db.execute(
+            delete(Counterparty).where(Counterparty.id.in_(test_cp_ids))
+        )
+        summary["counterparties"] = r.rowcount
+
+    # 3-11. CorporateEntity
+    if test_ce_ids:
+        r = await db.execute(
+            delete(CorporateEntity).where(CorporateEntity.id.in_(test_ce_ids))
+        )
+        summary["corporate_entities"] = r.rowcount
+
+    # 3-12. AuditLog (테스트 엔티티 관련만)
+    all_test_ids: set[uuid.UUID] = set()
+    for ids in registry.values():
+        all_test_ids.update(ids)
+    all_test_ids.update(test_voucher_ids)
+    all_test_ids.update(test_txn_ids)
+    if all_test_ids:
+        r = await db.execute(
+            delete(AuditLog).where(
+                AuditLog.action.in_(SETTLEMENT_ACTIONS),
+                AuditLog.target_id.in_(list(all_test_ids)),
+            )
+        )
+        summary["audit_logs"] = r.rowcount
+
+    # 레지스트리 클리어
+    r = await db.execute(delete(ScenarioTestRecord))
+    summary["registry_cleared"] = r.rowcount
+
+    await db.commit()
+
+    total = sum(v for k, v in summary.items() if k != "registry_cleared")
+    return {"total_deleted": total, "summary": summary}
 
 
 # ─── 요청/응답 스키마 ─────────────────────────────────────
@@ -182,28 +349,10 @@ async def _update_transaction_status(txn: CounterpartyTransaction, db: AsyncSess
 # ─── 단계별 실행 함수 ──────────────────────────────────────
 
 async def step_1_reset(db: AsyncSession, user: User, ctx: dict) -> dict:
-    """전체 데이터 초기화"""
-    tables = [
-        TransactionAllocation, NettingVoucherLink, NettingRecord,
-        BankImportLine, BankImportJob,
-        Receipt, Payment, VoucherChangeRequest, Voucher,
-        CounterpartyTransaction,
-        CounterpartyAlias, UserCounterpartyFavorite, Counterparty,
-        CorporateEntity, Branch, PeriodLock,
-        UploadTemplate, UploadJob,
-    ]
-    total = 0
-    for model in tables:
-        r = await db.execute(delete(model))
-        total += r.rowcount
-
-    r = await db.execute(
-        delete(AuditLog).where(AuditLog.action.in_(SETTLEMENT_ACTIONS))
-    )
-    total += r.rowcount
-    await db.commit()
-
-    return {"message": f"전체 데이터 초기화 완료 ({total}건 삭제)", "deleted": total}
+    """테스트 데이터 초기화 (사용자 데이터 보호)"""
+    result = await cleanup_test_data(db)
+    total = result["total_deleted"]
+    return {"message": f"테스트 데이터 초기화 완료 ({total}건 삭제)", "deleted": total, **result}
 
 
 async def step_2_corp_entity(db: AsyncSession, user: User, ctx: dict) -> dict:
@@ -217,6 +366,7 @@ async def step_2_corp_entity(db: AsyncSession, user: User, ctx: dict) -> dict:
     db.add(ce)
     await db.flush()
 
+    await _register_test_record(db, "corporate_entities", ce.id)
     ctx["corp_entity_id"] = str(ce.id)
     return {
         "message": "법인 'DWT 본사' 생성 완료",
@@ -237,6 +387,8 @@ async def step_3_counterparties(db: AsyncSession, user: User, ctx: dict) -> dict
         )
         db.add(cp)
         await db.flush()
+
+        await _register_test_record(db, "counterparties", cp.id)
 
         alias = CounterpartyAlias(
             counterparty_id=cp.id,
@@ -470,6 +622,8 @@ async def step_7_bank_import_upload(db: AsyncSession, user: User, ctx: dict) -> 
     )
     db.add(job)
     await db.flush()
+
+    await _register_test_record(db, "bank_import_jobs", job.id)
 
     rows = _parse_excel_rows(file_path)
     line_num = 0
@@ -1258,7 +1412,7 @@ async def step_14_final_check(db: AsyncSession, user: User, ctx: dict) -> dict:
 # ─── 단계 등록 ─────────────────────────────────────────────
 
 STEPS = {
-    1: ("전체 데이터 초기화", step_1_reset),
+    1: ("테스트 데이터 초기화", step_1_reset),
     2: ("법인 등록", step_2_corp_entity),
     3: ("거래처 등록 (3곳)", step_3_counterparties),
     4: ("별칭 추가 (은행 매칭용)", step_4_aliases),
@@ -1276,10 +1430,11 @@ STEPS = {
 
 STEP_DESCRIPTIONS: dict[int, dict] = {
     1: {
-        "description": "기존 정산 데이터를 모두 삭제하고 깨끗한 상태에서 시작합니다.",
+        "description": "이전 시나리오 테스트에서 생성한 데이터만 삭제합니다. 사용자가 직접 등록한 데이터는 영향받지 않습니다.",
         "checks": [
-            "거래처, 법인, 전표, 입출금, 배분, 상계, 마감 등 모든 테이블이 비워졌는지 확인",
-            "삭제된 총 건수가 표시됩니다",
+            "레지스트리에 등록된 테스트 거래처/법인/은행임포트 데이터만 삭제",
+            "테스트 데이터에 연결된 전표/입출금/배분/상계도 함께 삭제",
+            "사용자 데이터는 보호됨",
         ],
         "depends_on": [],
         "phase": "setup",
@@ -1421,7 +1576,7 @@ STEP_DESCRIPTIONS: dict[int, dict] = {
 }
 
 PHASES = [
-    {"id": "setup", "label": "초기 설정", "description": "시스템 초기화 및 기초 데이터 설정", "steps": [1, 2, 3, 4]},
+    {"id": "setup", "label": "초기 설정", "description": "테스트 데이터 초기화 및 기초 데이터 설정", "steps": [1, 2, 3, 4]},
     {"id": "vouchers", "label": "전표 생성", "description": "판매/매입 전표 등록", "steps": [5, 6]},
     {"id": "bank_import", "label": "은행 임포트", "description": "은행 파일 업로드 → 매칭 → 확정", "steps": [7, 8, 9]},
     {"id": "settlement", "label": "배분·정산", "description": "자동/수동 배분 및 상계 처리", "steps": [10, 11, 12]},

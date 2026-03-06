@@ -605,6 +605,12 @@ export const settlementApi = {
   getPayables: (params?: Record<string, unknown>) =>
     api.get<ApiResponse<{ payables: unknown[]; total: number }>>('/settlement/dashboard/payables', { params }),
 
+  exportReceivablesExcel: (params?: Record<string, unknown>) =>
+    api.get('/settlement/dashboard/receivables/export', { params, responseType: 'blob' }),
+
+  exportPayablesExcel: (params?: Record<string, unknown>) =>
+    api.get('/settlement/dashboard/payables/export', { params, responseType: 'blob' }),
+
   // 전표
   listVouchers: (params?: Record<string, unknown>) =>
     api.get<ApiResponse<{ vouchers: unknown[]; total: number; page: number; page_size: number }>>('/settlement/vouchers', { params }),

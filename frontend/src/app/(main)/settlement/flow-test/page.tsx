@@ -408,7 +408,7 @@ export default function FlowTestPage() {
           color="info"
           actions={[
             {
-              label: '전체 초기화',
+              label: '테스트 초기화',
               onClick: () => setResetDialogOpen(true),
               variant: 'outlined' as const,
               color: 'error' as const,
@@ -855,12 +855,13 @@ export default function FlowTestPage() {
         maxWidth="sm" fullWidth
       >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <ResetIcon color="error" /> 전체 데이터 초기화
+          <ResetIcon color="error" /> 테스트 데이터 초기화
         </DialogTitle>
         <DialogContent>
-          <Alert severity="error" sx={{ mb: 2 }}>
-            <AlertTitle>되돌릴 수 없습니다</AlertTitle>
-            모든 정산 데이터가 <strong>영구 삭제</strong>됩니다.
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <AlertTitle>시나리오 테스트 데이터만 삭제됩니다</AlertTitle>
+            테스트에서 생성한 거래처·법인·전표·입출금 등이 삭제됩니다.<br />
+            <strong>사용자가 직접 등록한 데이터는 영향받지 않습니다.</strong>
           </Alert>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             계속하려면 <strong>초기화</strong>를 입력하세요.
@@ -874,7 +875,7 @@ export default function FlowTestPage() {
           <Button variant="contained" color="error" onClick={handleResetAll}
             disabled={resetting || resetConfirmText !== '초기화'} startIcon={<ResetIcon />}
           >
-            {resetting ? '초기화 중...' : '전체 초기화 실행'}
+            {resetting ? '초기화 중...' : '테스트 데이터 초기화'}
           </Button>
         </DialogActions>
       </Dialog>

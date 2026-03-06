@@ -10,7 +10,7 @@ import {
   Box, Typography, Stack, Tab, Tabs, TableCell,
   TextField, InputAdornment, Chip, IconButton, Tooltip, LinearProgress,
   alpha, useTheme, Avatar, ToggleButtonGroup, ToggleButton,
-  Divider, Button,
+  Divider, Button, CircularProgress,
 } from '@mui/material';
 import {
   ChevronLeft as ChevronLeftIcon,
@@ -30,6 +30,7 @@ import {
   CallReceived as CallReceivedIcon,
   CallMade as CallMadeIcon,
   ArrowForward as ArrowForwardIcon,
+  Download as DownloadIcon,
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
 import { useSnackbar } from 'notistack';
@@ -308,6 +309,40 @@ export default function CounterpartyStatusPage() {
   };
 
   const handleRefresh = () => { loadData(); loadFavorites(); loadOverview(); };
+
+  // ─── 엑셀 다운로드 (업체 전달용 전문 양식) ───
+  const [excelLoading, setExcelLoading] = useState(false);
+  const handleExcelDownload = async () => {
+    setExcelLoading(true);
+    try {
+      const params: Record<string, unknown> = {};
+      if (dateFrom) params.date_from = dateFrom;
+      if (dateTo) params.date_to = dateTo;
+      if (searchQuery) params.search = searchQuery;
+
+      const res = isReceivables
+        ? await settlementApi.exportReceivablesExcel(params)
+        : await settlementApi.exportPayablesExcel(params);
+
+      const blob = new Blob([res.data as BlobPart], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+      a.download = `${isReceivables ? '미수현황' : '미지급현황'}_${today}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      enqueueSnackbar('엑셀 파일이 다운로드되었습니다', { variant: 'success' });
+    } catch {
+      enqueueSnackbar('엑셀 다운로드에 실패했습니다', { variant: 'error' });
+    } finally {
+      setExcelLoading(false);
+    }
+  };
 
   // ─── 데이터 가공 ───
   const baseData = useMemo(() => {
@@ -760,9 +795,23 @@ export default function CounterpartyStatusPage() {
           </Stack>
         }
         right={
-          <Typography variant="caption" color="text.secondary">
-            {filteredData.length}개 거래처
-          </Typography>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Tooltip title={`${isReceivables ? '미수' : '미지급'} 현황 엑셀 다운로드 (업체 전달용)`}>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={excelLoading ? <CircularProgress size={14} /> : <DownloadIcon />}
+                onClick={handleExcelDownload}
+                disabled={excelLoading || filteredData.length === 0}
+                sx={{ fontWeight: 600, minWidth: 80 }}
+              >
+                엑셀
+              </Button>
+            </Tooltip>
+            <Typography variant="caption" color="text.secondary">
+              {filteredData.length}개 거래처
+            </Typography>
+          </Stack>
         }
       />
 

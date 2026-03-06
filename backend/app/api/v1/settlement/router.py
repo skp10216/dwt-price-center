@@ -23,6 +23,7 @@ from app.api.v1.settlement import (
     statistics,
     flow_test,
     scenario_runner,
+    excel_export,
 )
 
 settlement_router = APIRouter()
@@ -70,6 +71,11 @@ settlement_router.include_router(
 # 대시보드
 settlement_router.include_router(
     dashboard.router, prefix="/dashboard", tags=["정산-대시보드"]
+)
+
+# 엑셀 내보내기
+settlement_router.include_router(
+    excel_export.router, prefix="/dashboard", tags=["정산-엑셀"]
 )
 
 # 마감
