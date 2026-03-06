@@ -7,6 +7,7 @@ import io
 from typing import Optional, Literal
 from datetime import date, datetime
 from decimal import Decimal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -354,12 +355,13 @@ async def export_receivables_excel(
     buf.seek(0)
 
     today = datetime.now().strftime("%Y%m%d")
-    filename = f"미수현황_{today}.xlsx"
+    filename = f"receivables_{today}.xlsx"
+    filename_display = quote(f"미수현황_{today}.xlsx")
 
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+        headers={"Content-Disposition": f"attachment; filename={filename}; filename*=UTF-8''{filename_display}"},
     )
 
 
@@ -380,10 +382,11 @@ async def export_payables_excel(
     buf.seek(0)
 
     today = datetime.now().strftime("%Y%m%d")
-    filename = f"미지급현황_{today}.xlsx"
+    filename = f"payables_{today}.xlsx"
+    filename_display = quote(f"미지급현황_{today}.xlsx")
 
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+        headers={"Content-Disposition": f"attachment; filename={filename}; filename*=UTF-8''{filename_display}"},
     )
