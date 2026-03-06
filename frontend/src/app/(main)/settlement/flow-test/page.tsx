@@ -31,6 +31,7 @@ import {
   HourglassEmpty as StepWaitIcon,
   FiberManualRecord as StepDotIcon,
   HealthAndSafety as HealthIcon,
+  Lock as LockIcon,
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
 import { useAppRouter } from '@/lib/navigation';
@@ -670,13 +671,36 @@ export default function FlowTestPage() {
                   variant="outlined"
                   sx={{
                     overflow: 'hidden',
-                    opacity: isDisabled && state !== 'fail' ? 0.5 : 1,
-                    borderColor: state === 'pass' ? alpha(theme.palette.success.main, 0.4)
-                      : state === 'fail' ? alpha(theme.palette.error.main, 0.4)
-                      : state === 'running' ? alpha(theme.palette.info.main, 0.4)
-                      : undefined,
                     transition: 'all 0.2s',
                     pointerEvents: isDisabled && !result ? 'none' : 'auto',
+                    // 활성화 상태: 파란색 좌측 보더 + 밝은 배경
+                    ...(isStepEnabled && {
+                      borderColor: alpha(theme.palette.info.main, 0.5),
+                      borderLeft: `4px solid ${theme.palette.info.main}`,
+                      bgcolor: alpha(theme.palette.info.main, 0.03),
+                    }),
+                    // 실행 중
+                    ...(state === 'running' && {
+                      borderColor: alpha(theme.palette.info.main, 0.5),
+                      borderLeft: `4px solid ${theme.palette.info.main}`,
+                      bgcolor: alpha(theme.palette.info.main, 0.04),
+                    }),
+                    // 통과
+                    ...(state === 'pass' && {
+                      borderColor: alpha(theme.palette.success.main, 0.4),
+                      borderLeft: `4px solid ${theme.palette.success.main}`,
+                    }),
+                    // 실패
+                    ...(state === 'fail' && {
+                      borderColor: alpha(theme.palette.error.main, 0.4),
+                      borderLeft: `4px solid ${theme.palette.error.main}`,
+                    }),
+                    // 비활성화: 회색 배경 + 낮은 opacity
+                    ...(isDisabled && state !== 'pass' && state !== 'fail' && {
+                      opacity: 0.55,
+                      bgcolor: alpha(theme.palette.action.disabledBackground, 0.3),
+                      borderColor: theme.palette.divider,
+                    }),
                   }}
                 >
                   {/* 카드 헤더 */}
@@ -694,7 +718,8 @@ export default function FlowTestPage() {
                         : state === 'pass' ? <StepPassIcon sx={{ color: 'success.main', fontSize: 20 }} />
                         : state === 'fail' ? <StepFailIcon sx={{ color: 'error.main', fontSize: 20 }} />
                         : state === 'skipped' ? <StepWaitIcon sx={{ color: 'text.disabled', fontSize: 20 }} />
-                        : <Typography variant="caption" fontWeight={700} color="text.secondary">{s.step}</Typography>}
+                        : isDisabled ? <LockIcon sx={{ color: 'text.disabled', fontSize: 18 }} />
+                        : <Typography variant="caption" fontWeight={700} color="info.main">{s.step}</Typography>}
                     </Box>
 
                     {/* 내용 */}
@@ -716,8 +741,12 @@ export default function FlowTestPage() {
                           <Chip size="small" label="완료" variant="filled" color="success"
                             sx={{ height: 18, fontSize: '0.6rem', fontWeight: 700 }} />
                         )}
+                        {isStepEnabled && !result && (
+                          <Chip size="small" label="실행 가능" variant="filled" color="info"
+                            sx={{ height: 18, fontSize: '0.6rem', fontWeight: 700 }} />
+                        )}
                         {!prevStepsCompleted && !result && (
-                          <Chip size="small" label="이전 단계 필요" variant="outlined" color="default"
+                          <Chip size="small" icon={<LockIcon sx={{ fontSize: '12px !important' }} />} label="대기" variant="outlined" color="default"
                             sx={{ height: 18, fontSize: '0.6rem', fontWeight: 600 }} />
                         )}
                       </Box>
