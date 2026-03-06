@@ -21,6 +21,7 @@ import NextLink from 'next/link';
 import { useSnackbar } from 'notistack';
 import { settlementApi } from '@/lib/api';
 import { AppDetailDrawer } from '@/components/ui';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { useCashEvent } from './CashEventProvider';
 import { STATUS_LABELS, TYPE_LABELS, SOURCE_LABELS, formatAmount } from './constants';
 
@@ -138,6 +139,9 @@ export default function CashEventDetailDrawer({ onAllocate }: CashEventDetailDra
   const [holdReason, setHoldReason] = useState('');
   const [holdLoading, setHoldLoading] = useState(false);
 
+  // 개별 취소
+  const [cancelTarget, setCancelTarget] = useState<string | null>(null);
+
   // 숨김 다이얼로그
   const [hideOpen, setHideOpen] = useState(false);
   const [hideReason, setHideReason] = useState('');
@@ -232,12 +236,16 @@ export default function CashEventDetailDrawer({ onAllocate }: CashEventDetailDra
     }
   };
 
-  const handleCancel = async () => {
+  const handleCancel = () => {
     if (!detail) return;
-    if (!confirm('이 입출금을 취소하시겠습니까? 연결된 배분도 모두 해제됩니다.')) return;
+    setCancelTarget(detail.id);
+  };
+  const executeCancel = async () => {
+    if (!cancelTarget) return;
     try {
-      await settlementApi.cancelTransaction(detail.id);
+      await settlementApi.cancelTransaction(cancelTarget);
       enqueueSnackbar('취소되었습니다.', { variant: 'success' });
+      setCancelTarget(null);
       setDetailId(null);
       loadData();
     } catch {
@@ -587,6 +595,17 @@ export default function CashEventDetailDrawer({ onAllocate }: CashEventDetailDra
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* 개별 취소 확인 다이얼로그 */}
+      <ConfirmDialog
+        open={!!cancelTarget}
+        title="입출금 취소"
+        message="이 입출금을 취소하시겠습니까? 연결된 배분도 모두 해제됩니다."
+        confirmColor="error"
+        confirmLabel="취소"
+        onConfirm={executeCancel}
+        onCancel={() => setCancelTarget(null)}
+      />
     </>
   );
 }

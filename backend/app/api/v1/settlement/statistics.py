@@ -12,7 +12,7 @@ from sqlalchemy import select, func, case, and_, extract, cast, String, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.voucher import Voucher
 from app.models.counterparty import Counterparty
@@ -58,7 +58,7 @@ def _month_label():
 async def monthly_balance(
     months: int = Query(6, ge=1, le=24),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """월별 판매/매입 전표 발행액 및 수금/지급액 추이"""
     start = _month_start(months)
@@ -141,7 +141,7 @@ async def monthly_balance(
 async def transaction_flow(
     months: int = Query(6, ge=1, le=24),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     start = _month_start(months)
     month_expr = func.to_char(CounterpartyTransaction.transaction_date, 'YYYY-MM')
@@ -181,7 +181,7 @@ async def transaction_flow(
 @router.get("/voucher-status")
 async def voucher_status(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     # 정산 상태
     settlement_q = await db.execute(
@@ -206,7 +206,7 @@ async def voucher_status(
 async def netting_monthly(
     months: int = Query(6, ge=1, le=24),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     start = _month_start(months)
     month_expr = func.to_char(NettingRecord.netting_date, 'YYYY-MM')
@@ -224,7 +224,7 @@ async def netting_monthly(
 @router.get("/adjustment-summary")
 async def adjustment_summary(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     q = await db.execute(
         select(
@@ -243,7 +243,7 @@ async def adjustment_summary(
 @router.get("/by-branch")
 async def by_branch(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     q = await db.execute(
         select(
@@ -279,7 +279,7 @@ async def by_branch(
 async def top_balance(
     limit: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처별 미수/미지급 잔액 Top N (양방향 바 차트용)"""
     # 쿼리1: 거래처별 voucher_type별 전표 합계 (2쿼리 → 1쿼리)
@@ -377,7 +377,7 @@ async def top_balance(
 @router.get("/counterparty-type")
 async def counterparty_type_stats(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     q = await db.execute(
         select(
@@ -398,7 +398,7 @@ async def counterparty_type_stats(
 async def counterparty_progress(
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처별 총액/수금액/잔액/진행률"""
     q = await db.execute(
@@ -476,7 +476,7 @@ async def counterparty_progress(
 async def profit_summary(
     months: int = Query(6, ge=1, le=24),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     start = _month_start(months)
     q = await db.execute(
@@ -505,7 +505,7 @@ async def profit_summary(
 async def profit_monthly(
     months: int = Query(6, ge=1, le=24),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     start = _month_start(months)
     month_expr = func.to_char(Voucher.trade_date, 'YYYY-MM')
@@ -537,7 +537,7 @@ async def profit_by_counterparty(
     limit: int = Query(15, ge=1, le=50),
     months: int = Query(6, ge=1, le=24),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     start = _month_start(months)
     q = await db.execute(
@@ -569,7 +569,7 @@ async def profit_by_counterparty(
 async def profit_distribution(
     months: int = Query(6, ge=1, le=24),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     start = _month_start(months)
     pr = Voucher.profit_rate
@@ -602,7 +602,7 @@ async def profit_distribution(
 @router.get("/settlement-aging")
 async def settlement_aging(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """미정산 전표 경과일 분석 (0-30/31-60/61-90/90+일)"""
     days_expr = func.current_date() - Voucher.trade_date
@@ -646,7 +646,7 @@ async def settlement_aging(
 @router.get("/transaction-source")
 async def transaction_source(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """입출금 소스별 분포 (MANUAL/BANK_IMPORT/NETTING)"""
     q = await db.execute(
@@ -667,7 +667,7 @@ async def transaction_source(
 async def completion_rate(
     months: int = Query(6, ge=1, le=24),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """월별 정산 완료율 추이"""
     start = _month_start(months)
@@ -704,7 +704,7 @@ async def completion_rate(
 async def cash_lag(
     limit: int = Query(15, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처별 평균 입금 지연일 (transaction_date - voucher.trade_date)"""
     lag_expr = CounterpartyTransaction.transaction_date - Voucher.trade_date

@@ -15,6 +15,7 @@ import {
 import { useSnackbar } from 'notistack';
 import { settlementApi } from '@/lib/api';
 import { AppPageContainer, AppPageHeader } from '@/components/ui';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import TransactionCreateDialog from '@/components/settlement/TransactionCreateDialog';
 import TransactionUploadDialog from '@/components/settlement/TransactionUploadDialog';
 import AllocationDialog from '@/components/settlement/AllocationDialog';
@@ -42,6 +43,9 @@ function TransactionsPageContent() {
   const [allocDialogOpen, setAllocDialogOpen] = useState(false);
   const [selectedTxnId, setSelectedTxnId] = useState('');
 
+  // 개별 취소
+  const [cancelTarget, setCancelTarget] = useState<string | null>(null);
+
   // 일괄 취소
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -64,14 +68,19 @@ function TransactionsPageContent() {
   };
 
   // 개별 취소
-  const handleCancel = async (id: string) => {
-    if (!confirm('이 입출금을 취소하시겠습니까? 연결된 배분도 모두 해제됩니다.')) return;
+  const handleCancel = (id: string) => {
+    setCancelTarget(id);
+  };
+  const executeCancel = async () => {
+    if (!cancelTarget) return;
     try {
-      await settlementApi.cancelTransaction(id);
+      await settlementApi.cancelTransaction(cancelTarget);
       enqueueSnackbar('입출금이 취소되었습니다.', { variant: 'success' });
       loadData();
     } catch {
       enqueueSnackbar('취소에 실패했습니다.', { variant: 'error' });
+    } finally {
+      setCancelTarget(null);
     }
   };
 
@@ -210,6 +219,17 @@ function TransactionsPageContent() {
 
       {/* Detail Drawer */}
       <CashEventDetailDrawer onAllocate={handleAllocate} />
+
+      {/* 개별 취소 확인 다이얼로그 */}
+      <ConfirmDialog
+        open={!!cancelTarget}
+        title="입출금 취소"
+        message="이 입출금을 취소하시겠습니까? 연결된 배분도 모두 해제됩니다."
+        confirmColor="error"
+        confirmLabel="취소"
+        onConfirm={executeCancel}
+        onCancel={() => setCancelTarget(null)}
+      />
 
       {/* 일괄 취소 다이얼로그 */}
       <Dialog open={cancelDialogOpen} onClose={() => setCancelDialogOpen(false)} maxWidth="sm" fullWidth>

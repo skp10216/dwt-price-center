@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.counterparty import Counterparty, CounterpartyAlias
 from app.models.voucher import Voucher
@@ -164,7 +164,7 @@ async def list_transactions(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """입출금 이벤트 목록 조회 (검색/금액범위/복수상태 지원)"""
     query = select(CounterpartyTransaction).join(Counterparty)
@@ -282,7 +282,7 @@ async def list_transactions(
 async def create_transaction(
     data: TransactionCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """수동 입출금 이벤트 등록"""
     # 기간 마감 검증
@@ -329,7 +329,7 @@ async def create_transaction(
 async def get_transaction(
     transaction_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """입출금 이벤트 상세 (배분 내역 포함)"""
     result = await db.execute(
@@ -398,7 +398,7 @@ async def update_transaction(
     transaction_id: UUID,
     data: TransactionUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """입출금 이벤트 수정 (PENDING 상태만)"""
     txn = await db.get(CounterpartyTransaction, transaction_id)
@@ -433,7 +433,7 @@ async def update_transaction(
 async def cancel_transaction(
     transaction_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """입출금 이벤트 취소 (배분 해제 후 CANCELLED)"""
     txn = await db.get(CounterpartyTransaction, transaction_id)
@@ -475,7 +475,7 @@ async def hold_transaction(
     transaction_id: UUID,
     data: TransactionHoldRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """입출금 이벤트 보류 처리 (사유 필수)"""
     txn = await db.get(CounterpartyTransaction, transaction_id)
@@ -507,7 +507,7 @@ async def hold_transaction(
 async def unhold_transaction(
     transaction_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """입출금 이벤트 보류 해제 (배분 상태에 따라 자동 전이)"""
     txn = await db.get(CounterpartyTransaction, transaction_id)
@@ -537,7 +537,7 @@ async def hide_transaction(
     transaction_id: UUID,
     data: TransactionHideRequest = TransactionHideRequest(),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """입출금 이벤트 숨김 처리 (삭제 대체)"""
     txn = await db.get(CounterpartyTransaction, transaction_id)
@@ -569,7 +569,7 @@ async def hide_transaction(
 async def unhide_transaction(
     transaction_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """입출금 이벤트 숨김 해제 (배분 상태에 따라 자동 전이)"""
     txn = await db.get(CounterpartyTransaction, transaction_id)
@@ -598,7 +598,7 @@ async def unhide_transaction(
 async def batch_cancel_transactions(
     transaction_ids: List[UUID] = Body(..., description="취소할 입출금 ID 목록"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """입출금 일괄 취소 (이미 취소된 건은 건너뜀)"""
     cancelled_count = 0
@@ -662,7 +662,7 @@ async def auto_allocate(
     transaction_id: UUID,
     data: AutoAllocateRequest = AutoAllocateRequest(),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """FIFO 자동 배분 — 비관적 락으로 동시성 안전 보장"""
     # Transaction에 비관적 락 적용 (동시 배분 방지)
@@ -824,7 +824,7 @@ async def manual_allocate(
     transaction_id: UUID,
     data: AllocationRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """수동 배분 (전표 지정) — 비관적 락으로 동시성 안전 보장"""
     # Transaction에 비관적 락 적용 (동시 배분 방지)
@@ -981,7 +981,7 @@ async def delete_allocation(
     transaction_id: UUID,
     allocation_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """배분 삭제"""
     alloc = await db.execute(
@@ -1028,7 +1028,7 @@ async def get_counterparty_timeline(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처 입출금 타임라인"""
     cp = await db.get(Counterparty, counterparty_id)
@@ -1106,7 +1106,7 @@ async def get_counterparty_timeline(
 async def get_counterparty_balance(
     counterparty_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처 잔액 요약"""
     cp = await db.get(Counterparty, counterparty_id)
@@ -1292,7 +1292,7 @@ async def _match_counterparty(name: str, db: AsyncSession) -> Optional[UUID]:
 async def preview_transaction_upload(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """엑셀 파일을 파싱하여 미리보기 반환"""
     if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
@@ -1507,7 +1507,7 @@ async def preview_transaction_upload(
 async def confirm_transaction_upload(
     payload: dict = Body(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """미리보기에서 확인된 입출금 건을 일괄 등록"""
     transactions = payload.get("transactions", [])

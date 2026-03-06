@@ -25,6 +25,7 @@ import {
 } from '@/components/ui';
 import NettingWizard from '@/components/settlement/NettingWizard';
 import NettingDetailDialog from '@/components/settlement/NettingDetailDialog';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
 // ─── 타입 ──────────────────────────────────────────────────────────
 
@@ -78,6 +79,7 @@ export default function NettingPage() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedId, setSelectedId] = useState('');
+  const [confirmAction, setConfirmAction] = useState<{ type: 'confirm' | 'cancel'; id: string } | null>(null);
 
   // ─── 데이터 로드 ──────────────────────────────────────────────
 
@@ -108,25 +110,25 @@ export default function NettingPage() {
 
   // ─── 액션 ──────────────────────────────────────────────────────
 
-  const handleConfirm = async (id: string) => {
-    if (!confirm('이 상계를 확정하시겠습니까? 확정 후 입출금이 자동 생성됩니다.')) return;
+  const handleConfirmAction = async () => {
+    if (!confirmAction) return;
+    const { type, id } = confirmAction;
     try {
-      await settlementApi.confirmNetting(id);
-      enqueueSnackbar('상계가 확정되었습니다.', { variant: 'success' });
+      if (type === 'confirm') {
+        await settlementApi.confirmNetting(id);
+        enqueueSnackbar('상계가 확정되었습니다.', { variant: 'success' });
+      } else {
+        await settlementApi.cancelNetting(id);
+        enqueueSnackbar('상계가 취소되었습니다.', { variant: 'success' });
+      }
       loadData();
     } catch {
-      enqueueSnackbar('상계 확정에 실패했습니다.', { variant: 'error' });
-    }
-  };
-
-  const handleCancel = async (id: string) => {
-    if (!confirm('이 상계를 취소하시겠습니까?')) return;
-    try {
-      await settlementApi.cancelNetting(id);
-      enqueueSnackbar('상계가 취소되었습니다.', { variant: 'success' });
-      loadData();
-    } catch {
-      enqueueSnackbar('상계 취소에 실패했습니다.', { variant: 'error' });
+      enqueueSnackbar(
+        type === 'confirm' ? '상계 확정에 실패했습니다.' : '상계 취소에 실패했습니다.',
+        { variant: 'error' },
+      );
+    } finally {
+      setConfirmAction(null);
     }
   };
 
@@ -294,12 +296,12 @@ export default function NettingPage() {
             {row.status === 'draft' && (
               <>
                 <Tooltip title="확정">
-                  <IconButton size="small" color="success" onClick={() => handleConfirm(row.id)}>
+                  <IconButton size="small" color="success" onClick={() => setConfirmAction({ type: 'confirm', id: row.id })}>
                     <ConfirmIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
                 <Tooltip title="취소">
-                  <IconButton size="small" color="error" onClick={() => handleCancel(row.id)}>
+                  <IconButton size="small" color="error" onClick={() => setConfirmAction({ type: 'cancel', id: row.id })}>
                     <CancelIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
@@ -322,6 +324,22 @@ export default function NettingPage() {
         onClose={() => { setDetailOpen(false); setSelectedId(''); }}
         nettingId={selectedId}
         onAction={loadData}
+      />
+
+      {/* 상계 확정/취소 확인 다이얼로그 */}
+      <ConfirmDialog
+        open={!!confirmAction}
+        title={confirmAction?.type === 'confirm' ? '상계 확정' : '상계 취소'}
+        message={
+          confirmAction?.type === 'confirm'
+            ? '이 상계를 확정하시겠습니까? 확정 후 입출금이 자동 생성됩니다.'
+            : '이 상계를 취소하시겠습니까?'
+        }
+        confirmColor={confirmAction?.type === 'confirm' ? 'warning' : 'error'}
+        confirmLabel={confirmAction?.type === 'confirm' ? '확정' : '취소'}
+        cancelLabel="닫기"
+        onConfirm={handleConfirmAction}
+        onCancel={() => setConfirmAction(null)}
       />
     </AppPageContainer>
   );

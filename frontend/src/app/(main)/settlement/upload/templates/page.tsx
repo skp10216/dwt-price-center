@@ -22,6 +22,7 @@ import {
   AppDataTable,
   type AppColumnDef,
 } from '@/components/ui';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
 interface UploadTemplate {
   id: string;
@@ -43,6 +44,7 @@ export default function UploadTemplatesPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<UploadTemplate | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   // Form states
   const [formName, setFormName] = useState('');
@@ -112,14 +114,20 @@ export default function UploadTemplatesPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('이 템플릿을 삭제하시겠습니까?')) return;
+  const handleDelete = (id: string) => {
+    setDeleteTarget(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await settlementApi.deleteUploadTemplate(id);
+      await settlementApi.deleteUploadTemplate(deleteTarget);
       enqueueSnackbar('템플릿이 삭제되었습니다', { variant: 'success' });
       loadTemplates();
     } catch {
       enqueueSnackbar('삭제에 실패했습니다', { variant: 'error' });
+    } finally {
+      setDeleteTarget(null);
     }
   };
 
@@ -248,6 +256,16 @@ export default function UploadTemplatesPage() {
           <Button variant="contained" onClick={handleSave} disabled={!formName || !formMapping}>저장</Button>
         </DialogActions>
       </Dialog>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="템플릿 삭제"
+        message="이 템플릿을 삭제하시겠습니까?"
+        confirmColor="error"
+        confirmLabel="삭제"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </AppPageContainer>
   );
 }

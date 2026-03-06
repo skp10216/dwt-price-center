@@ -11,7 +11,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.corporate_entity import CorporateEntity
 from app.models.bank_import import BankImportJob
@@ -31,7 +31,7 @@ async def list_corporate_entities(
     search: Optional[str] = Query(None, description="법인명/코드/사업자번호 검색"),
     is_active: Optional[bool] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """법인 목록 조회"""
     filters = []
@@ -72,7 +72,7 @@ async def list_corporate_entities(
 async def create_corporate_entity(
     data: CorporateEntityCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """법인 생성"""
     # 중복 체크
@@ -109,7 +109,7 @@ async def update_corporate_entity(
     entity_id: UUID,
     data: CorporateEntityUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """법인 수정"""
     entity = await db.get(CorporateEntity, entity_id)
@@ -158,7 +158,7 @@ async def update_corporate_entity(
 async def delete_corporate_entity(
     entity_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """법인 삭제 (연결된 은행 임포트 Job이 있으면 제한)"""
     entity = await db.get(CorporateEntity, entity_id)

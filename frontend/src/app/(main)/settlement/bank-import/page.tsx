@@ -50,6 +50,7 @@ import {
   AppPageHeader,
   AppTableShell,
 } from '@/components/ui';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
 // ─── 타입 ──────────────────────────────────────────────────────────
 
@@ -232,6 +233,9 @@ export default function BankImportPage() {
   // Step 3: 확정
   const [confirming, setConfirming] = useState(false);
 
+  // ConfirmDialog 상태
+  const [confirmAction, setConfirmAction] = useState<{ type: string; id?: string } | null>(null);
+
   // 이전 작업 내역
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyJobs, setHistoryJobs] = useState<ImportJobRow[]>([]);
@@ -393,10 +397,13 @@ export default function BankImportPage() {
 
   // ─── Step 3: 확정 ──────────────────────────────────────────────
 
-  const handleConfirm = async () => {
+  const handleConfirm = () => {
     if (!currentJob) return;
-    if (!confirm('매칭 완료된 라인을 확정하시겠습니까?\n확정 후 입출금 트랜잭션이 자동 생성됩니다.')) return;
+    setConfirmAction({ type: 'bank-confirm', id: currentJob.id });
+  };
 
+  const executeConfirm = async () => {
+    if (!currentJob) return;
     setConfirming(true);
     try {
       const res = await settlementApi.confirmBankImport(currentJob.id);
@@ -409,6 +416,7 @@ export default function BankImportPage() {
       enqueueSnackbar('확정에 실패했습니다.', { variant: 'error' });
     } finally {
       setConfirming(false);
+      setConfirmAction(null);
     }
   };
 
@@ -442,14 +450,19 @@ export default function BankImportPage() {
     }
   };
 
-  const handleDeleteJob = async (jobId: string) => {
-    if (!confirm('이 임포트 작업을 삭제하시겠습니까?')) return;
+  const handleDeleteJob = (jobId: string) => {
+    setConfirmAction({ type: 'delete-job', id: jobId });
+  };
+
+  const executeDeleteJob = async (jobId: string) => {
     try {
       await settlementApi.deleteBankImportJob(jobId);
       enqueueSnackbar('작업 삭제 완료', { variant: 'success' });
       loadHistory();
     } catch {
       enqueueSnackbar('삭제에 실패했습니다.', { variant: 'error' });
+    } finally {
+      setConfirmAction(null);
     }
   };
 
@@ -974,6 +987,29 @@ export default function BankImportPage() {
           </Table>
         </AppTableShell>
       </Collapse>
+
+      {/* ── 확인 다이얼로그 ── */}
+      <ConfirmDialog
+        open={confirmAction?.type === 'bank-confirm'}
+        title="은행 임포트 확정"
+        message="매칭 완료된 라인을 확정하시겠습니까? 확정 후 입출금 트랜잭션이 자동 생성됩니다."
+        confirmLabel="확정"
+        confirmColor="warning"
+        loading={confirming}
+        onConfirm={executeConfirm}
+        onCancel={() => setConfirmAction(null)}
+      />
+      <ConfirmDialog
+        open={confirmAction?.type === 'delete-job'}
+        title="임포트 작업 삭제"
+        message="이 임포트 작업을 삭제하시겠습니까?"
+        confirmLabel="삭제"
+        confirmColor="error"
+        onConfirm={() => {
+          if (confirmAction?.id) executeDeleteJob(confirmAction.id);
+        }}
+        onCancel={() => setConfirmAction(null)}
+      />
     </AppPageContainer>
   );
 }

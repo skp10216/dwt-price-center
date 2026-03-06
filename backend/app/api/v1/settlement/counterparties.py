@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.counterparty import Counterparty, CounterpartyAlias, UserCounterpartyFavorite
 from app.models.branch import Branch
@@ -62,7 +62,7 @@ async def list_counterparties(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처 목록 조회"""
     query = select(Counterparty).options(selectinload(Counterparty.aliases))
@@ -249,7 +249,7 @@ async def list_counterparties(
 async def toggle_counterparty_favorite(
     counterparty_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처 즐겨찾기 토글 (추가/제거)"""
     result = await db.execute(select(Counterparty).where(Counterparty.id == counterparty_id))
@@ -278,7 +278,7 @@ async def toggle_counterparty_favorite(
 async def create_counterparty(
     data: CounterpartyCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처 생성"""
     # 중복 체크
@@ -325,7 +325,7 @@ async def create_counterparty(
 async def get_counterparty(
     counterparty_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처 상세 조회"""
     result = await db.execute(
@@ -344,7 +344,7 @@ async def update_counterparty(
     counterparty_id: UUID,
     data: CounterpartyUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처 수정"""
     result = await db.execute(
@@ -383,7 +383,7 @@ async def update_counterparty(
 async def delete_counterparty(
     counterparty_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처 삭제 (연결 전표가 있으면 차단)"""
     result = await db.execute(
@@ -470,7 +470,7 @@ async def delete_counterparty(
 async def batch_assign_branch(
     data: BatchAssignBranchRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처 일괄 지사 배정/해제"""
     # 지사 존재 확인
@@ -525,7 +525,7 @@ async def batch_assign_branch(
 async def batch_delete_counterparties(
     counterparty_ids: list[str] = Body(..., description="삭제할 거래처 ID 목록"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처 일괄 삭제 (전표 연결이 없는 건만 삭제)"""
     deleted = []
@@ -617,7 +617,7 @@ async def batch_delete_counterparties(
 async def batch_create_counterparties(
     data: BatchCreateCounterpartiesRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처 일괄 등록 (미매칭 거래처 → 신규 등록 + 별칭 자동 추가)"""
     created = []
@@ -700,7 +700,7 @@ async def batch_create_counterparties(
 async def get_counterparty_summary(
     counterparty_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처 요약 (미수/미지급/매출/매입 합계) — 원자적 단일 스냅샷 조회"""
     result = await db.execute(
@@ -773,7 +773,7 @@ async def get_counterparty_summary(
 async def list_aliases(
     counterparty_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """거래처 별칭 목록"""
     result = await db.execute(
@@ -788,7 +788,7 @@ async def create_alias(
     counterparty_id: UUID,
     data: CounterpartyAliasCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """별칭 추가"""
     # 거래처 존재 확인
@@ -827,7 +827,7 @@ async def delete_alias(
     counterparty_id: UUID,
     alias_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """별칭 삭제"""
     result = await db.execute(

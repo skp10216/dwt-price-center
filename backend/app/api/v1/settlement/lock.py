@@ -13,7 +13,7 @@ from sqlalchemy import select, func, or_, extract, update, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.voucher import Voucher
 from app.models.period_lock import PeriodLock
@@ -23,6 +23,7 @@ from app.models.enums import (
 )
 from app.models.audit_log import AuditLog
 from app.schemas.settlement import BatchLockRequest, BatchLockResponse, LockHistoryItem
+from app.api.v1.settlement.transactions import _update_voucher_status
 
 router = APIRouter()
 
@@ -33,7 +34,7 @@ router = APIRouter()
 async def list_monthly_locks(
     year: int = Query(..., ge=2020, le=2100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """연도별 월간 마감 현황 조회 — PeriodLock 테이블 우선, 없으면 전표 스캔"""
     locks = []
@@ -133,7 +134,7 @@ async def create_monthly_lock(
     year_month: str,
     description: Optional[str] = Body(None, embed=True),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """월별 마감 — 해당 월의 모든 미마감 전표를 LOCKED로 변경 + PeriodLock 갱신"""
     try:
@@ -209,9 +210,9 @@ async def release_monthly_lock(
     year_month: str,
     description: Optional[str] = Body(None, embed=True),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
-    """월별 마감 해제 — 해당 월의 LOCKED 전표를 OPEN으로 복원 + PeriodLock 갱신"""
+    """월별 마감 해제 — 해당 월의 LOCKED 전표를 배분 실적 기반으로 상태 복원 + PeriodLock 갱신"""
     try:
         year, month = year_month.split("-")
         first_day = date(int(year), int(month), 1)
@@ -222,20 +223,27 @@ async def release_monthly_lock(
     except (ValueError, IndexError):
         raise HTTPException(status_code=400, detail="year_month 형식이 올바르지 않습니다 (YYYY-MM)")
 
-    stmt = (
-        update(Voucher)
+    # LOCKED 전표 조회 → 개별적으로 배분 실적 기반 상태 복원
+    locked_q = (
+        select(Voucher)
         .where(
             Voucher.trade_date >= first_day,
             Voucher.trade_date < last_day,
             Voucher.settlement_status == SettlementStatus.LOCKED,
         )
-        .values(
-            settlement_status=SettlementStatus.OPEN,
-            payment_status=PaymentStatus.UNPAID,
-        )
     )
-    result = await db.execute(stmt)
-    unlocked_count = result.rowcount
+    locked_vouchers = (await db.execute(locked_q)).scalars().all()
+    unlocked_count = len(locked_vouchers)
+
+    for v in locked_vouchers:
+        # 먼저 LOCKED 해제 (OPEN/UNPAID로 임시 전환) → _update_voucher_status가 처리 가능하도록
+        v.settlement_status = SettlementStatus.OPEN
+        v.payment_status = PaymentStatus.UNPAID
+
+    # flush 후 배분 실적 기반 상태 재계산
+    await db.flush()
+    for v in locked_vouchers:
+        await _update_voucher_status(v.id, db)
 
     # PeriodLock 레코드 업데이트
     period_lock = (await db.execute(
@@ -266,7 +274,7 @@ async def release_monthly_lock(
 async def get_lock_audit_logs(
     year: int = Query(..., ge=2020, le=2100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """마감 관련 감사 로그 (연도 필터)"""
     lock_actions = [
@@ -343,7 +351,7 @@ async def lock_voucher(
     voucher_id: UUID,
     memo: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """전표 마감"""
     v = await db.get(Voucher, voucher_id)
@@ -373,16 +381,20 @@ async def unlock_voucher(
     voucher_id: UUID,
     memo: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
-    """전표 마감 해제"""
+    """전표 마감 해제 — 배분 실적 기반으로 정확한 상태 복원"""
     v = await db.get(Voucher, voucher_id)
     if not v:
         raise HTTPException(status_code=404, detail="전표를 찾을 수 없습니다")
 
-    # 원래 상태로 복원 (OPEN/UNPAID)
+    # 먼저 LOCKED 해제 (임시 OPEN/UNPAID)
     v.settlement_status = SettlementStatus.OPEN
     v.payment_status = PaymentStatus.UNPAID
+    await db.flush()
+
+    # 배분 실적 기반 상태 재계산
+    await _update_voucher_status(v.id, db)
 
     db.add(AuditLog(
         user_id=current_user.id,
@@ -400,7 +412,7 @@ async def unlock_voucher(
 async def batch_lock(
     data: BatchLockRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """일괄 마감"""
     locked = 0
@@ -446,12 +458,13 @@ async def batch_lock(
 async def batch_unlock(
     data: BatchLockRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
-    """일괄 마감 해제"""
+    """일괄 마감 해제 — 배분 실적 기반으로 정확한 상태 복원"""
     unlocked = 0
     skipped = 0
     failed_ids = []
+    unlocked_ids = []
 
     for vid in data.voucher_ids:
         v = await db.get(Voucher, vid)
@@ -463,9 +476,16 @@ async def batch_unlock(
             skipped += 1
             continue
 
+        # 먼저 LOCKED 해제 (임시 OPEN/UNPAID)
         v.settlement_status = SettlementStatus.OPEN
         v.payment_status = PaymentStatus.UNPAID
         unlocked += 1
+        unlocked_ids.append(vid)
+
+    # flush 후 배분 실적 기반 상태 재계산
+    await db.flush()
+    for vid in unlocked_ids:
+        await _update_voucher_status(vid, db)
 
     db.add(AuditLog(
         user_id=current_user.id,
@@ -488,7 +508,7 @@ async def lock_history(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """마감 내역 / 감사 로그"""
     lock_actions = [

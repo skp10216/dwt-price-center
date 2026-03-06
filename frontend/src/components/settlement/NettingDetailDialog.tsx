@@ -9,6 +9,7 @@ import {
 } from '@mui/material';
 import { useSnackbar } from 'notistack';
 import { settlementApi } from '@/lib/api';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
 // ─── 타입 ──────────────────────────────────────────────────────────
 
@@ -58,6 +59,7 @@ export default function NettingDetailDialog({
   const { enqueueSnackbar } = useSnackbar();
   const [detail, setDetail] = useState<NettingDetail | null>(null);
   const [loading, setLoading] = useState(false);
+  const [confirmType, setConfirmType] = useState<'confirm' | 'cancel' | null>(null);
 
   const loadDetail = useCallback(async () => {
     if (!nettingId) return;
@@ -76,27 +78,35 @@ export default function NettingDetailDialog({
     if (open && nettingId) loadDetail();
   }, [open, nettingId, loadDetail]);
 
-  const handleConfirm = async () => {
-    if (!detail || !confirm('이 상계를 확정하시겠습니까?')) return;
-    try {
-      await settlementApi.confirmNetting(detail.id);
-      enqueueSnackbar('상계가 확정되었습니다.', { variant: 'success' });
-      loadDetail();
-      onAction?.();
-    } catch {
-      enqueueSnackbar('상계 확정에 실패했습니다.', { variant: 'error' });
-    }
+  const handleConfirm = () => {
+    if (!detail) return;
+    setConfirmType('confirm');
   };
 
-  const handleCancel = async () => {
-    if (!detail || !confirm('이 상계를 취소하시겠습니까?')) return;
+  const handleCancel = () => {
+    if (!detail) return;
+    setConfirmType('cancel');
+  };
+
+  const handleConfirmAction = async () => {
+    if (!detail || !confirmType) return;
     try {
-      await settlementApi.cancelNetting(detail.id);
-      enqueueSnackbar('상계가 취소되었습니다.', { variant: 'success' });
+      if (confirmType === 'confirm') {
+        await settlementApi.confirmNetting(detail.id);
+        enqueueSnackbar('상계가 확정되었습니다.', { variant: 'success' });
+      } else {
+        await settlementApi.cancelNetting(detail.id);
+        enqueueSnackbar('상계가 취소되었습니다.', { variant: 'success' });
+      }
       loadDetail();
       onAction?.();
     } catch {
-      enqueueSnackbar('상계 취소에 실패했습니다.', { variant: 'error' });
+      enqueueSnackbar(
+        confirmType === 'confirm' ? '상계 확정에 실패했습니다.' : '상계 취소에 실패했습니다.',
+        { variant: 'error' },
+      );
+    } finally {
+      setConfirmType(null);
     }
   };
 
@@ -106,6 +116,7 @@ export default function NettingDetailDialog({
   const purchaseLinks = detail?.voucher_links?.filter((v) => v.voucher_type === 'PURCHASE') || [];
 
   return (
+    <>
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>
         상계 상세
@@ -240,5 +251,16 @@ export default function NettingDetailDialog({
         <Button onClick={onClose}>닫기</Button>
       </DialogActions>
     </Dialog>
+
+    <ConfirmDialog
+      open={confirmType !== null}
+      title={confirmType === 'confirm' ? '상계 확정' : '상계 취소'}
+      message={confirmType === 'confirm' ? '이 상계를 확정하시겠습니까?' : '이 상계를 취소하시겠습니까?'}
+      confirmColor={confirmType === 'confirm' ? 'warning' : 'error'}
+      confirmLabel={confirmType === 'confirm' ? '확정' : '취소'}
+      onConfirm={handleConfirmAction}
+      onCancel={() => setConfirmType(null)}
+    />
+    </>
   );
 }

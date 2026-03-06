@@ -22,6 +22,7 @@ import {
   AppPageToolbar,
   AppTableShell,
 } from '@/components/ui';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
 // ─── 타입 ──────────────────────────────────────────────────────────
 
@@ -47,6 +48,9 @@ export default function CorporateEntitiesPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+
+  // 삭제 확인
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   // 다이얼로그
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -130,14 +134,20 @@ export default function CorporateEntitiesPage() {
 
   // ─── 삭제 ──────────────────────────────────────────────────────
 
-  const handleDelete = async (entity: CorporateEntity) => {
-    if (!confirm(`법인 "${entity.name}"을(를) 삭제하시겠습니까?`)) return;
+  const handleDelete = (entity: CorporateEntity) => {
+    setDeleteTarget({ id: entity.id, name: entity.name });
+  };
+
+  const executeDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await settlementApi.deleteCorporateEntity(entity.id);
+      await settlementApi.deleteCorporateEntity(deleteTarget.id);
       enqueueSnackbar('법인이 삭제되었습니다.', { variant: 'success' });
       loadData();
     } catch (err: unknown) {
       enqueueSnackbar(getErrorMessage(err, '삭제에 실패했습니다.'), { variant: 'error' });
+    } finally {
+      setDeleteTarget(null);
     }
   };
 
@@ -293,6 +303,16 @@ export default function CorporateEntitiesPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      {/* 삭제 확인 Dialog */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="법인 삭제"
+        message={`법인 "${deleteTarget?.name}"을(를) 삭제하시겠습니까?`}
+        confirmColor="error"
+        confirmLabel="삭제"
+        onConfirm={executeDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </AppPageContainer>
   );
 }

@@ -12,7 +12,7 @@ from sqlalchemy import select, func, case, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.voucher import Voucher
 from app.models.counterparty import Counterparty
@@ -36,7 +36,7 @@ router = APIRouter()
 @router.get("/summary", response_model=DashboardSummary)
 async def get_dashboard_summary(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """대시보드 정산 요약"""
 
@@ -143,7 +143,7 @@ async def get_dashboard_summary(
 async def get_top_receivables(
     limit: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """미수 상위 거래처 (Top N) - 단일 쿼리"""
     _active_txn_filter = CounterpartyTransaction.status.notin_([
@@ -222,7 +222,7 @@ async def get_top_receivables(
 async def get_top_payables(
     limit: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """미지급 상위 거래처 (Top N) - 단일 쿼리"""
     _active_txn_filter = CounterpartyTransaction.status.notin_([
@@ -310,7 +310,7 @@ async def list_receivables(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """미수 현황 (거래처별) - 전표 거래일 기준 필터 + 입출금 트랜잭션 직접 합산"""
     _active_txn_filter = CounterpartyTransaction.status.notin_([
@@ -438,7 +438,7 @@ async def list_payables(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """미지급 현황 (거래처별) - 전표 거래일 기준 필터 + 입출금 트랜잭션 직접 합산"""
     _active_txn_filter = CounterpartyTransaction.status.notin_([

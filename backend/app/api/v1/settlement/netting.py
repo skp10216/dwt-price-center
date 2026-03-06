@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.counterparty import Counterparty
 from app.models.voucher import Voucher
@@ -95,7 +95,7 @@ async def list_nettings(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """상계 목록 조회"""
     query = select(NettingRecord)
@@ -158,7 +158,7 @@ async def list_nettings(
 async def get_eligible_vouchers(
     counterparty_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """상계 가능 전표 조회"""
     cp = await db.get(Counterparty, counterparty_id)
@@ -246,7 +246,7 @@ async def get_eligible_vouchers(
 async def create_netting(
     data: NettingCreateRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """상계 초안 생성"""
     cp = await db.get(Counterparty, data.counterparty_id)
@@ -370,7 +370,7 @@ async def create_netting(
 async def get_netting(
     netting_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """상계 상세 조회"""
     result = await db.execute(
@@ -424,7 +424,7 @@ async def get_netting(
 async def confirm_netting(
     netting_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """상계 확정 → Transaction 2건 자동 생성 + 배분 (비관적 락 적용)"""
     # 상계 레코드에 비관적 락 적용
@@ -585,7 +585,7 @@ async def confirm_netting(
 async def cancel_netting(
     netting_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """상계 취소"""
     nr = await db.get(NettingRecord, netting_id)

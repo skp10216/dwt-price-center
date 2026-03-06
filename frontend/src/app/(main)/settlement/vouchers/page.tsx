@@ -413,13 +413,13 @@ export default function VouchersPage() {
       color: 'error' as const,
       icon: <DeleteIcon />,
     }] : []),
-    {
+    ...(process.env.NODE_ENV === 'development' ? [{
       label: '전체 삭제 (테스트)',
       onClick: () => setDeleteAllDialogOpen(true),
       variant: 'outlined' as const,
       color: 'error' as const,
       icon: <DeleteIcon />,
-    },
+    }] : []),
   ];
 
   // ─── JSX ─────────────────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.voucher import Voucher
 from app.models.counterparty import Counterparty
@@ -168,7 +168,7 @@ async def list_vouchers(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """전표 목록 조회 (필터/검색/페이징)"""
     query = select(Voucher).join(Counterparty, Voucher.counterparty_id == Counterparty.id)
@@ -217,7 +217,7 @@ async def list_vouchers(
 async def create_voucher(
     data: VoucherCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """전표 생성 (수동)"""
     # 기간 마감 검증
@@ -286,7 +286,7 @@ async def create_voucher(
 async def get_voucher(
     voucher_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """전표 상세 (입금/송금/배분 이력 포함)"""
     result = await db.execute(
@@ -351,7 +351,7 @@ async def update_voucher(
     voucher_id: UUID,
     data: VoucherUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """전표 수정 (마감된 전표 수정 불가)"""
     v = await db.get(Voucher, voucher_id)
@@ -390,7 +390,7 @@ async def update_voucher(
 async def delete_voucher(
     voucher_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """전표 삭제 (마감된 전표 삭제 불가) — 비관적 락으로 원자성 확보"""
     # 전표에 비관적 락 적용 (삭제 중 배분 추가 방지)
@@ -456,7 +456,7 @@ async def delete_voucher(
 async def batch_delete_vouchers(
     voucher_ids: List[UUID] = Body(..., description="삭제할 전표 ID 목록"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """전표 일괄 삭제 (마감된 전표, 입금/송금 내역이 있는 전표 제외) — 비관적 락으로 원자성 확보"""
     from sqlalchemy import text
@@ -544,7 +544,7 @@ async def create_adjustment_voucher(
     voucher_id: UUID,
     data: AdjustmentVoucherCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """마감된 전표에 대한 조정전표 생성
 
@@ -620,7 +620,7 @@ async def create_adjustment_voucher(
 async def list_adjustment_vouchers(
     voucher_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """전표의 조정 이력 조회"""
     # 원본 전표 존재 확인

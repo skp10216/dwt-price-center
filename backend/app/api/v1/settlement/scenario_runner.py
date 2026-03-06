@@ -19,7 +19,7 @@ from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.voucher import Voucher
 from app.models.counterparty import Counterparty, CounterpartyAlias, UserCounterpartyFavorite
@@ -1435,7 +1435,7 @@ PHASES = [
 async def run_scenario_step(
     data: StepRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """시나리오 테스트 단계 실행"""
     step_num = data.step
@@ -1485,7 +1485,7 @@ async def run_scenario_step(
 
 @router.get("/scenario/steps")
 async def get_scenario_steps(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_settlement_user),
 ):
     """시나리오 테스트 단계 목록 조회"""
     return {
