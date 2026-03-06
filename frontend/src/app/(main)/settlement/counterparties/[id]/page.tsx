@@ -436,6 +436,14 @@ export default function CounterpartyDetailPage() {
               size="small" variant="outlined" color="info"
             />
             {!detail.is_active && <Chip label="비활성" size="small" color="default" />}
+            <Button
+              variant="outlined" size="small"
+              startIcon={<AliasIcon />}
+              onClick={() => setAliasDialogOpen(true)}
+              sx={{ ml: 0.5 }}
+            >
+              별칭 ({detail.aliases.length})
+            </Button>
           </Stack>
           <Typography variant="body2" color="text.secondary" sx={{ ml: 5.5 }}>
             {detail.code ? `코드: ${detail.code}` : ''}
@@ -473,13 +481,6 @@ export default function CounterpartyDetailPage() {
             onClick={() => setTxnCreateOpen(true)}
           >
             입출금 등록
-          </Button>
-          <Button
-            variant="outlined" size="small"
-            startIcon={<AliasIcon />}
-            onClick={() => setAliasDialogOpen(true)}
-          >
-            별칭 ({detail.aliases.length})
           </Button>
         </Stack>
       </Box>

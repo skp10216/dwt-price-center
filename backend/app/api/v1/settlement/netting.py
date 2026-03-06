@@ -9,7 +9,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -639,3 +639,82 @@ async def cancel_netting(
         nr, cp.name if cp else None,
         created_user.name if created_user else None,
     )
+
+
+@router.post("/batch-delete", status_code=200)
+async def batch_delete_nettings(
+    netting_ids: list[UUID] = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_settlement_user),
+):
+    """상계 일괄 삭제 — DRAFT/CANCELLED는 바로 삭제, CONFIRMED는 취소 후 삭제"""
+    if not netting_ids:
+        raise HTTPException(status_code=400, detail="삭제할 상계를 선택하세요")
+
+    result = await db.execute(
+        select(NettingRecord)
+        .options(selectinload(NettingRecord.voucher_links))
+        .where(NettingRecord.id.in_(netting_ids))
+    )
+    records = result.scalars().all()
+
+    deleted_count = 0
+    skipped_count = 0
+    errors: list[str] = []
+
+    from app.api.v1.settlement.transactions import _update_voucher_status
+
+    for nr in records:
+        try:
+            # 확정된 상계 → 먼저 취소 처리 (Transaction 취소 + Allocation 삭제)
+            if nr.status == NettingStatus.CONFIRMED:
+                txn_result = await db.execute(
+                    select(CounterpartyTransaction)
+                    .where(CounterpartyTransaction.netting_record_id == nr.id)
+                )
+                txns = txn_result.scalars().all()
+
+                affected_voucher_ids = []
+                for txn in txns:
+                    alloc_result = await db.execute(
+                        select(TransactionAllocation)
+                        .where(TransactionAllocation.transaction_id == txn.id)
+                    )
+                    for alloc in alloc_result.scalars().all():
+                        affected_voucher_ids.append(alloc.voucher_id)
+                        await db.delete(alloc)
+
+                    txn.status = TransactionStatus.CANCELLED
+                    txn.allocated_amount = Decimal("0")
+
+                await db.flush()
+
+                for vid in set(affected_voucher_ids):
+                    await _update_voucher_status(vid, db)
+
+            # NettingVoucherLink은 CASCADE로 자동 삭제
+            await db.delete(nr)
+            deleted_count += 1
+
+            db.add(AuditLog(
+                user_id=current_user.id,
+                action=AuditAction.NETTING_DELETE,
+                target_type="netting_record",
+                target_id=nr.id,
+                before_data={
+                    "status": nr.status.value if hasattr(nr.status, 'value') else str(nr.status),
+                    "amount": str(nr.netting_amount),
+                    "counterparty_id": str(nr.counterparty_id),
+                },
+            ))
+        except Exception as e:
+            skipped_count += 1
+            errors.append(f"상계 {str(nr.id)[:8]}: {str(e)}")
+
+    await db.flush()
+
+    return {
+        "deleted_count": deleted_count,
+        "skipped_count": skipped_count,
+        "errors": errors,
+    }

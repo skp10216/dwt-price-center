@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Button, TextField, MenuItem, Select, InputLabel, FormControl,
   Chip, Tooltip, Typography, IconButton, InputAdornment,
+  Dialog, DialogTitle, DialogContent, DialogActions, Alert, AlertTitle,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -13,6 +14,8 @@ import {
   CheckCircle as ConfirmIcon,
   Cancel as CancelIcon,
   Download as DownloadIcon,
+  Delete as DeleteIcon,
+  Warning as WarningIcon,
 } from '@mui/icons-material';
 import { useAppRouter } from '@/lib/navigation';
 import { settlementApi } from '@/lib/api';
@@ -77,11 +80,18 @@ export default function NettingPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
+  // 선택
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
   // 다이얼로그
   const [wizardOpen, setWizardOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedId, setSelectedId] = useState('');
   const [confirmAction, setConfirmAction] = useState<{ type: 'confirm' | 'cancel'; id: string } | null>(null);
+
+  // 삭제
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // ─── 데이터 로드 ──────────────────────────────────────────────
 
@@ -148,6 +158,31 @@ export default function NettingPage() {
       );
     } finally {
       setConfirmAction(null);
+    }
+  };
+
+  // ─── 일괄 삭제 ──────────────────────────────────────────────────
+  const handleBatchDelete = async () => {
+    if (selected.size === 0) return;
+    setDeleting(true);
+    try {
+      const res = await settlementApi.batchDeleteNettings(Array.from(selected));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = (res.data as any)?.data ?? res.data;
+      enqueueSnackbar(
+        `${result.deleted_count}건 삭제 완료${result.skipped_count > 0 ? ` / ${result.skipped_count}건 건너뜀` : ''}`,
+        { variant: result.deleted_count > 0 ? 'success' : 'warning' },
+      );
+      if (result.errors?.length > 0) {
+        result.errors.slice(0, 3).forEach((err: string) => enqueueSnackbar(err, { variant: 'warning' }));
+      }
+      setDeleteDialogOpen(false);
+      setSelected(new Set());
+      loadData();
+    } catch {
+      enqueueSnackbar('삭제에 실패했습니다', { variant: 'error' });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -229,6 +264,13 @@ export default function NettingPage() {
         color="info"
         count={total}
         actions={[
+          ...(selected.size > 0 ? [{
+            label: `${selected.size}건 삭제`,
+            onClick: () => setDeleteDialogOpen(true),
+            variant: 'contained' as const,
+            color: 'error' as const,
+            icon: <DeleteIcon />,
+          }] : []),
           {
             label: '상계 생성',
             onClick: () => setWizardOpen(true),
@@ -305,6 +347,9 @@ export default function NettingPage() {
         defaultSortField="netting_date"
         defaultSortOrder="desc"
         loading={loading}
+        selectable
+        selected={selected}
+        onSelectionChange={setSelected}
         emptyMessage="상계 내역이 없습니다."
         emptyDescription="같은 거래처의 매출과 매입 잔액을 상계하여 정산할 수 있습니다."
         emptyAction={<Button variant="contained" size="small" onClick={() => setWizardOpen(true)}>상계 생성</Button>}
@@ -356,6 +401,32 @@ export default function NettingPage() {
         nettingId={selectedId}
         onAction={loadData}
       />
+
+      {/* 일괄 삭제 확인 다이얼로그 */}
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WarningIcon color="error" />
+          상계 일괄 삭제
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <AlertTitle>주의</AlertTitle>
+            선택한 <strong>{selected.size}건</strong>의 상계를 삭제합니다.
+          </Alert>
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            • 확정된 상계는 관련 입출금이 취소된 후 삭제됩니다.
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            • 삭제된 상계는 복구할 수 없습니다.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>취소</Button>
+          <Button variant="contained" color="error" onClick={handleBatchDelete} disabled={deleting}>
+            {deleting ? '삭제 중...' : `${selected.size}건 삭제`}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* 상계 확정/취소 확인 다이얼로그 */}
       <ConfirmDialog

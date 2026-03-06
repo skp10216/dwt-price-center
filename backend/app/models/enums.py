@@ -273,6 +273,7 @@ class AuditAction(str, enum.Enum):
     NETTING_CREATE = "netting_create"
     NETTING_CONFIRM = "netting_confirm"
     NETTING_CANCEL = "netting_cancel"
+    NETTING_DELETE = "netting_delete"
 
     # 조정전표
     ADJUSTMENT_VOUCHER_CREATE = "adjustment_voucher_create"

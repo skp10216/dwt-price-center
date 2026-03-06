@@ -917,6 +917,12 @@ export const settlementApi = {
   cancelNetting: (id: string) =>
     api.post<ApiResponse<unknown>>(`/settlement/netting/${id}/cancel`),
 
+  batchDeleteNettings: (ids: string[]) =>
+    api.post<ApiResponse<{ deleted_count: number; skipped_count: number; errors: string[] }>>(
+      '/settlement/netting/batch-delete',
+      ids,
+    ),
+
   // ── 법인 (Corporate Entities) ─────────────────────────────────────
   listCorporateEntities: (params?: Record<string, unknown>) =>
     api.get<ApiResponse<unknown>>('/settlement/corporate-entities', { params }),
