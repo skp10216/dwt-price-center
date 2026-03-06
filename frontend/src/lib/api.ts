@@ -611,6 +611,9 @@ export const settlementApi = {
   exportPayablesExcel: (params?: Record<string, unknown>) =>
     api.get('/settlement/dashboard/payables/export', { params, responseType: 'blob' }),
 
+  exportCounterpartyDetailExcel: (counterpartyId: string, params?: Record<string, unknown>) =>
+    api.get(`/settlement/dashboard/counterparty/${counterpartyId}/export`, { params, responseType: 'blob' }),
+
   // 전표
   listVouchers: (params?: Record<string, unknown>) =>
     api.get<ApiResponse<{ vouchers: unknown[]; total: number; page: number; page_size: number }>>('/settlement/vouchers', { params }),

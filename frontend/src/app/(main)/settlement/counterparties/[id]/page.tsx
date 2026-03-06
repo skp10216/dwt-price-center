@@ -9,6 +9,7 @@ import {
   TableHead, TableRow, TableFooter, TablePagination, IconButton, Tooltip,
   TextField, Dialog, DialogTitle, DialogContent, DialogActions,
   alpha, useTheme, Skeleton, Alert, LinearProgress, Tabs, Tab,
+  Menu, MenuItem, ListItemIcon, ListItemText, CircularProgress,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -27,6 +28,7 @@ import {
   CallMade as CallMadeIcon,
   ArrowForward as ArrowForwardIcon,
   ReceiptLong as ReceiptLongIcon,
+  Download as DownloadIcon,
 } from '@mui/icons-material';
 import { subMonths, format } from 'date-fns';
 import { settlementApi } from '@/lib/api';
@@ -303,6 +305,39 @@ export default function CounterpartyDetailPage() {
     }
   };
 
+  // ─── 엑셀 다운로드 (미수/미지급 상세) ──────────────────────────
+  const [excelMenuAnchor, setExcelMenuAnchor] = useState<null | HTMLElement>(null);
+  const [excelLoading, setExcelLoading] = useState(false);
+
+  const handleExcelDownload = async (voucherType: 'sales' | 'purchase') => {
+    setExcelMenuAnchor(null);
+    setExcelLoading(true);
+    try {
+      const res = await settlementApi.exportCounterpartyDetailExcel(
+        counterpartyId,
+        { voucher_type: voucherType },
+      );
+      const blob = new Blob([res.data as BlobPart], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+      const label = voucherType === 'sales' ? '미수상세' : '미지급상세';
+      a.download = `${label}_${detail?.name || ''}_${today}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      enqueueSnackbar('엑셀 파일이 다운로드되었습니다', { variant: 'success' });
+    } catch {
+      enqueueSnackbar('엑셀 다운로드에 실패했습니다', { variant: 'error' });
+    } finally {
+      setExcelLoading(false);
+    }
+  };
+
   // ─── Loading / Error ───────────────────────────────────────────
   if (loading) {
     return (
@@ -408,6 +443,30 @@ export default function CounterpartyDetailPage() {
           </Typography>
         </Box>
         <Stack direction="row" spacing={1}>
+          <Tooltip title="미수/미지급 상세 엑셀 다운로드">
+            <Button
+              variant="outlined" size="small"
+              startIcon={excelLoading ? <CircularProgress size={14} /> : <DownloadIcon />}
+              onClick={(e) => setExcelMenuAnchor(e.currentTarget)}
+              disabled={excelLoading}
+            >
+              엑셀
+            </Button>
+          </Tooltip>
+          <Menu
+            anchorEl={excelMenuAnchor}
+            open={Boolean(excelMenuAnchor)}
+            onClose={() => setExcelMenuAnchor(null)}
+          >
+            <MenuItem onClick={() => handleExcelDownload('sales')}>
+              <ListItemIcon><TrendingUpIcon fontSize="small" color="success" /></ListItemIcon>
+              <ListItemText>미수 상세 (판매 전표)</ListItemText>
+            </MenuItem>
+            <MenuItem onClick={() => handleExcelDownload('purchase')}>
+              <ListItemIcon><TrendingDownIcon fontSize="small" color="error" /></ListItemIcon>
+              <ListItemText>미지급 상세 (매입 전표)</ListItemText>
+            </MenuItem>
+          </Menu>
           <Button
             variant="contained" size="small"
             startIcon={<AddIcon />}
