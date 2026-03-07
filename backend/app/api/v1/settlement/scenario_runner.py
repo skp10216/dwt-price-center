@@ -349,10 +349,35 @@ async def _update_transaction_status(txn: CounterpartyTransaction, db: AsyncSess
 # ─── 단계별 실행 함수 ──────────────────────────────────────
 
 async def step_1_reset(db: AsyncSession, user: User, ctx: dict) -> dict:
-    """테스트 데이터 초기화 (사용자 데이터 보호)"""
-    result = await cleanup_test_data(db)
-    total = result["total_deleted"]
-    return {"message": f"테스트 데이터 초기화 완료 ({total}건 삭제)", "deleted": total, **result}
+    """전체 정산 데이터 초기화"""
+    from app.models.return_item import ReturnItem
+    from app.models.intake_item import IntakeItem
+
+    summary: dict[str, int] = {}
+
+    r = await db.execute(delete(TransactionAllocation)); summary["allocations"] = r.rowcount
+    r = await db.execute(delete(NettingVoucherLink)); summary["netting_links"] = r.rowcount
+    r = await db.execute(delete(Receipt)); summary["receipts"] = r.rowcount
+    r = await db.execute(delete(Payment)); summary["payments"] = r.rowcount
+    r = await db.execute(delete(VoucherChangeRequest)); summary["change_requests"] = r.rowcount
+    r = await db.execute(delete(ReturnItem)); summary["return_items"] = r.rowcount
+    r = await db.execute(delete(IntakeItem)); summary["intake_items"] = r.rowcount
+    r = await db.execute(delete(Voucher)); summary["vouchers"] = r.rowcount
+    r = await db.execute(delete(CounterpartyTransaction)); summary["transactions"] = r.rowcount
+    r = await db.execute(delete(NettingRecord)); summary["nettings"] = r.rowcount
+    r = await db.execute(delete(BankImportLine)); summary["bank_lines"] = r.rowcount
+    r = await db.execute(delete(BankImportJob)); summary["bank_jobs"] = r.rowcount
+    r = await db.execute(delete(CounterpartyAlias)); summary["aliases"] = r.rowcount
+    r = await db.execute(delete(UserCounterpartyFavorite)); summary["favorites"] = r.rowcount
+    r = await db.execute(delete(Counterparty)); summary["counterparties"] = r.rowcount
+    r = await db.execute(delete(CorporateEntity)); summary["corp_entities"] = r.rowcount
+    r = await db.execute(delete(UploadJob)); summary["upload_jobs"] = r.rowcount
+    r = await db.execute(delete(PeriodLock)); summary["period_locks"] = r.rowcount
+    r = await db.execute(delete(AuditLog).where(AuditLog.action.in_(SETTLEMENT_ACTIONS))); summary["audit_logs"] = r.rowcount
+    r = await db.execute(delete(ScenarioTestRecord)); summary["registry"] = r.rowcount
+
+    total = sum(v for v in summary.values())
+    return {"message": f"전체 데이터 초기화 완료 ({total}건 삭제)", "deleted": total, "summary": summary}
 
 
 async def step_2_corp_entity(db: AsyncSession, user: User, ctx: dict) -> dict:

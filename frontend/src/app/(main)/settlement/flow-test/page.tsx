@@ -1097,10 +1097,10 @@ export default function FlowTestPage() {
           <ResetIcon color="error" /> 테스트 데이터 초기화
         </DialogTitle>
         <DialogContent>
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            <AlertTitle>시나리오 테스트 데이터만 삭제됩니다</AlertTitle>
-            테스트에서 생성한 거래처·법인·전표·입출금 등이 삭제됩니다.<br />
-            <strong>사용자가 직접 등록한 데이터는 영향받지 않습니다.</strong>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            <AlertTitle>전체 정산 데이터가 삭제됩니다</AlertTitle>
+            거래처, 전표, 입출금, 배분, 상계, 은행 임포트, 반품, 반입, 법인 등<br />
+            <strong>모든 정산 관련 데이터가 삭제됩니다. 이 작업은 되돌릴 수 없습니다.</strong>
           </Alert>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             계속하려면 <strong>초기화</strong>를 입력하세요.

@@ -5,7 +5,7 @@
 
 from decimal import Decimal
 from fastapi import APIRouter, Depends
-from sqlalchemy import select, func, case, literal
+from sqlalchemy import select, func, case, literal, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -32,9 +32,9 @@ from app.models.enums import (
     BankImportJobStatus, BankImportLineStatus,
     NettingStatus,
 )
+from app.models.scenario_test_record import ScenarioTestRecord
 from app.api.v1.settlement.activity import SETTLEMENT_ACTIONS
 from app.api.v1.settlement.helpers import run_full_integrity_check
-from app.api.v1.settlement.scenario_runner import cleanup_test_data
 
 router = APIRouter()
 
@@ -299,11 +299,79 @@ async def reset_all_data(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_settlement_user),
 ):
-    """시나리오 테스트 데이터 초기화 — 테스트에서 생성한 데이터만 선별 삭제
+    """전체 정산 데이터 초기화 — 모든 정산 관련 데이터를 삭제
 
-    레지스트리에 등록된 테스트 루트 엔티티(거래처, 법인, 은행임포트)로부터
-    FK 체인을 따라 캐스케이드 삭제합니다.
-    사용자가 직접 등록한 데이터는 영향받지 않습니다.
+    FK 안전 순서로 전체 정산 도메인 데이터를 삭제합니다.
+    (거래처, 전표, 입출금, 배분, 상계, 은행임포트, 반품, 반입, 법인 등)
     """
-    result = await cleanup_test_data(db)
-    return result
+    from sqlalchemy import delete, text
+    from app.models.return_item import ReturnItem
+    from app.models.intake_item import IntakeItem
+
+    summary: dict[str, int] = {}
+
+    # FK 안전 순서: 자식 → 부모
+    r = await db.execute(delete(TransactionAllocation))
+    summary["transaction_allocations"] = r.rowcount
+
+    r = await db.execute(delete(NettingVoucherLink))
+    summary["netting_voucher_links"] = r.rowcount
+
+    r = await db.execute(delete(Receipt))
+    summary["receipts"] = r.rowcount
+
+    r = await db.execute(delete(Payment))
+    summary["payments"] = r.rowcount
+
+    r = await db.execute(delete(VoucherChangeRequest))
+    summary["voucher_change_requests"] = r.rowcount
+
+    r = await db.execute(delete(ReturnItem))
+    summary["return_items"] = r.rowcount
+
+    r = await db.execute(delete(IntakeItem))
+    summary["intake_items"] = r.rowcount
+
+    r = await db.execute(delete(Voucher))
+    summary["vouchers"] = r.rowcount
+
+    r = await db.execute(delete(CounterpartyTransaction))
+    summary["counterparty_transactions"] = r.rowcount
+
+    r = await db.execute(delete(NettingRecord))
+    summary["netting_records"] = r.rowcount
+
+    r = await db.execute(delete(BankImportLine))
+    summary["bank_import_lines"] = r.rowcount
+
+    r = await db.execute(delete(BankImportJob))
+    summary["bank_import_jobs"] = r.rowcount
+
+    r = await db.execute(delete(CounterpartyAlias))
+    summary["counterparty_aliases"] = r.rowcount
+
+    r = await db.execute(delete(UserCounterpartyFavorite))
+    summary["user_counterparty_favorites"] = r.rowcount
+
+    r = await db.execute(delete(Counterparty))
+    summary["counterparties"] = r.rowcount
+
+    r = await db.execute(delete(CorporateEntity))
+    summary["corporate_entities"] = r.rowcount
+
+    r = await db.execute(delete(UploadJob))
+    summary["upload_jobs"] = r.rowcount
+
+    r = await db.execute(delete(PeriodLock))
+    summary["period_locks"] = r.rowcount
+
+    r = await db.execute(delete(AuditLog).where(AuditLog.action.in_(SETTLEMENT_ACTIONS)))
+    summary["audit_logs"] = r.rowcount
+
+    r = await db.execute(delete(ScenarioTestRecord))
+    summary["registry_cleared"] = r.rowcount
+
+    await db.commit()
+
+    total = sum(v for k, v in summary.items() if k != "registry_cleared")
+    return {"total_deleted": total, "summary": summary}
