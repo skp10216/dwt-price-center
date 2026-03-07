@@ -72,8 +72,12 @@ const PremiumConnector = styled(StepConnector)(({ theme }) => ({
   },
 }));
 import { settlementApi } from '@/lib/api';
+import { downloadSampleTemplate } from '@/lib/excel-export';
 import { useSnackbar } from 'notistack';
 import { useAppRouter } from '@/lib/navigation';
+import {
+  Download as DownloadIcon,
+} from '@mui/icons-material';
 
 // ─── 타입 ───
 interface PreviewRow {
@@ -105,6 +109,31 @@ const VOUCHER_CONFIG = {
     color: 'primary' as const,
     completeTitle: '판매 전표 업로드 완료',
     successMsg: '판매 전표 업로드가 완료되었습니다',
+    columns: [
+      { col: '판매일 / 거래일 / 일자', req: true, desc: '거래 일자 (예: 2025-03-01, 2025.03.01, 3/1)' },
+      { col: '판매처 / 거래처 / 업체명', req: true, desc: '거래처명' },
+      { col: '번호 / 전표번호 / No', req: true, desc: '전표 번호 (고유 식별)' },
+      { col: '수량', req: false, desc: '거래 수량' },
+      { col: '매입원가', req: false, desc: '매입 원가' },
+      { col: '판매금액', req: false, desc: '판매 금액' },
+      { col: '실판매가', req: false, desc: '실 판매가 (차감 후)' },
+      { col: '비고', req: false, desc: '메모 / 비고' },
+    ],
+    sampleFilename: '판매전표_양식',
+    sampleColumns: [
+      { header: '판매일', width: 12 },
+      { header: '판매처', width: 20 },
+      { header: '전표번호', width: 15 },
+      { header: '수량', width: 8 },
+      { header: '매입원가', width: 12 },
+      { header: '판매금액', width: 12 },
+      { header: '비고', width: 15 },
+    ],
+    sampleRows: [
+      ['2025-03-01', 'ABC무역', 'S-2025-001', 10, 500000, 600000, '정상 거래'],
+      ['2025-03-02', 'DEF전자', 'S-2025-002', 5, 250000, 310000, ''],
+      ['2025-03-03', 'GHI상사', 'S-2025-003', 8, 400000, 480000, '할인 적용'],
+    ] as (string | number | null)[][],
   },
   purchase: {
     title: 'UPM 매입 전표 업로드',
@@ -112,6 +141,29 @@ const VOUCHER_CONFIG = {
     color: 'primary' as const,
     completeTitle: '매입 전표 업로드 완료',
     successMsg: '매입 전표 업로드가 완료되었습니다',
+    columns: [
+      { col: '매입일 / 거래일 / 일자', req: true, desc: '거래 일자 (예: 2025-03-01, 2025.03.01, 3/1)' },
+      { col: '매입처 / 거래처 / 업체명', req: true, desc: '거래처명' },
+      { col: '번호 / 전표번호 / No', req: true, desc: '전표 번호 (고유 식별)' },
+      { col: '수량', req: false, desc: '거래 수량' },
+      { col: '매입원가', req: false, desc: '매입 원가' },
+      { col: '실매입가', req: false, desc: '실 매입가 (차감 후)' },
+      { col: '비고', req: false, desc: '메모 / 비고' },
+    ],
+    sampleFilename: '매입전표_양식',
+    sampleColumns: [
+      { header: '매입일', width: 12 },
+      { header: '매입처', width: 20 },
+      { header: '전표번호', width: 15 },
+      { header: '수량', width: 8 },
+      { header: '매입원가', width: 12 },
+      { header: '비고', width: 15 },
+    ],
+    sampleRows: [
+      ['2025-03-01', 'GHI부품', 'P-2025-001', 20, 400000, '정상 거래'],
+      ['2025-03-02', 'JKL기계', 'P-2025-002', 15, 750000, ''],
+      ['2025-03-03', 'MNO전자', 'P-2025-003', 30, 900000, '대량 입고'],
+    ] as (string | number | null)[][],
   },
 };
 
@@ -620,6 +672,69 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
                 </Stack>
               )}
             </Paper>
+
+            {/* ── 양식 안내 가이드 ── */}
+            <Alert
+              severity="info"
+              icon={<InfoIcon />}
+              sx={{ mt: 3, borderRadius: 2 }}
+              action={
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<DownloadIcon />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    downloadSampleTemplate({
+                      filename: config.sampleFilename,
+                      sheetName: voucherType === 'sales' ? '판매전표' : '매입전표',
+                      columns: config.sampleColumns,
+                      sampleRows: config.sampleRows,
+                    });
+                  }}
+                  sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}
+                >
+                  양식 다운로드
+                </Button>
+              }
+            >
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                엑셀 양식 안내
+              </Typography>
+              <Box>
+                <Table size="small" sx={{ bgcolor: 'background.paper', borderRadius: 1, overflow: 'hidden', mb: 1.5 }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700, py: 0.5, fontSize: '0.75rem' }}>컬럼명 (자동 매칭)</TableCell>
+                      <TableCell sx={{ fontWeight: 700, py: 0.5, fontSize: '0.75rem' }}>필수</TableCell>
+                      <TableCell sx={{ fontWeight: 700, py: 0.5, fontSize: '0.75rem' }}>설명</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {config.columns.map((r) => (
+                      <TableRow key={r.col}>
+                        <TableCell sx={{ py: 0.3, fontSize: '0.75rem', fontWeight: 600 }}>{r.col}</TableCell>
+                        <TableCell sx={{ py: 0.3, fontSize: '0.75rem' }}>
+                          <Chip label={r.req ? '필수' : '선택'} size="small" color={r.req ? 'primary' : 'default'} variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
+                        </TableCell>
+                        <TableCell sx={{ py: 0.3, fontSize: '0.75rem', color: 'text.secondary' }}>{r.desc}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <Stack spacing={0.3}>
+                  <Typography variant="caption" color="text.secondary">
+                    • 컬럼명이 정확히 일치하지 않아도 유사한 이름으로 자동 매칭됩니다.
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    • 합계/소계/통계 행은 자동으로 감지되어 업로드에서 제외됩니다.
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    • 헤더 행이 1행이 아니어도 자동으로 감지합니다. (최대 10행까지 탐색)
+                  </Typography>
+                </Stack>
+              </Box>
+            </Alert>
 
             {file && (
               <Stack direction="row" spacing={2} sx={{ mt: 4 }} justifyContent="center">

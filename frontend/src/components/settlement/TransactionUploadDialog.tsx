@@ -21,8 +21,10 @@ import {
   Link as LinkIcon,
   SkipNext as SkipIcon,
   InfoOutlined as InfoIcon,
+  Download as DownloadIcon,
 } from '@mui/icons-material';
 import { settlementApi } from '@/lib/api';
+import { downloadSampleTemplate } from '@/lib/excel-export';
 import { useSnackbar } from 'notistack';
 
 interface PreviewRow {
@@ -438,6 +440,36 @@ export default function TransactionUploadDialog({ open, onClose, onCreated }: Tr
               severity="info"
               icon={<InfoIcon />}
               sx={{ mt: 2 }}
+              action={
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<DownloadIcon />}
+                  onClick={() => {
+                    downloadSampleTemplate({
+                      filename: '입출금_양식',
+                      sheetName: '입출금',
+                      columns: [
+                        { header: '날짜', width: 12 },
+                        { header: '구분', width: 8 },
+                        { header: '거래처', width: 20 },
+                        { header: '거래내역', width: 20 },
+                        { header: '차변(입금)', width: 14 },
+                        { header: '대변(출금)', width: 14 },
+                        { header: '잔액', width: 14 },
+                      ],
+                      sampleRows: [
+                        ['2025-03-01', '판매', 'ABC무역', '3월 정산금', 1500000, null, 15500000],
+                        ['2025-03-02', '매입', 'GHI부품', '부품 대금', null, 800000, 14700000],
+                        ['2025-03-03', '판매', 'DEF전자', '3월 매출', 2000000, null, 16700000],
+                      ],
+                    });
+                  }}
+                  sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}
+                >
+                  양식 다운로드
+                </Button>
+              }
             >
               <AlertTitle sx={{ fontWeight: 700 }}>엑셀 양식 안내</AlertTitle>
               <Box sx={{ mt: 0.5 }}>

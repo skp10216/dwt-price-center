@@ -38,12 +38,15 @@ import {
   ArrowBack as ArrowBackIcon,
   ArrowForward as ArrowForwardIcon,
   Replay as RetryIcon,
+  Download as DownloadIcon,
+  Info as InfoIcon,
 } from '@mui/icons-material';
 import StepConnector, { stepConnectorClasses } from '@mui/material/StepConnector';
 import { StepIconProps } from '@mui/material/StepIcon';
 import { styled } from '@mui/material/styles';
 import Avatar from '@mui/material/Avatar';
 import { settlementApi, getErrorMessage } from '@/lib/api';
+import { downloadSampleTemplate } from '@/lib/excel-export';
 import { useSnackbar } from 'notistack';
 import {
   AppPageContainer,
@@ -590,6 +593,89 @@ export default function BankImportPage() {
             </Typography>
           </Stack>
         </Paper>
+
+        {/* ── 양식 안내 가이드 ── */}
+        <Alert
+          severity="info"
+          icon={<InfoIcon />}
+          sx={{ mt: 2 }}
+          action={
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<DownloadIcon />}
+              onClick={() => {
+                downloadSampleTemplate({
+                  filename: '은행임포트_양식',
+                  sheetName: '거래내역',
+                  columns: [
+                    { header: '거래일시', width: 20 },
+                    { header: '적요', width: 20 },
+                    { header: '의뢰인/수취인', width: 18 },
+                    { header: '입금', width: 14 },
+                    { header: '출금', width: 14 },
+                    { header: '거래후잔액', width: 14 },
+                    { header: '구분', width: 10 },
+                    { header: '거래점', width: 12 },
+                  ],
+                  sampleRows: [
+                    ['2025-03-01 09:30:00', '전신환', 'ABC무역', 1500000, null, 15500000, '입금', '본점'],
+                    ['2025-03-01 14:00:00', '타행이체', 'GHI부품', null, 800000, 14700000, '출금', '본점'],
+                    ['2025-03-02 10:15:00', '전자결제', 'DEF전자', 2000000, null, 16700000, '입금', '본점'],
+                  ],
+                });
+              }}
+              sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}
+            >
+              양식 다운로드
+            </Button>
+          }
+        >
+          <AlertTitle sx={{ fontWeight: 700 }}>엑셀 양식 안내</AlertTitle>
+          <Box sx={{ mt: 0.5 }}>
+            <Table size="small" sx={{ bgcolor: 'background.paper', borderRadius: 1, overflow: 'hidden', mb: 1.5 }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 700, py: 0.5, fontSize: '0.75rem' }}>컬럼명</TableCell>
+                  <TableCell sx={{ fontWeight: 700, py: 0.5, fontSize: '0.75rem' }}>필수</TableCell>
+                  <TableCell sx={{ fontWeight: 700, py: 0.5, fontSize: '0.75rem' }}>설명</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {[
+                  { col: '거래일시', req: true, desc: '거래 일시 (예: 2025-03-01 09:30:00)' },
+                  { col: '적요', req: true, desc: '거래 적요 (전신환, 타행이체 등)' },
+                  { col: '입금', req: true, desc: '입금 금액' },
+                  { col: '출금', req: true, desc: '출금 금액' },
+                  { col: '거래후잔액', req: true, desc: '거래 후 잔액' },
+                  { col: '의뢰인/수취인', req: false, desc: '거래처 자동 매칭에 사용' },
+                  { col: '구분', req: false, desc: '거래 구분 (참고용)' },
+                  { col: '거래점', req: false, desc: '거래 지점 (참고용)' },
+                  { col: '추가메모', req: false, desc: '추가 메모 (참고용)' },
+                ].map((r) => (
+                  <TableRow key={r.col}>
+                    <TableCell sx={{ py: 0.3, fontSize: '0.75rem', fontWeight: 600 }}>{r.col}</TableCell>
+                    <TableCell sx={{ py: 0.3, fontSize: '0.75rem' }}>
+                      <Chip label={r.req ? '필수' : '선택'} size="small" color={r.req ? 'primary' : 'default'} variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
+                    </TableCell>
+                    <TableCell sx={{ py: 0.3, fontSize: '0.75rem', color: 'text.secondary' }}>{r.desc}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <Stack spacing={0.3}>
+              <Typography variant="caption" color="text.secondary">
+                • &apos;의뢰인/수취인&apos; 컬럼이 있으면 거래처 자동 매칭에 활용됩니다.
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                • 헤더 행이 1행이 아니어도 자동으로 감지합니다. (최대 15행까지 탐색)
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                • 대부분의 은행 &apos;거래내역조회&apos; 엑셀 양식을 그대로 사용 가능합니다.
+              </Typography>
+            </Stack>
+          </Box>
+        </Alert>
       )}
 
       {/* ── Step 1: 검수 · 매칭 ── */}
