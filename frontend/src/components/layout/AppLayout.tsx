@@ -85,6 +85,14 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import ScienceIcon from '@mui/icons-material/Science';
 import AssignmentReturnIcon from '@mui/icons-material/AssignmentReturn';
 import MoveToInboxIcon from '@mui/icons-material/MoveToInbox';
+// 관리자 메뉴 아이콘
+import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
+import VerifiedIcon from '@mui/icons-material/Verified';
+import SecurityIcon from '@mui/icons-material/Security';
+import SpeedIcon from '@mui/icons-material/Speed';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import WorkIcon from '@mui/icons-material/Work';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import SpeedDial from '@mui/material/SpeedDial';
 import SpeedDialAction from '@mui/material/SpeedDialAction';
 import SpeedDialIcon from '@mui/material/SpeedDialIcon';
@@ -259,6 +267,22 @@ const settlementMenuGroups: MenuGroup[] = [
     ],
   },
 ];
+
+// 정산 관리자 전용 메뉴 (admin 역할에만 표시)
+const settlementAdminMenuGroup: MenuGroup = {
+  label: '시스템 관리',
+  items: [
+    { id: 'stl-admin-dashboard', label: '운영 대시보드', icon: <SpeedIcon />, path: '/settlement/admin/dashboard' },
+    { id: 'stl-admin-system', label: '시스템 헬스', icon: <MonitorHeartIcon />, path: '/settlement/admin/system' },
+    { id: 'stl-admin-integrity', label: '정합성 점검', icon: <VerifiedIcon />, path: '/settlement/admin/integrity' },
+    { id: 'stl-admin-users', label: '사용자 계정', icon: <PeopleIcon />, path: '/settlement/admin/users' },
+    { id: 'stl-admin-audit', label: '감사로그', icon: <SecurityIcon />, path: '/settlement/admin/audit' },
+    { id: 'stl-admin-anomaly', label: '이상 활동 감지', icon: <WarningAmberIcon />, path: '/settlement/admin/anomaly' },
+    { id: 'stl-admin-sessions', label: '로그인 이력', icon: <HistoryIcon />, path: '/settlement/admin/sessions' },
+    { id: 'stl-admin-jobs', label: 'Worker 현황', icon: <WorkIcon />, path: '/settlement/admin/jobs' },
+    { id: 'stl-admin-period-lock', label: '기간 마감', icon: <CalendarMonthIcon />, path: '/settlement/admin/period-lock' },
+  ],
+};
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -477,7 +501,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [pathname, isMobile, setSidebarOpen]);
 
   const isAdmin = user?.role === 'admin';
-  const currentMenuGroups = isSettlementDomain ? settlementMenuGroups : isAdminDomain ? adminMenuGroups : userMenuGroups;
+  const currentMenuGroups = isSettlementDomain
+    ? (isAdmin ? [...settlementMenuGroups, settlementAdminMenuGroup] : settlementMenuGroups)
+    : isAdminDomain ? adminMenuGroups : userMenuGroups;
   
   const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);

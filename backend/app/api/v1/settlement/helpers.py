@@ -81,7 +81,7 @@ async def verify_transaction_allocation_integrity(db: AsyncSession) -> dict:
             FROM transaction_allocations
             GROUP BY transaction_id
         ) ta_sum ON ta_sum.transaction_id = ct.id
-        WHERE ct.status NOT IN ('cancelled')
+        WHERE ct.status NOT IN ('CANCELLED')
           AND ct.allocated_amount != COALESCE(ta_sum.total, 0)
     """))
     mismatches = [
@@ -94,7 +94,7 @@ async def verify_transaction_allocation_integrity(db: AsyncSession) -> dict:
     ]
 
     total_checked = (await db.execute(text(
-        "SELECT COUNT(*) FROM counterparty_transactions WHERE status != 'cancelled'"
+        "SELECT COUNT(*) FROM counterparty_transactions WHERE status != 'CANCELLED'"
     ))).scalar() or 0
 
     return {
@@ -124,7 +124,7 @@ async def verify_voucher_balance_integrity(db: AsyncSession) -> dict:
                 v.voucher_type,
                 COALESCE(ta.alloc_total, 0) AS alloc_total,
                 CASE
-                    WHEN v.voucher_type = 'sales' THEN COALESCE(r.receipt_total, 0)
+                    WHEN v.voucher_type = 'SALES' THEN COALESCE(r.receipt_total, 0)
                     ELSE COALESCE(p.payment_total, 0)
                 END AS legacy_total
             FROM vouchers v
@@ -194,17 +194,17 @@ async def verify_netting_balance_integrity(db: AsyncSession) -> dict:
             SELECT nvl.netting_record_id, SUM(nvl.netted_amount) AS total
             FROM netting_voucher_links nvl
             JOIN vouchers v ON nvl.voucher_id = v.id
-            WHERE v.voucher_type = 'sales'
+            WHERE v.voucher_type = 'SALES'
             GROUP BY nvl.netting_record_id
         ) sales ON sales.netting_record_id = nr.id
         LEFT JOIN (
             SELECT nvl.netting_record_id, SUM(nvl.netted_amount) AS total
             FROM netting_voucher_links nvl
             JOIN vouchers v ON nvl.voucher_id = v.id
-            WHERE v.voucher_type = 'purchase'
+            WHERE v.voucher_type = 'PURCHASE'
             GROUP BY nvl.netting_record_id
         ) purchases ON purchases.netting_record_id = nr.id
-        WHERE nr.status = 'confirmed'
+        WHERE nr.status = 'CONFIRMED'
           AND COALESCE(sales.total, 0) != COALESCE(purchases.total, 0)
     """))
     mismatches = [
@@ -217,7 +217,7 @@ async def verify_netting_balance_integrity(db: AsyncSession) -> dict:
     ]
 
     total_checked = (await db.execute(text(
-        "SELECT COUNT(*) FROM netting_records WHERE status = 'confirmed'"
+        "SELECT COUNT(*) FROM netting_records WHERE status = 'CONFIRMED'"
     ))).scalar() or 0
 
     return {

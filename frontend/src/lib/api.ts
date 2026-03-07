@@ -1061,4 +1061,50 @@ export const settlementApi = {
     api.get<ApiResponse<{ total_steps: number; steps: { step: number; name: string }[] }>>('/settlement/flow-test/scenario/steps'),
 };
 
+// ============================================================================
+// 정산 관리자 API (admin 역할 전용)
+// ============================================================================
+
+export const settlementAdminApi = {
+  // 운영 대시보드
+  getKpi: () =>
+    api.get<ApiResponse<unknown>>('/settlement/admin/dashboard/kpi'),
+
+  getAlerts: () =>
+    api.get<ApiResponse<{ alerts: unknown[]; total: number }>>('/settlement/admin/dashboard/alerts'),
+
+  getWorkStatus: () =>
+    api.get<ApiResponse<unknown>>('/settlement/admin/dashboard/work-status'),
+
+  // 정합성
+  checkIntegrity: () =>
+    api.get<ApiResponse<unknown>>('/settlement/admin/integrity/check'),
+
+  checkCounterpartyBalance: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<{ items: unknown[]; total: number }>>('/settlement/admin/integrity/counterparty-balance', { params }),
+
+  // 시스템 헬스
+  getSystemHealth: () =>
+    api.get<ApiResponse<unknown>>('/settlement/admin/system/health'),
+
+  // Phase 2: 비정상 활동
+  getAnomalies: (period?: string) =>
+    api.get<ApiResponse<unknown>>('/settlement/admin/audit/anomalies', { params: { period } }),
+
+  // Phase 2: 로그인 이력
+  getLoginHistory: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<unknown>>('/settlement/admin/audit/login-history', { params }),
+
+  // Phase 2: Worker Job 현황
+  getJobStatus: () =>
+    api.get<ApiResponse<unknown>>('/settlement/admin/jobs/status'),
+
+  getJobList: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<unknown>>('/settlement/admin/jobs/list', { params }),
+
+  // Phase 2: 기간 마감
+  getPeriodLockStatus: () =>
+    api.get<ApiResponse<unknown>>('/settlement/admin/period-lock/status'),
+};
+
 export default api;

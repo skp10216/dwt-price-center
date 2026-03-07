@@ -27,6 +27,7 @@ from app.api.v1.settlement import (
     returns,
     intakes,
 )
+from app.api.v1.settlement.admin.router import admin_router
 
 settlement_router = APIRouter()
 
@@ -128,4 +129,9 @@ settlement_router.include_router(
 # 시나리오 테스트 러너
 settlement_router.include_router(
     scenario_runner.router, prefix="/flow-test", tags=["정산-플로우테스트"]
+)
+
+# 관리자 전용
+settlement_router.include_router(
+    admin_router, prefix="/admin", tags=["정산-관리자"]
 )
