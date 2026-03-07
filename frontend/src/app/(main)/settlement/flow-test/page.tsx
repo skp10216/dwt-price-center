@@ -89,11 +89,18 @@ interface RecommendedScenario {
   steps: string[];
   difficulty: 'easy' | 'medium' | 'hard';
   relatedPath: string;
+  /** 예상 소요 시간(분), UI에 "약 N분" 표시 */
+  estimatedMinutes?: number;
+  /** 테스트용 파일명, 있으면 카드에 표시 */
+  testFiles?: string[];
+  /** 자동 시나리오 테스트 Step 번호, 있으면 "Step N 검증" 배지 표시 */
+  autoStepIds?: number[];
 }
 
 // ─── 추천 시나리오 ────────────────────────────────
 
 const RECOMMENDED_SCENARIOS: RecommendedScenario[] = [
+  // ── 반품 ──
   {
     id: 'return-basic',
     title: '반품 내역 업로드 → 조회',
@@ -108,6 +115,7 @@ const RECOMMENDED_SCENARIOS: RecommendedScenario[] = [
       'IMEI/일련번호 검색으로 특정 기기 조회',
     ],
     relatedPath: '/settlement/upload',
+    estimatedMinutes: 5,
   },
   {
     id: 'return-reupload-diff',
@@ -122,6 +130,7 @@ const RECOMMENDED_SCENARIOS: RecommendedScenario[] = [
       '기간 마감 후 재업로드 → "locked" 상태로 스킵 확인',
     ],
     relatedPath: '/settlement/returns',
+    estimatedMinutes: 8,
   },
   {
     id: 'intake-basic',
@@ -137,6 +146,7 @@ const RECOMMENDED_SCENARIOS: RecommendedScenario[] = [
       '현상태 Chip 클릭 → 반입 → 재고 → 판매완료 전환',
     ],
     relatedPath: '/settlement/upload',
+    estimatedMinutes: 6,
   },
   {
     id: 'intake-margin-verify',
@@ -152,6 +162,78 @@ const RECOMMENDED_SCENARIOS: RecommendedScenario[] = [
       '엑셀 다운로드 → 마진 컬럼이 서버 계산값과 일치하는지 확인',
     ],
     relatedPath: '/settlement/intakes',
+    estimatedMinutes: 7,
+  },
+  // ── 정산 ──
+  {
+    id: 'voucher-upload',
+    title: '판매/매입 전표 업로드',
+    description: 'UPM 엑셀로 판매·매입 전표를 업로드하고, 거래처 매칭·확정 후 전표 목록에서 검증합니다.',
+    category: 'settlement',
+    difficulty: 'easy',
+    steps: [
+      '거래처 3곳 등록 + 별칭 추가 (삼성전자, 애플코리아 등)',
+      'UPM 업로드 → 판매 선택 → test_sales.xlsx 업로드',
+      '미리보기에서 거래처 매칭 확인 → 확정',
+      '매입 선택 → test_purchase.xlsx 업로드 → 확정',
+      '전표 목록에서 건수·금액·상태(OPEN) 확인',
+    ],
+    relatedPath: '/settlement/upload',
+    estimatedMinutes: 8,
+    testFiles: ['test_sales.xlsx', 'test_purchase.xlsx'],
+    autoStepIds: [3, 4],
+  },
+  {
+    id: 'bank-import',
+    title: '은행 임포트 → 자동 매칭',
+    description: '은행 거래내역 엑셀을 업로드하고, 별칭 기반 자동 매칭 후 입출금 이벤트를 생성합니다.',
+    category: 'settlement',
+    difficulty: 'easy',
+    steps: [
+      '전표 업로드 완료 후 진행 (미수금/미지급 확인)',
+      '은행 임포트 → test_bank_statement.xlsx 업로드',
+      '법인 선택(DWT 본사) → 자동 매칭 실행',
+      '매칭률 100% 확인 → 확정',
+      '입출금 관리에서 입금/출금 건수·상태(PENDING) 확인',
+    ],
+    relatedPath: '/settlement/bank-import',
+    estimatedMinutes: 5,
+    testFiles: ['test_bank_statement.xlsx'],
+    autoStepIds: [5],
+  },
+  {
+    id: 'allocation-fifo',
+    title: '입출금 → 전표 배분 (FIFO)',
+    description: '입금/출금을 미정산 전표에 FIFO 순으로 자동 배분하고, 전표 상태 변화를 검증합니다.',
+    category: 'settlement',
+    difficulty: 'medium',
+    steps: [
+      '입출금 관리에서 미배분(PENDING) 건 확인',
+      '각 입금 건에 대해 자동 배분(FIFO) 실행',
+      '각 출금 건에 대해 자동 배분 실행',
+      '배분 완료 후 전표 상태 SETTLED/PAID 확인',
+      '플로우 점검에서 미수금/미지급 감소 확인',
+    ],
+    relatedPath: '/settlement/transactions',
+    estimatedMinutes: 10,
+    autoStepIds: [6, 7],
+  },
+  {
+    id: 'netting-flow',
+    title: '상계 생성 → 확정',
+    description: '미수금·미지급이 있는 거래처에 대해 상계를 생성하고 확정하여 잔액을 정리합니다.',
+    category: 'settlement',
+    difficulty: 'medium',
+    steps: [
+      '배분 완료 후 상계 가능 거래처 확인',
+      '상계 관리 → 상계 생성 (예: 삼성전자)',
+      '미수금·미지급 상계 후 잔액 확인',
+      '상계 확정 → 상태 COMPLETED 확인',
+      '대시보드에서 최종 미수금/미지급 검증',
+    ],
+    relatedPath: '/settlement/netting',
+    estimatedMinutes: 8,
+    autoStepIds: [12],
   },
   {
     id: 'period-lock-all',
@@ -168,6 +250,8 @@ const RECOMMENDED_SCENARIOS: RecommendedScenario[] = [
       '마감 해제 후 잠금 해제 확인',
     ],
     relatedPath: '/settlement/lock',
+    estimatedMinutes: 10,
+    autoStepIds: [13],
   },
   {
     id: 'full-settlement-flow',
@@ -184,6 +268,8 @@ const RECOMMENDED_SCENARIOS: RecommendedScenario[] = [
       '상계 처리 → 마감 → 최종 데이터 검증',
     ],
     relatedPath: '/settlement/dashboard',
+    estimatedMinutes: 30,
+    autoStepIds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
   },
 ];
 
@@ -192,6 +278,15 @@ const CATEGORY_CONFIG = {
   intake: { label: '반입', color: 'info' as const, icon: '↓' },
   settlement: { label: '정산', color: 'primary' as const, icon: '💰' },
   integration: { label: '통합', color: 'secondary' as const, icon: '🔗' },
+};
+
+/** 챕터 순서 및 분야별 설명 — 전체 기능을 분야별로 구분 */
+const CHAPTER_ORDER: (keyof typeof CATEGORY_CONFIG)[] = ['return', 'intake', 'settlement', 'integration'];
+const CHAPTER_DESC: Record<keyof typeof CATEGORY_CONFIG, string> = {
+  return: '반품 내역 업로드, 조회, 재업로드 Diff 검증',
+  intake: '반입 내역 업로드, 현상태 관리, 마진 파생값 검증',
+  settlement: '전표·입출금·배분·상계 등 정산 핵심 기능',
+  integration: '마감 잠금, 전체 플로우 통합 검증',
 };
 
 const DIFFICULTY_CONFIG = {
@@ -342,6 +437,7 @@ export default function FlowTestPage() {
   const [stepResults, setStepResults] = useState<Record<number, StepResult>>({});
   const [expandedStep, setExpandedStep] = useState<number | null>(null);
   const [scenarioElapsed, setScenarioElapsed] = useState(0);
+  const [recommendedOpen, setRecommendedOpen] = useState(false); // 추천 시나리오 섹션 접기/펼치기 (기본 닫힘)
   const stopRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -716,7 +812,7 @@ export default function FlowTestPage() {
         {activeTab === 1 && (
           <Stack spacing={2.5}>
 
-            {/* ── 추천 시나리오 섹션 ── */}
+            {/* ── 추천 시나리오 섹션 (접기/펼치기, 기본 닫힘) ── */}
             <Paper
               elevation={0}
               sx={{
@@ -726,12 +822,18 @@ export default function FlowTestPage() {
                 overflow: 'hidden',
               }}
             >
-              <Box sx={{
-                px: 3, py: 2,
-                borderBottom: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              }}>
-                <Box>
+              <Box
+                onClick={() => setRecommendedOpen((o) => !o)}
+                sx={{
+                  px: 3, py: 2,
+                  borderBottom: recommendedOpen ? `1px solid ${alpha(theme.palette.divider, 0.5)}` : 'none',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: alpha(theme.palette.action.hover, 0.04) },
+                  transition: 'background-color 0.15s',
+                }}
+              >
+                <Box sx={{ flex: 1 }}>
                   <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Box component="span" sx={{
                       width: 28, height: 28, borderRadius: 2,
@@ -742,70 +844,115 @@ export default function FlowTestPage() {
                     추천 시나리오
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    반품/반입 기능을 포함한 실무 검증 시나리오입니다. 각 항목을 클릭하면 관련 페이지로 이동합니다.
+                    전체 기능을 분야별 챕터(반품·반입·정산·통합)로 구분한 실무 검증 시나리오입니다. 클릭하여 펼치기.
                   </Typography>
                 </Box>
-                <Stack direction="row" spacing={0.5}>
+                <Stack direction="row" spacing={0.5} alignItems="center">
                   {Object.entries(CATEGORY_CONFIG).map(([key, cfg]) => (
                     <Chip key={key} label={cfg.label} size="small" color={cfg.color} variant="outlined"
                       sx={{ height: 22, fontSize: '0.65rem', fontWeight: 700 }} />
                   ))}
+                  <IconButton size="small" sx={{ ml: 0.5 }} aria-label={recommendedOpen ? '접기' : '펼치기'}>
+                    {recommendedOpen ? <CollapseIcon /> : <ExpandIcon />}
+                  </IconButton>
                 </Stack>
               </Box>
-              <Box sx={{ px: 2, py: 1.5, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 1.5 }}>
-                {RECOMMENDED_SCENARIOS.map((sc) => {
-                  const cat = CATEGORY_CONFIG[sc.category];
-                  const diff = DIFFICULTY_CONFIG[sc.difficulty];
-                  return (
-                    <Paper
-                      key={sc.id}
-                      variant="outlined"
-                      sx={{
-                        p: 2, borderRadius: 2.5, cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        borderColor: alpha(theme.palette[cat.color].main, 0.15),
-                        '&:hover': {
-                          borderColor: alpha(theme.palette[cat.color].main, 0.4),
-                          transform: 'translateY(-2px)',
-                          boxShadow: `0 4px 20px ${alpha(theme.palette[cat.color].main, 0.1)}`,
-                        },
-                      }}
-                      onClick={() => router.push(sc.relatedPath)}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
-                        <Typography variant="body2" fontWeight={700} sx={{ flex: 1, lineHeight: 1.4 }}>
-                          {sc.title}
-                        </Typography>
-                        <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0, ml: 1 }}>
-                          <Chip label={cat.label} size="small" color={cat.color}
-                            sx={{ height: 20, fontSize: '0.6rem', fontWeight: 700 }} />
-                          <Chip label={diff.label} size="small" color={diff.color} variant="outlined"
-                            sx={{ height: 20, fontSize: '0.6rem', fontWeight: 700 }} />
-                        </Stack>
-                      </Box>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5, lineHeight: 1.5 }}>
-                        {sc.description}
-                      </Typography>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
-                        {sc.steps.map((step, i) => (
-                          <Box key={i} sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.75 }}>
-                            <Box sx={{
-                              width: 18, height: 18, borderRadius: '50%', flexShrink: 0, mt: 0.1,
-                              bgcolor: alpha(theme.palette[cat.color].main, 0.08),
-                              color: theme.palette[cat.color].main,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              fontSize: '0.6rem', fontWeight: 700,
-                            }}>{i + 1}</Box>
-                            <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.5 }}>
-                              {step}
+              <Collapse in={recommendedOpen}>
+                <Box sx={{ px: 2, py: 2, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {CHAPTER_ORDER.map((chapterId) => {
+                    const chapterScenarios = RECOMMENDED_SCENARIOS.filter((sc) => sc.category === chapterId);
+                    if (chapterScenarios.length === 0) return null;
+                    const cfg = CATEGORY_CONFIG[chapterId];
+                    const desc = CHAPTER_DESC[chapterId];
+                    return (
+                      <Box key={chapterId}>
+                        <Box sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Box sx={{
+                            width: 32, height: 32, borderRadius: 2,
+                            bgcolor: alpha(theme.palette[cfg.color].main, 0.12),
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '1rem', fontWeight: 700,
+                          }}>{cfg.icon}</Box>
+                          <Box>
+                            <Typography variant="subtitle2" fontWeight={700} color={`${cfg.color}.dark`}>
+                              {cfg.label}
                             </Typography>
+                            <Typography variant="caption" color="text.secondary">{desc}</Typography>
                           </Box>
-                        ))}
+                        </Box>
+                        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 1.5 }}>
+                          {chapterScenarios.map((sc) => {
+                            const cat = CATEGORY_CONFIG[sc.category];
+                            const diff = DIFFICULTY_CONFIG[sc.difficulty];
+                            return (
+                              <Paper
+                                key={sc.id}
+                                variant="outlined"
+                                sx={{
+                                  p: 2, borderRadius: 2.5, cursor: 'pointer',
+                                  transition: 'all 0.2s ease',
+                                  borderColor: alpha(theme.palette[cat.color].main, 0.15),
+                                  '&:hover': {
+                                    borderColor: alpha(theme.palette[cat.color].main, 0.4),
+                                    transform: 'translateY(-2px)',
+                                    boxShadow: `0 4px 20px ${alpha(theme.palette[cat.color].main, 0.1)}`,
+                                  },
+                                }}
+                                onClick={() => router.push(sc.relatedPath)}
+                              >
+                                <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
+                                  <Typography variant="body2" fontWeight={700} sx={{ flex: 1, lineHeight: 1.4 }}>
+                                    {sc.title}
+                                  </Typography>
+                                  <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0, ml: 1 }} flexWrap="wrap" useFlexGap>
+                                    {sc.estimatedMinutes != null && (
+                                      <Chip label={`약 ${sc.estimatedMinutes}분`} size="small" variant="outlined"
+                                        sx={{ height: 20, fontSize: '0.6rem', fontWeight: 600 }} />
+                                    )}
+                                    {sc.autoStepIds && sc.autoStepIds.length > 0 && (
+                                      <Chip
+                                        label={sc.autoStepIds.length === 1 ? `Step ${sc.autoStepIds[0]}` : `Step ${Math.min(...sc.autoStepIds)}~${Math.max(...sc.autoStepIds)}`}
+                                        size="small" color="info" variant="outlined"
+                                        sx={{ height: 20, fontSize: '0.6rem', fontWeight: 700 }}
+                                      />
+                                    )}
+                                    <Chip label={diff.label} size="small" color={diff.color} variant="outlined"
+                                      sx={{ height: 20, fontSize: '0.6rem', fontWeight: 700 }} />
+                                  </Stack>
+                                </Box>
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, lineHeight: 1.5 }}>
+                                  {sc.description}
+                                </Typography>
+                                {sc.testFiles && sc.testFiles.length > 0 && (
+                                  <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 1.5, fontFamily: 'monospace', fontSize: '0.65rem' }}>
+                                    테스트 파일: {sc.testFiles.join(', ')}
+                                  </Typography>
+                                )}
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
+                                  {sc.steps.map((step, i) => (
+                                    <Box key={i} sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.75 }}>
+                                      <Box sx={{
+                                        width: 18, height: 18, borderRadius: '50%', flexShrink: 0, mt: 0.1,
+                                        bgcolor: alpha(theme.palette[cat.color].main, 0.08),
+                                        color: theme.palette[cat.color].main,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        fontSize: '0.6rem', fontWeight: 700,
+                                      }}>{i + 1}</Box>
+                                      <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.5 }}>
+                                        {step}
+                                      </Typography>
+                                    </Box>
+                                  ))}
+                                </Box>
+                              </Paper>
+                            );
+                          })}
+                        </Box>
                       </Box>
-                    </Paper>
-                  );
-                })}
-              </Box>
+                    );
+                  })}
+                </Box>
+              </Collapse>
             </Paper>
 
             {/* ── 자동 시나리오 테스트 (기존) ── */}
