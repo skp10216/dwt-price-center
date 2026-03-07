@@ -13,5 +13,6 @@ import type { DomainType } from '@/lib/domain';
 export default function LoginPage() {
   const headersList = headers();
   const domainType = (headersList.get('x-domain-type') as DomainType) || 'user';
-  return <LoginClient initialDomainType={domainType} />;
+  const isSettlementAdmin = headersList.get('x-settlement-admin') === 'true';
+  return <LoginClient initialDomainType={domainType} isSettlementAdmin={isSettlementAdmin} />;
 }

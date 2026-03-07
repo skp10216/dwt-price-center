@@ -82,17 +82,18 @@ const adminTheme = {
 
 interface LoginClientProps {
   initialDomainType: DomainType;
+  isSettlementAdmin?: boolean;
 }
 
-export default function LoginClient({ initialDomainType }: LoginClientProps) {
+export default function LoginClient({ initialDomainType, isSettlementAdmin = false }: LoginClientProps) {
   return (
     <Suspense>
-      <LoginPageInner initialDomainType={initialDomainType} />
+      <LoginPageInner initialDomainType={initialDomainType} isSettlementAdmin={isSettlementAdmin} />
     </Suspense>
   );
 }
 
-function LoginPageInner({ initialDomainType }: LoginClientProps) {
+function LoginPageInner({ initialDomainType, isSettlementAdmin = false }: LoginClientProps) {
   const searchParams = useSearchParams();
   const { enqueueSnackbar } = useSnackbar();
   const setAuth = useAuthStore((state) => state.setAuth);
@@ -102,6 +103,9 @@ function LoginPageInner({ initialDomainType }: LoginClientProps) {
   // hydration 후 useLayoutEffect가 store를 업데이트하면 domainType이 갱신됨
   const isAdminDomain = initialDomainType === 'admin';
   const isSettlementDomain = initialDomainType === 'settlement';
+
+  // 클라이언트에서도 settlement-admin 컨텍스트 감지 (SSR 플래그 + redirect 파라미터)
+  const [settlementAdminMode, setSettlementAdminMode] = useState(isSettlementAdmin);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -119,6 +123,11 @@ function LoginPageInner({ initialDomainType }: LoginClientProps) {
       const detected = getDomainType(host, urlSearchParams, redirect || undefined);
       setDomainType(detected);
 
+      // /settlement/admin/* redirect → settlement-admin 모드 활성화
+      if (redirect?.startsWith('/settlement/admin')) {
+        setSettlementAdminMode(true);
+      }
+
       // 저장된 이메일 및 아이디 저장 상태 복원
       const savedEmail = getSavedEmail();
       const savedRememberMe = getRememberMe();
@@ -133,11 +142,14 @@ function LoginPageInner({ initialDomainType }: LoginClientProps) {
   useEffect(() => {
     const errorParam = searchParams.get('error');
     if (errorParam === 'admin_required') {
-      setError('관리자 도메인입니다. 관리자 계정으로 로그인해주세요.');
+      setError(settlementAdminMode
+        ? '시스템 관리자 전용입니다. 관리자 계정으로 로그인해주세요.'
+        : '관리자 도메인입니다. 관리자 계정으로 로그인해주세요.'
+      );
     } else if (errorParam === 'settlement_required') {
       setError('경영지원 도메인입니다. 권한이 있는 계정으로 로그인해주세요.');
     }
-  }, [searchParams]);
+  }, [searchParams, settlementAdminMode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -147,6 +159,13 @@ function LoginPageInner({ initialDomainType }: LoginClientProps) {
     try {
       const response = await authApi.login(email, password, rememberMe);
       const { token, user } = response.data.data;
+
+      // settlement-admin 모드: admin 권한 전용
+      if (settlementAdminMode && (user as User).role !== 'admin') {
+        setError('시스템 관리자 권한이 필요합니다. 관리자 계정으로 로그인해주세요.');
+        setLoading(false);
+        return;
+      }
 
       // 관리자 도메인에서 admin 권한 체크
       if (requiresAdminRole(domainType) && (user as User).role !== 'admin') {
@@ -180,6 +199,26 @@ function LoginPageInner({ initialDomainType }: LoginClientProps) {
       setLoading(false);
     }
   };
+
+  // settlement-admin 모드: 관리자 다크 테마 (정산 시스템 관리자)
+  if (settlementAdminMode) {
+    return <AdminLoginUI
+      email={email}
+      setEmail={setEmail}
+      password={password}
+      setPassword={setPassword}
+      showPassword={showPassword}
+      setShowPassword={setShowPassword}
+      rememberMe={rememberMe}
+      setRememberMe={setRememberMe}
+      loading={loading}
+      error={error}
+      handleSubmit={handleSubmit}
+      title="시스템 관리자 로그인"
+      subtitle="정산 시스템 관리 포탈"
+      badge="SYSTEM ADMIN"
+    />;
+  }
 
   // 관리자 도메인: 프리미엄 다크 + 골드 테마
   if (isAdminDomain) {
@@ -244,6 +283,10 @@ interface LoginUIProps {
   loading: boolean;
   error: string | null;
   handleSubmit: (e: React.FormEvent) => void;
+  // AdminLoginUI 커스터마이즈용
+  title?: string;
+  subtitle?: string;
+  badge?: string;
 }
 
 // 공통 입력 필드 스타일 생성 함수
@@ -292,6 +335,9 @@ function AdminLoginUI({
   loading,
   error,
   handleSubmit,
+  title = '관리자 로그인',
+  subtitle = '단가표 통합 관리 시스템',
+  badge = 'ADMIN ACCESS',
 }: LoginUIProps) {
   const theme = useTheme();
   const { navy, teal, background: bg, text } = adminTheme;
@@ -466,7 +512,7 @@ function AdminLoginUI({
                 letterSpacing: '-0.01em',
               }}
             >
-              관리자 로그인
+              {title}
             </Typography>
             <Typography
               variant="body2"
@@ -476,7 +522,7 @@ function AdminLoginUI({
                 fontSize: '0.85rem',
               }}
             >
-              단가표 통합 관리 시스템
+              {subtitle}
             </Typography>
           </Box>
 
@@ -511,7 +557,7 @@ function AdminLoginUI({
                 letterSpacing: '0.03em',
               }}
             >
-              ADMIN ACCESS
+              {badge}
             </Typography>
           </Box>
 

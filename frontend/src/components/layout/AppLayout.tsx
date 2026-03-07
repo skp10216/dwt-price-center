@@ -410,6 +410,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, isSettlementDomain]);
 
+  // /settlement/admin/* 경로에서 admin 권한 강제
+  useEffect(() => {
+    if (user && pathname.startsWith('/settlement/admin') && user.role !== 'admin') {
+      console.warn('[AppLayout] 정산 관리자 경로 권한 불일치 → 로그아웃', { role: user.role });
+      logout();
+      router.push('/login?error=admin_required&redirect=/settlement/admin/dashboard');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, pathname]);
+
   // 최신 업로드 버전 확인 (정산 도메인)
   const checkLatestUploads = useCallback(async () => {
     try {
@@ -501,8 +511,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [pathname, isMobile, setSidebarOpen]);
 
   const isAdmin = user?.role === 'admin';
+  const isSettlementAdminPath = pathname.startsWith('/settlement/admin');
+
+  // /settlement/admin/* 경로: 관리자 전용 메뉴만 표시
+  // 일반 settlement 경로: settlement 메뉴만 (admin 메뉴 미표시)
   const currentMenuGroups = isSettlementDomain
-    ? (isAdmin ? [...settlementMenuGroups, settlementAdminMenuGroup] : settlementMenuGroups)
+    ? (isSettlementAdminPath && isAdmin ? [settlementAdminMenuGroup] : settlementMenuGroups)
     : isAdminDomain ? adminMenuGroups : userMenuGroups;
   
   const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
@@ -725,14 +739,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               />
             )}
             {isSettlementDomain && !isMobile && (
-              <Chip
-                icon={<AccountBalanceIcon sx={{ fontSize: 16 }} />}
-                label="경영지원"
-                size="small"
-                color="info"
-                onClick={() => router.push('/settlement/dashboard')}
-                sx={{ fontWeight: 600, cursor: 'pointer' }}
-              />
+              isSettlementAdminPath ? (
+                <Chip
+                  icon={<AdminIcon sx={{ fontSize: 16 }} />}
+                  label="시스템 관리"
+                  size="small"
+                  color="error"
+                  onClick={() => router.push('/settlement/admin/dashboard')}
+                  sx={{ fontWeight: 600, cursor: 'pointer' }}
+                />
+              ) : (
+                <Chip
+                  icon={<AccountBalanceIcon sx={{ fontSize: 16 }} />}
+                  label="경영지원"
+                  size="small"
+                  color="info"
+                  onClick={() => router.push('/settlement/dashboard')}
+                  sx={{ fontWeight: 600, cursor: 'pointer' }}
+                />
+              )
             )}
           </Box>
 
@@ -861,6 +886,62 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </Fragment>
           ))}
 
+
+          {/* 정산 도메인에서 admin 역할 사용자에게 시스템 관리 링크 표시 */}
+          {isSettlementDomain && !isSettlementAdminPath && isAdmin && !miniMode && (
+            <>
+              <Divider sx={{ my: 0.5 }} />
+              <List dense>
+                <ListItem disablePadding>
+                  <ListItemButton
+                    onClick={() => router.push('/settlement/admin/dashboard')}
+                    sx={{
+                      mx: 1,
+                      borderRadius: 2,
+                      bgcolor: (theme) => alpha(theme.palette.error.main, theme.palette.mode === 'light' ? 0.08 : 0.1),
+                      '&:hover': {
+                        bgcolor: (theme) => alpha(theme.palette.error.main, theme.palette.mode === 'light' ? 0.12 : 0.2),
+                      },
+                    }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 40 }}><AdminIcon color="error" /></ListItemIcon>
+                    <ListItemText
+                      primary="시스템 관리"
+                      primaryTypographyProps={{ color: 'error.main', fontWeight: 600 }}
+                    />
+                  </ListItemButton>
+                </ListItem>
+              </List>
+            </>
+          )}
+
+          {/* 정산 관리자 모드에서 정산 포탈 이동 링크 */}
+          {isSettlementDomain && isSettlementAdminPath && !miniMode && (
+            <>
+              <Divider sx={{ my: 0.5 }} />
+              <List dense>
+                <ListItem disablePadding>
+                  <ListItemButton
+                    onClick={() => router.push('/settlement/dashboard')}
+                    sx={{
+                      mx: 1,
+                      borderRadius: 2,
+                      bgcolor: (theme) => alpha(theme.palette.info.main, theme.palette.mode === 'light' ? 0.08 : 0.1),
+                      '&:hover': {
+                        bgcolor: (theme) => alpha(theme.palette.info.main, theme.palette.mode === 'light' ? 0.12 : 0.2),
+                      },
+                    }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 40 }}><AccountBalanceIcon color="info" /></ListItemIcon>
+                    <ListItemText
+                      primary="정산 포탈 이동"
+                      primaryTypographyProps={{ color: 'info.main', fontWeight: 600 }}
+                    />
+                  </ListItemButton>
+                </ListItem>
+              </List>
+            </>
+          )}
 
           {/* 도메인 전환 링크 (관리자만, 사용자 도메인에서만) */}
           {!isAdminDomain && !isSettlementDomain && isAdmin && !miniMode && (

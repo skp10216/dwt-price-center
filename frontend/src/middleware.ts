@@ -33,6 +33,10 @@ export function middleware(request: NextRequest) {
       const domainType = getDomainType(host, undefined, redirect || undefined);
       const requestHeaders = new Headers(request.headers);
       requestHeaders.set('x-domain-type', domainType);
+      // /settlement/admin/* 으로의 리다이렉트 → 관리자 로그인 컨텍스트
+      if (redirect?.startsWith('/settlement/admin')) {
+        requestHeaders.set('x-settlement-admin', 'true');
+      }
       return NextResponse.next({ request: { headers: requestHeaders } });
     }
     return NextResponse.next();
@@ -62,7 +66,7 @@ export function middleware(request: NextRequest) {
     response.cookies.delete('user_role');
     return response;
   }
-  
+
   // Settlement 도메인에서 settlement 또는 admin role 강제
   if (requiresSettlementRole(domainType) && userRole !== 'settlement' && userRole !== 'admin') {
     const loginUrl = new URL('/login', request.url);
@@ -73,7 +77,23 @@ export function middleware(request: NextRequest) {
     response.cookies.delete('user_role');
     return response;
   }
-  
+
+  // /settlement/admin/* 경로: admin role 전용 (settlement 역할 불가)
+  if (pathname.startsWith('/settlement/admin') && userRole !== 'admin') {
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('error', 'admin_required');
+    loginUrl.searchParams.set('redirect', pathname);
+    const response = NextResponse.redirect(loginUrl);
+    response.cookies.delete('token');
+    response.cookies.delete('user_role');
+    return response;
+  }
+
+  // /settlement/admin 루트 → 대시보드로 리다이렉트
+  if (pathname === '/settlement/admin') {
+    return NextResponse.redirect(new URL('/settlement/admin/dashboard', request.url));
+  }
+
   // 루트 경로 -> 도메인별 기본 경로로 리다이렉트
   if (pathname === '/' || pathname === '') {
     return NextResponse.redirect(new URL(getDefaultPath(domainType), request.url));
