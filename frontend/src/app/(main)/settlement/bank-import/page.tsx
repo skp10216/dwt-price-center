@@ -40,6 +40,8 @@ import {
   Replay as RetryIcon,
   Download as DownloadIcon,
   Info as InfoIcon,
+  TableChart as TableChartIcon,
+  CheckCircle as DoneIcon,
 } from '@mui/icons-material';
 import StepConnector, { stepConnectorClasses } from '@mui/material/StepConnector';
 import { StepIconProps } from '@mui/material/StepIcon';
@@ -225,6 +227,7 @@ export default function BankImportPage() {
   const [selectedEntityId, setSelectedEntityId] = useState('');
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
 
   // Step 2: 검수
   const [counterparties, setCounterparties] = useState<CounterpartyOption[]>([]);
@@ -526,6 +529,161 @@ export default function BankImportPage() {
 
       {/* ── Step 0: 법인 선택 + 업로드 ── */}
       {activeStep === 0 && (<>
+        {/* ── 양식 안내 가이드 (프리미엄) ── */}
+        <Paper
+          elevation={0}
+          sx={{
+            mb: 2,
+            borderRadius: 3,
+            border: '1px solid',
+            borderColor: guideOpen ? alpha(theme.palette.primary.main, 0.3) : 'divider',
+            overflow: 'hidden',
+            transition: 'all 0.3s ease',
+            background: guideOpen
+              ? `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.02)} 0%, ${alpha(theme.palette.info.main, 0.03)} 100%)`
+              : 'background.paper',
+          }}
+        >
+          <Box
+            onClick={() => setGuideOpen(!guideOpen)}
+            sx={{
+              px: 2.5, py: 1.5,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              cursor: 'pointer',
+              '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.04) },
+              transition: 'background 0.2s',
+            }}
+          >
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <Box sx={{
+                width: 32, height: 32, borderRadius: 1.5,
+                background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.info.main} 100%)`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <TableChartIcon sx={{ fontSize: 18, color: 'white' }} />
+              </Box>
+              <Box>
+                <Typography variant="subtitle2" fontWeight={700} color="text.primary" sx={{ lineHeight: 1.3 }}>
+                  엑셀 양식 안내
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  필수 컬럼 5개 · 선택 컬럼 4개 · 대부분의 은행 양식 호환
+                </Typography>
+              </Box>
+            </Stack>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<DownloadIcon />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  downloadSampleTemplate({
+                    filename: '은행임포트_양식',
+                    sheetName: '거래내역',
+                    columns: [
+                      { header: '거래일시', width: 20 },
+                      { header: '적요', width: 20 },
+                      { header: '의뢰인/수취인', width: 18 },
+                      { header: '입금', width: 14 },
+                      { header: '출금', width: 14 },
+                      { header: '거래후잔액', width: 14 },
+                      { header: '구분', width: 10 },
+                      { header: '거래점', width: 12 },
+                    ],
+                    sampleRows: [
+                      ['2025-03-01 09:30:00', '전신환', 'ABC무역', 1500000, null, 15500000, '입금', '본점'],
+                      ['2025-03-01 14:00:00', '타행이체', 'GHI부품', null, 800000, 14700000, '출금', '본점'],
+                      ['2025-03-02 10:15:00', '전자결제', 'DEF전자', 2000000, null, 16700000, '입금', '본점'],
+                    ],
+                  });
+                }}
+                sx={{
+                  fontWeight: 600, fontSize: '0.75rem', borderRadius: 2, textTransform: 'none',
+                  borderColor: alpha(theme.palette.primary.main, 0.4),
+                  '&:hover': {
+                    borderColor: 'primary.main',
+                    bgcolor: alpha(theme.palette.primary.main, 0.06),
+                  },
+                }}
+              >
+                샘플 양식
+              </Button>
+              <IconButton size="small" sx={{ color: 'text.secondary' }}>
+                {guideOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+              </IconButton>
+            </Stack>
+          </Box>
+
+          <Collapse in={guideOpen} timeout={300}>
+            <Divider />
+            <Box sx={{ px: 2.5, py: 2 }}>
+              <Table size="small" sx={{
+                '& .MuiTableCell-root': { borderColor: alpha(theme.palette.divider, 0.6) },
+                '& .MuiTableHead-root .MuiTableCell-root': {
+                  bgcolor: alpha(theme.palette.primary.main, 0.04),
+                  fontWeight: 700,
+                  fontSize: '0.75rem',
+                  py: 0.8,
+                  color: 'text.primary',
+                },
+                '& .MuiTableBody-root .MuiTableRow-root:last-child .MuiTableCell-root': { borderBottom: 'none' },
+              }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>컬럼명</TableCell>
+                    <TableCell align="center" sx={{ width: 70 }}>구분</TableCell>
+                    <TableCell>설명</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {[
+                    { col: '거래일시', req: true, desc: '거래 일시 (예: 2025-03-01 09:30:00)' },
+                    { col: '적요', req: true, desc: '거래 적요 (전신환, 타행이체 등)' },
+                    { col: '입금', req: true, desc: '입금 금액' },
+                    { col: '출금', req: true, desc: '출금 금액' },
+                    { col: '거래후잔액', req: true, desc: '거래 후 잔액' },
+                    { col: '의뢰인/수취인', req: false, desc: '거래처 자동 매칭에 사용' },
+                    { col: '구분', req: false, desc: '거래 구분 (참고용)' },
+                    { col: '거래점', req: false, desc: '거래 지점 (참고용)' },
+                    { col: '추가메모', req: false, desc: '추가 메모 (참고용)' },
+                  ].map((r) => (
+                    <TableRow key={r.col} sx={{ '&:hover': { bgcolor: alpha(theme.palette.action.hover, 0.4) } }}>
+                      <TableCell sx={{ py: 0.6, fontSize: '0.8rem', fontWeight: 600, fontFamily: 'monospace' }}>{r.col}</TableCell>
+                      <TableCell align="center" sx={{ py: 0.6 }}>
+                        <Chip
+                          label={r.req ? '필수' : '선택'}
+                          size="small"
+                          sx={{
+                            height: 20, fontSize: '0.65rem', fontWeight: 700,
+                            ...(r.req
+                              ? { bgcolor: alpha(theme.palette.primary.main, 0.1), color: 'primary.main', border: `1px solid ${alpha(theme.palette.primary.main, 0.3)}` }
+                              : { bgcolor: alpha(theme.palette.text.secondary, 0.06), color: 'text.secondary', border: `1px solid ${alpha(theme.palette.divider, 0.8)}` }
+                            ),
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ py: 0.6, fontSize: '0.75rem', color: 'text.secondary' }}>{r.desc}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <Stack direction="row" spacing={3} sx={{ mt: 1.5, px: 0.5 }}>
+                {[
+                  '의뢰인/수취인으로 자동 매칭',
+                  '헤더 자동 탐색 (15행)',
+                  '대부분 은행 양식 호환',
+                ].map((tip) => (
+                  <Stack key={tip} direction="row" spacing={0.5} alignItems="center">
+                    <DoneIcon sx={{ fontSize: 13, color: 'success.main' }} />
+                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>{tip}</Typography>
+                  </Stack>
+                ))}
+              </Stack>
+            </Box>
+          </Collapse>
+        </Paper>
+
         <Paper
           variant="outlined"
           sx={{
@@ -593,89 +751,6 @@ export default function BankImportPage() {
             </Typography>
           </Stack>
         </Paper>
-
-        {/* ── 양식 안내 가이드 ── */}
-        <Alert
-          severity="info"
-          icon={<InfoIcon />}
-          sx={{ mt: 2 }}
-          action={
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<DownloadIcon />}
-              onClick={() => {
-                downloadSampleTemplate({
-                  filename: '은행임포트_양식',
-                  sheetName: '거래내역',
-                  columns: [
-                    { header: '거래일시', width: 20 },
-                    { header: '적요', width: 20 },
-                    { header: '의뢰인/수취인', width: 18 },
-                    { header: '입금', width: 14 },
-                    { header: '출금', width: 14 },
-                    { header: '거래후잔액', width: 14 },
-                    { header: '구분', width: 10 },
-                    { header: '거래점', width: 12 },
-                  ],
-                  sampleRows: [
-                    ['2025-03-01 09:30:00', '전신환', 'ABC무역', 1500000, null, 15500000, '입금', '본점'],
-                    ['2025-03-01 14:00:00', '타행이체', 'GHI부품', null, 800000, 14700000, '출금', '본점'],
-                    ['2025-03-02 10:15:00', '전자결제', 'DEF전자', 2000000, null, 16700000, '입금', '본점'],
-                  ],
-                });
-              }}
-              sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}
-            >
-              양식 다운로드
-            </Button>
-          }
-        >
-          <AlertTitle sx={{ fontWeight: 700 }}>엑셀 양식 안내</AlertTitle>
-          <Box sx={{ mt: 0.5 }}>
-            <Table size="small" sx={{ bgcolor: 'background.paper', borderRadius: 1, overflow: 'hidden', mb: 1.5 }}>
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ fontWeight: 700, py: 0.5, fontSize: '0.75rem' }}>컬럼명</TableCell>
-                  <TableCell sx={{ fontWeight: 700, py: 0.5, fontSize: '0.75rem' }}>필수</TableCell>
-                  <TableCell sx={{ fontWeight: 700, py: 0.5, fontSize: '0.75rem' }}>설명</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {[
-                  { col: '거래일시', req: true, desc: '거래 일시 (예: 2025-03-01 09:30:00)' },
-                  { col: '적요', req: true, desc: '거래 적요 (전신환, 타행이체 등)' },
-                  { col: '입금', req: true, desc: '입금 금액' },
-                  { col: '출금', req: true, desc: '출금 금액' },
-                  { col: '거래후잔액', req: true, desc: '거래 후 잔액' },
-                  { col: '의뢰인/수취인', req: false, desc: '거래처 자동 매칭에 사용' },
-                  { col: '구분', req: false, desc: '거래 구분 (참고용)' },
-                  { col: '거래점', req: false, desc: '거래 지점 (참고용)' },
-                  { col: '추가메모', req: false, desc: '추가 메모 (참고용)' },
-                ].map((r) => (
-                  <TableRow key={r.col}>
-                    <TableCell sx={{ py: 0.3, fontSize: '0.75rem', fontWeight: 600 }}>{r.col}</TableCell>
-                    <TableCell sx={{ py: 0.3, fontSize: '0.75rem' }}>
-                      <Chip label={r.req ? '필수' : '선택'} size="small" color={r.req ? 'primary' : 'default'} variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
-                    </TableCell>
-                    <TableCell sx={{ py: 0.3, fontSize: '0.75rem', color: 'text.secondary' }}>{r.desc}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            <Stack spacing={0.3}>
-              <Typography variant="caption" color="text.secondary">
-                • &apos;의뢰인/수취인&apos; 컬럼이 있으면 거래처 자동 매칭에 활용됩니다.
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                • 헤더 행이 1행이 아니어도 자동으로 감지합니다. (최대 15행까지 탐색)
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                • 대부분의 은행 &apos;거래내역조회&apos; 엑셀 양식을 그대로 사용 가능합니다.
-              </Typography>
-            </Stack>
-          </Box>
-        </Alert>
       </>)}
 
       {/* ── Step 1: 검수 · 매칭 ── */}

@@ -13,7 +13,7 @@ import {
   alpha, useTheme, Stepper, Step, StepLabel,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TableFooter,
   TableSortLabel, TablePagination,
-  Chip, Divider, Tooltip, IconButton, Fade,
+  Chip, Divider, Tooltip, IconButton, Fade, Collapse,
   Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress,
 } from '@mui/material';
 import {
@@ -32,6 +32,9 @@ import {
   InsertDriveFile as FileIcon,
   TaskAlt as TaskAltIcon,
   Verified as VerifiedIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+  TableChart as TableChartIcon,
 } from '@mui/icons-material';
 import StepConnector, { stepConnectorClasses } from '@mui/material/StepConnector';
 import { StepIconProps } from '@mui/material/StepIcon';
@@ -214,6 +217,7 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
   const [uploadResult, setUploadResult] = useState<{ total: number; success: number; error: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
 
   // ── 필터 & 정렬 & 페이지네이션 상태 ──
   const [filter, setFilter] = useState<FilterType>('all');
@@ -551,6 +555,140 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
       {activeStep === 0 && (
         <Fade in timeout={300}>
           <Box>
+            {/* ── 양식 안내 가이드 (프리미엄) ── */}
+            <Paper
+              elevation={0}
+              sx={{
+                mb: 2.5,
+                borderRadius: 3,
+                border: '1px solid',
+                borderColor: guideOpen ? alpha(theme.palette.primary.main, 0.3) : 'divider',
+                overflow: 'hidden',
+                transition: 'all 0.3s ease',
+                background: guideOpen
+                  ? `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.02)} 0%, ${alpha(theme.palette.info.main, 0.03)} 100%)`
+                  : 'background.paper',
+              }}
+            >
+              {/* 헤더 바 */}
+              <Box
+                onClick={() => setGuideOpen(!guideOpen)}
+                sx={{
+                  px: 2.5, py: 1.5,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.04) },
+                  transition: 'background 0.2s',
+                }}
+              >
+                <Stack direction="row" spacing={1.5} alignItems="center">
+                  <Box sx={{
+                    width: 32, height: 32, borderRadius: 1.5,
+                    background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.info.main} 100%)`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <TableChartIcon sx={{ fontSize: 18, color: 'white' }} />
+                  </Box>
+                  <Box>
+                    <Typography variant="subtitle2" fontWeight={700} color="text.primary" sx={{ lineHeight: 1.3 }}>
+                      엑셀 양식 안내
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      필수 컬럼 {config.columns.filter(c => c.req).length}개 · 선택 컬럼 {config.columns.filter(c => !c.req).length}개 · 자동 매칭 지원
+                    </Typography>
+                  </Box>
+                </Stack>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<DownloadIcon />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      downloadSampleTemplate({
+                        filename: config.sampleFilename,
+                        sheetName: voucherType === 'sales' ? '판매전표' : '매입전표',
+                        columns: config.sampleColumns,
+                        sampleRows: config.sampleRows,
+                      });
+                    }}
+                    sx={{
+                      fontWeight: 600, fontSize: '0.75rem', borderRadius: 2, textTransform: 'none',
+                      borderColor: alpha(theme.palette.primary.main, 0.4),
+                      '&:hover': {
+                        borderColor: 'primary.main',
+                        bgcolor: alpha(theme.palette.primary.main, 0.06),
+                      },
+                    }}
+                  >
+                    샘플 양식
+                  </Button>
+                  <IconButton size="small" sx={{ color: 'text.secondary' }}>
+                    {guideOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                  </IconButton>
+                </Stack>
+              </Box>
+
+              {/* 상세 컬럼 테이블 */}
+              <Collapse in={guideOpen} timeout={300}>
+                <Divider />
+                <Box sx={{ px: 2.5, py: 2 }}>
+                  <Table size="small" sx={{
+                    '& .MuiTableCell-root': { borderColor: alpha(theme.palette.divider, 0.6) },
+                    '& .MuiTableHead-root .MuiTableCell-root': {
+                      bgcolor: alpha(theme.palette.primary.main, 0.04),
+                      fontWeight: 700,
+                      fontSize: '0.75rem',
+                      py: 0.8,
+                      color: 'text.primary',
+                    },
+                    '& .MuiTableBody-root .MuiTableRow-root:last-child .MuiTableCell-root': { borderBottom: 'none' },
+                  }}>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>컬럼명 (자동 매칭)</TableCell>
+                        <TableCell align="center" sx={{ width: 70 }}>구분</TableCell>
+                        <TableCell>설명</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {config.columns.map((r) => (
+                        <TableRow key={r.col} sx={{ '&:hover': { bgcolor: alpha(theme.palette.action.hover, 0.4) } }}>
+                          <TableCell sx={{ py: 0.6, fontSize: '0.8rem', fontWeight: 600, fontFamily: 'monospace' }}>{r.col}</TableCell>
+                          <TableCell align="center" sx={{ py: 0.6 }}>
+                            <Chip
+                              label={r.req ? '필수' : '선택'}
+                              size="small"
+                              sx={{
+                                height: 20, fontSize: '0.65rem', fontWeight: 700,
+                                ...(r.req
+                                  ? { bgcolor: alpha(theme.palette.primary.main, 0.1), color: 'primary.main', border: `1px solid ${alpha(theme.palette.primary.main, 0.3)}` }
+                                  : { bgcolor: alpha(theme.palette.text.secondary, 0.06), color: 'text.secondary', border: `1px solid ${alpha(theme.palette.divider, 0.8)}` }
+                                ),
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ py: 0.6, fontSize: '0.75rem', color: 'text.secondary' }}>{r.desc}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  <Stack direction="row" spacing={3} sx={{ mt: 1.5, px: 0.5 }}>
+                    {[
+                      '컬럼명 유사 매칭 지원',
+                      '합계행 자동 제외',
+                      '헤더 자동 탐색 (10행)',
+                    ].map((tip) => (
+                      <Stack key={tip} direction="row" spacing={0.5} alignItems="center">
+                        <CheckCircleIcon sx={{ fontSize: 13, color: 'success.main' }} />
+                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>{tip}</Typography>
+                      </Stack>
+                    ))}
+                  </Stack>
+                </Box>
+              </Collapse>
+            </Paper>
+
             <Paper
               elevation={0}
               onDragEnter={handleDragEnter}
@@ -672,69 +810,6 @@ export default function VoucherUploadPage({ voucherType }: VoucherUploadPageProp
                 </Stack>
               )}
             </Paper>
-
-            {/* ── 양식 안내 가이드 ── */}
-            <Alert
-              severity="info"
-              icon={<InfoIcon />}
-              sx={{ mt: 3, borderRadius: 2 }}
-              action={
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<DownloadIcon />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    downloadSampleTemplate({
-                      filename: config.sampleFilename,
-                      sheetName: voucherType === 'sales' ? '판매전표' : '매입전표',
-                      columns: config.sampleColumns,
-                      sampleRows: config.sampleRows,
-                    });
-                  }}
-                  sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}
-                >
-                  양식 다운로드
-                </Button>
-              }
-            >
-              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-                엑셀 양식 안내
-              </Typography>
-              <Box>
-                <Table size="small" sx={{ bgcolor: 'background.paper', borderRadius: 1, overflow: 'hidden', mb: 1.5 }}>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 700, py: 0.5, fontSize: '0.75rem' }}>컬럼명 (자동 매칭)</TableCell>
-                      <TableCell sx={{ fontWeight: 700, py: 0.5, fontSize: '0.75rem' }}>필수</TableCell>
-                      <TableCell sx={{ fontWeight: 700, py: 0.5, fontSize: '0.75rem' }}>설명</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {config.columns.map((r) => (
-                      <TableRow key={r.col}>
-                        <TableCell sx={{ py: 0.3, fontSize: '0.75rem', fontWeight: 600 }}>{r.col}</TableCell>
-                        <TableCell sx={{ py: 0.3, fontSize: '0.75rem' }}>
-                          <Chip label={r.req ? '필수' : '선택'} size="small" color={r.req ? 'primary' : 'default'} variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
-                        </TableCell>
-                        <TableCell sx={{ py: 0.3, fontSize: '0.75rem', color: 'text.secondary' }}>{r.desc}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                <Stack spacing={0.3}>
-                  <Typography variant="caption" color="text.secondary">
-                    • 컬럼명이 정확히 일치하지 않아도 유사한 이름으로 자동 매칭됩니다.
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    • 합계/소계/통계 행은 자동으로 감지되어 업로드에서 제외됩니다.
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    • 헤더 행이 1행이 아니어도 자동으로 감지합니다. (최대 10행까지 탐색)
-                  </Typography>
-                </Stack>
-              </Box>
-            </Alert>
 
             {file && (
               <Stack direction="row" spacing={2} sx={{ mt: 4 }} justifyContent="center">
