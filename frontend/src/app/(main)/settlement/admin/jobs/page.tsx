@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Stack, Paper, alpha, Chip, useTheme, Skeleton,
-  FormControl, InputLabel, Select, MenuItem,
+  FormControl, InputLabel, Select, MenuItem, IconButton, Tooltip, Button,
+  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material';
 import { DataGrid, GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
 import { useSnackbar } from 'notistack';
@@ -12,6 +13,9 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
+import ReplayIcon from '@mui/icons-material/Replay';
+import CancelIcon from '@mui/icons-material/Cancel';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { AppPageContainer, AppPageHeader, AppStatusChip } from '@/components/ui';
 import { settlementAdminApi } from '@/lib/api';
 
@@ -71,6 +75,13 @@ export default function JobsPage() {
   const [pageSize, setPageSize] = useState(25);
   const [statusFilter, setStatusFilter] = useState('');
 
+  // 다이얼로그 상태
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<'retry' | 'cancel' | 'delete' | 'batch-retry'>('retry');
+  const [confirmJobId, setConfirmJobId] = useState('');
+  const [confirmJobName, setConfirmJobName] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
+
   const loadOverview = useCallback(async () => {
     try {
       const res = await settlementAdminApi.getJobStatus();
@@ -100,6 +111,51 @@ export default function JobsPage() {
 
   useEffect(() => { loadOverview(); }, [loadOverview]);
   useEffect(() => { loadJobs(); }, [loadJobs]);
+
+  const refreshAll = () => { loadOverview(); loadJobs(); };
+
+  const openConfirm = (action: typeof confirmAction, jobId: string, jobName: string) => {
+    setConfirmAction(action);
+    setConfirmJobId(jobId);
+    setConfirmJobName(jobName);
+    setConfirmOpen(true);
+  };
+
+  const handleConfirmAction = async () => {
+    setActionLoading(true);
+    try {
+      if (confirmAction === 'retry') {
+        await settlementAdminApi.retryJob(confirmJobId);
+        enqueueSnackbar('작업 재시도 등록', { variant: 'success' });
+      } else if (confirmAction === 'cancel') {
+        await settlementAdminApi.cancelJob(confirmJobId);
+        enqueueSnackbar('작업 취소 완료', { variant: 'success' });
+      } else if (confirmAction === 'delete') {
+        await settlementAdminApi.deleteJob(confirmJobId);
+        enqueueSnackbar('작업 삭제 완료', { variant: 'success' });
+      } else if (confirmAction === 'batch-retry') {
+        const res = await settlementAdminApi.batchRetryJobs({ all_failed: true });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = (res.data as any)?.data ?? res.data;
+        enqueueSnackbar(`${data.retried_count}건 일괄 재시도 등록`, { variant: 'success' });
+      }
+      setConfirmOpen(false);
+      refreshAll();
+    } catch (err) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const detail = (err as any)?.response?.data?.detail || '작업 실패';
+      enqueueSnackbar(detail, { variant: 'error' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const CONFIRM_TEXT: Record<string, { title: string; desc: string; btn: string; color: 'error' | 'warning' | 'success' }> = {
+    retry: { title: '작업 재시도', desc: `"${confirmJobName}" 작업을 재시도하시겠습니까?`, btn: '재시도', color: 'warning' },
+    cancel: { title: '작업 취소', desc: `"${confirmJobName}" 작업을 취소하시겠습니까?`, btn: '취소 실행', color: 'error' },
+    delete: { title: '작업 삭제', desc: `"${confirmJobName}" 작업을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`, btn: '삭제', color: 'error' },
+    'batch-retry': { title: '실패 일괄 재시도', desc: '모든 실패 작업을 재시도하시겠습니까?', btn: '일괄 재시도', color: 'warning' },
+  };
 
   const columns: GridColDef[] = useMemo(() => [
     {
@@ -145,7 +201,7 @@ export default function JobsPage() {
     {
       field: 'progress',
       headerName: '진행률',
-      width: 80,
+      width: 70,
       renderCell: (params: GridRenderCellParams) => (
         <Typography variant="caption" sx={{ fontFeatureSettings: '"tnum" on', fontWeight: 600 }}>
           {params.value != null ? `${params.value}%` : '-'}
@@ -155,7 +211,7 @@ export default function JobsPage() {
     {
       field: 'is_confirmed',
       headerName: '확정',
-      width: 60,
+      width: 55,
       renderCell: (params: GridRenderCellParams) => (
         <AppStatusChip
           semantic={params.value ? 'success' : 'neutral'}
@@ -166,7 +222,7 @@ export default function JobsPage() {
     {
       field: 'user_name',
       headerName: '사용자',
-      width: 100,
+      width: 90,
       renderCell: (params: GridRenderCellParams) => (
         <Typography variant="caption" fontWeight={600}>{params.value || '-'}</Typography>
       ),
@@ -174,7 +230,7 @@ export default function JobsPage() {
     {
       field: 'error_message',
       headerName: '에러',
-      width: 200,
+      width: 150,
       renderCell: (params: GridRenderCellParams) => (
         <Typography variant="caption" color="error" sx={{
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -184,11 +240,46 @@ export default function JobsPage() {
         </Typography>
       ),
     },
+    {
+      field: 'actions',
+      headerName: '액션',
+      width: 110,
+      sortable: false,
+      renderCell: (params: GridRenderCellParams) => {
+        const row = params.row;
+        return (
+          <Stack direction="row" spacing={0}>
+            {row.status === 'FAILED' && (
+              <Tooltip title="재시도">
+                <IconButton size="small" color="warning" onClick={() => openConfirm('retry', row.id, row.file_name)}>
+                  <ReplayIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            )}
+            {(row.status === 'QUEUED' || row.status === 'RUNNING') && (
+              <Tooltip title="취소">
+                <IconButton size="small" color="error" onClick={() => openConfirm('cancel', row.id, row.file_name)}>
+                  <CancelIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            )}
+            {(row.status === 'SUCCEEDED' || row.status === 'FAILED') && (
+              <Tooltip title="삭제">
+                <IconButton size="small" color="default" onClick={() => openConfirm('delete', row.id, row.file_name)}>
+                  <DeleteOutlineIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Stack>
+        );
+      },
+    },
   ], []);
 
   const c = theme.palette;
   const dist = overview?.job_distribution || {};
   const rq = overview?.rq_queues || {};
+  const failedCount = dist.FAILED || 0;
 
   return (
     <AppPageContainer>
@@ -198,7 +289,7 @@ export default function JobsPage() {
         description="업로드 작업 및 RQ 큐 상태를 통합 모니터링합니다"
         color="secondary"
         count={jobTotal}
-        onRefresh={() => { loadOverview(); loadJobs(); }}
+        onRefresh={refreshAll}
         loading={loading}
       />
 
@@ -245,7 +336,7 @@ export default function JobsPage() {
 
       {/* 필터 + 테이블 */}
       <Paper sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
-        <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 2 }}>
           <FormControl size="small" sx={{ minWidth: 130 }}>
             <InputLabel>상태</InputLabel>
             <Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }} label="상태">
@@ -256,6 +347,18 @@ export default function JobsPage() {
               <MenuItem value="FAILED">실패</MenuItem>
             </Select>
           </FormControl>
+          {(statusFilter === 'FAILED' || (!statusFilter && failedCount > 0)) && (
+            <Button
+              variant="outlined"
+              color="warning"
+              size="small"
+              startIcon={<ReplayIcon />}
+              onClick={() => openConfirm('batch-retry', '', '')}
+              sx={{ fontSize: '0.75rem' }}
+            >
+              실패 일괄 재시도 ({failedCount}건)
+            </Button>
+          )}
         </Box>
         <DataGrid
           rows={jobs}
@@ -277,6 +380,27 @@ export default function JobsPage() {
           }}
         />
       </Paper>
+
+      {/* 확인 다이얼로그 */}
+      <Dialog open={confirmOpen} onClose={() => !actionLoading && setConfirmOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          {CONFIRM_TEXT[confirmAction]?.title}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>{CONFIRM_TEXT[confirmAction]?.desc}</DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setConfirmOpen(false)} disabled={actionLoading}>취소</Button>
+          <Button
+            variant="contained"
+            color={CONFIRM_TEXT[confirmAction]?.color || 'primary'}
+            onClick={handleConfirmAction}
+            disabled={actionLoading}
+          >
+            {actionLoading ? '처리 중...' : CONFIRM_TEXT[confirmAction]?.btn}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </AppPageContainer>
   );
 }
