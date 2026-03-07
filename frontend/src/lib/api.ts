@@ -1105,6 +1105,45 @@ export const settlementAdminApi = {
   // Phase 2: 기간 마감
   getPeriodLockStatus: () =>
     api.get<ApiResponse<unknown>>('/settlement/admin/period-lock/status'),
+
+  // Phase 3: 기간 마감 조작
+  lockPeriod: (yearMonth: string, description?: string) =>
+    api.post<ApiResponse<unknown>>('/settlement/admin/period-lock/lock', { year_month: yearMonth, description }),
+
+  unlockPeriod: (yearMonth: string, description?: string) =>
+    api.post<ApiResponse<unknown>>('/settlement/admin/period-lock/unlock', { year_month: yearMonth, description }),
+
+  adjustPeriod: (yearMonth: string, description?: string) =>
+    api.post<ApiResponse<unknown>>('/settlement/admin/period-lock/adjust', { year_month: yearMonth, description }),
+
+  // Phase 3: 작업 관리
+  retryJob: (jobId: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/admin/jobs/${jobId}/retry`),
+
+  cancelJob: (jobId: string) =>
+    api.post<ApiResponse<unknown>>(`/settlement/admin/jobs/${jobId}/cancel`),
+
+  deleteJob: (jobId: string) =>
+    api.delete<ApiResponse<unknown>>(`/settlement/admin/jobs/${jobId}`),
+
+  batchRetryJobs: (data: { job_ids?: string[]; all_failed?: boolean }) =>
+    api.post<ApiResponse<unknown>>('/settlement/admin/jobs/batch-retry', data),
+
+  // Phase 3: 정합성 수정
+  recalculateAllocations: (data: { transaction_ids?: string[]; all_mismatched?: boolean }) =>
+    api.post<ApiResponse<unknown>>('/settlement/admin/integrity/recalculate-allocations', data),
+
+  recalculateVoucherBalances: (data: { voucher_ids?: string[]; all_over_allocated?: boolean }) =>
+    api.post<ApiResponse<unknown>>('/settlement/admin/integrity/recalculate-voucher-balances', data),
+
+  adjustCounterpartyBalance: (data: {
+    counterparty_id: string;
+    adjustment_type: string;
+    amount: number;
+    voucher_type: string;
+    description: string;
+  }) =>
+    api.post<ApiResponse<unknown>>('/settlement/admin/integrity/adjust-counterparty-balance', data),
 };
 
 export default api;
