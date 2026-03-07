@@ -525,7 +525,7 @@ export default function BankImportPage() {
       </Stepper>
 
       {/* ── Step 0: 법인 선택 + 업로드 ── */}
-      {activeStep === 0 && (
+      {activeStep === 0 && (<>
         <Paper
           variant="outlined"
           sx={{
@@ -676,7 +676,7 @@ export default function BankImportPage() {
             </Stack>
           </Box>
         </Alert>
-      )}
+      </>)}
 
       {/* ── Step 1: 검수 · 매칭 ── */}
       {activeStep === 1 && currentJob && (
