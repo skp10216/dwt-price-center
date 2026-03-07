@@ -24,6 +24,8 @@ from app.api.v1.settlement import (
     flow_test,
     scenario_runner,
     excel_export,
+    returns,
+    intakes,
 )
 
 settlement_router = APIRouter()
@@ -101,6 +103,16 @@ settlement_router.include_router(
 # 은행 파일 임포트
 settlement_router.include_router(
     bank_import.router, prefix="/bank-import", tags=["정산-은행임포트"]
+)
+
+# 반품 내역
+settlement_router.include_router(
+    returns.router, prefix="/returns", tags=["정산-반품"]
+)
+
+# 반입 내역
+settlement_router.include_router(
+    intakes.router, prefix="/intakes", tags=["정산-반입"]
 )
 
 # 통계

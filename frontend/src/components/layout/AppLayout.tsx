@@ -83,6 +83,8 @@ import BarChartIcon from '@mui/icons-material/BarChart';
 import DonutSmallIcon from '@mui/icons-material/DonutSmall';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import ScienceIcon from '@mui/icons-material/Science';
+import AssignmentReturnIcon from '@mui/icons-material/AssignmentReturn';
+import MoveToInboxIcon from '@mui/icons-material/MoveToInbox';
 import SpeedDial from '@mui/material/SpeedDial';
 import SpeedDialAction from '@mui/material/SpeedDialAction';
 import SpeedDialIcon from '@mui/material/SpeedDialIcon';
@@ -225,6 +227,8 @@ const settlementMenuGroups: MenuGroup[] = [
     label: '정산 업무',
     items: [
       { id: 'stl-vouchers', label: '전표 목록', icon: <ReceiptIcon />, path: '/settlement/vouchers' },
+      { id: 'stl-returns', label: '반품 내역', icon: <AssignmentReturnIcon />, path: '/settlement/returns' },
+      { id: 'stl-intakes', label: '반입 내역', icon: <MoveToInboxIcon />, path: '/settlement/intakes' },
       { id: 'stl-transactions', label: '입출금 관리', icon: <SwapHorizIcon />, path: '/settlement/transactions' },
       { id: 'stl-netting', label: '상계 관리', icon: <BalanceIcon />, path: '/settlement/netting' },
     ],

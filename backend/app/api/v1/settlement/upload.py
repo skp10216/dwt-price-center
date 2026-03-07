@@ -254,6 +254,26 @@ async def preview_purchase_upload(
     return await _handle_preview(file, "purchase", db, template_id)
 
 
+@router.post("/return/preview")
+async def preview_return_upload(
+    file: UploadFile = File(..., description="UPM 반품 내역 엑셀"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_settlement_user),
+):
+    """UPM 반품 내역 미리보기 검증 (업로드 전 데이터 확인)"""
+    return await _handle_return_preview(file, db)
+
+
+@router.post("/intake/preview")
+async def preview_intake_upload(
+    file: UploadFile = File(..., description="UPM 반입 내역 엑셀"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_settlement_user),
+):
+    """UPM 반입 내역 미리보기 검증"""
+    return await _handle_intake_preview(file, db)
+
+
 async def _handle_preview(
     file: UploadFile,
     voucher_type: str,
@@ -459,6 +479,212 @@ async def _handle_preview(
 # 업로드 엔드포인트 (Job 생성 → Worker 비동기 처리)
 # =============================================================================
 
+# =============================================================================
+# 반품 미리보기 (Preview)
+# =============================================================================
+
+_DEFAULT_RETURN_MAPPING = {
+    "return_date": ["반품일", "거래일", "일자"],
+    "counterparty_name": ["반품처", "거래처", "업체명"],
+    "slip_number": ["전표번호", "번호", "No"],
+    "pg_no": ["P/G No", "PG No", "P/G", "PG번호", "PG NO"],
+    "model_name": ["모델명", "모델", "기종"],
+    "serial_number": ["일련번호", "시리얼", "S/N"],
+    "imei": ["IMEI", "imei"],
+    "color": ["색상", "컬러", "Color"],
+    "purchase_cost": ["매입원가"],
+    "purchase_deduction": ["매입차감"],
+    "return_amount": ["반품금액"],
+    "as_cost": ["A/S금액", "AS금액", "A/S비용"],
+    "remarks": ["특이사항"],
+    "memo": ["비고"],
+}
+
+
+async def _handle_return_preview(file: UploadFile, db: AsyncSession) -> dict:
+    """반품 내역 미리보기 처리"""
+    contents = await file.read()
+    logger.info(f"[ReturnPreview] 파일명={file.filename}, 크기={len(contents)}바이트")
+    if len(contents) > settings.MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=400, detail="파일 크기가 50MB를 초과합니다")
+
+    header_row = _detect_header_row(contents) or 0
+    try:
+        df = pd.read_excel(io.BytesIO(contents), engine="openpyxl", header=header_row)
+    except Exception:
+        raise HTTPException(status_code=400, detail="엑셀 파일을 읽을 수 없습니다.")
+
+    if df.empty:
+        raise HTTPException(status_code=400, detail="엑셀 파일이 비어있습니다")
+
+    df.columns = [
+        str(c).strip() if not str(c).startswith("Unnamed") else f"col_{i}"
+        for i, c in enumerate(df.columns)
+    ]
+    df = df.dropna(how="all").reset_index(drop=True)
+
+    column_map = _build_column_map(df, _DEFAULT_RETURN_MAPPING)
+
+    required_fields = {
+        "return_date": "반품일",
+        "counterparty_name": "반품처(거래처)",
+        "slip_number": "전표번호",
+    }
+    missing = [f for f in required_fields if f not in column_map]
+    if missing:
+        missing_labels = [required_fields[f] for f in missing]
+        raise HTTPException(
+            status_code=400,
+            detail=f"필수 컬럼을 찾을 수 없습니다: {', '.join(missing_labels)}. 현재 헤더: {[str(c) for c in df.columns if not str(c).startswith('col_')]}",
+        )
+
+    import re as _re
+    rows = []
+    excluded_count = 0
+    for idx, row_data in df.iterrows():
+        return_date_val = _safe_date(row_data.get(column_map.get("return_date")))
+        cp_name = _safe_str(row_data.get(column_map.get("counterparty_name")))
+        slip_num = _safe_str(row_data.get(column_map.get("slip_number")))
+
+        _SUMMARY_KEYWORDS = r'합계|소계|총계|통계|평균|수량\s*\(건수\)|TOTAL|SUM'
+        is_summary = False
+        if cp_name and _re.search(_SUMMARY_KEYWORDS, cp_name, _re.IGNORECASE):
+            is_summary = True
+        elif slip_num and _re.search(_SUMMARY_KEYWORDS, slip_num, _re.IGNORECASE):
+            is_summary = True
+        elif not return_date_val and not cp_name and not slip_num:
+            is_summary = True
+
+        status = "ok"
+        message = None
+        if is_summary:
+            status = "excluded"
+            message = "통계/요약 행 (자동 제외)"
+            excluded_count += 1
+        elif not return_date_val:
+            status = "error"
+            message = "반품일이 누락되었습니다"
+        elif not cp_name:
+            status = "error"
+            message = "반품처가 누락되었습니다"
+        elif not slip_num:
+            status = "error"
+            message = "전표번호가 누락되었습니다"
+
+        pg_no = _safe_str(row_data.get(column_map.get("pg_no"))) if "pg_no" in column_map else None
+        model_name = _safe_str(row_data.get(column_map.get("model_name"))) if "model_name" in column_map else None
+        imei = _safe_str(row_data.get(column_map.get("imei"))) if "imei" in column_map else None
+        return_amount = _safe_decimal(row_data.get(column_map.get("return_amount"))) if "return_amount" in column_map else None
+
+        rows.append({
+            "row_number": int(idx) + 1,
+            "return_date": return_date_val.isoformat() if return_date_val else "",
+            "counterparty_name": cp_name or "",
+            "slip_number": slip_num or "",
+            "pg_no": pg_no or "",
+            "model_name": model_name or "",
+            "imei": imei or "",
+            "return_amount": float(return_amount) if return_amount else 0,
+            "status": status,
+            "message": message,
+        })
+
+    return {"rows": rows, "excluded_count": excluded_count}
+
+
+# =============================================================================
+# 반입 미리보기 (Preview)
+# =============================================================================
+
+_DEFAULT_INTAKE_MAPPING = {
+    "intake_date": ["반입일", "일자"],
+    "counterparty_name": ["반입처", "거래처"],
+    "slip_number": ["전표번호", "번호"],
+    "pg_no": ["P/G No", "PG No", "P/G"],
+    "model_name": ["모델명", "모델"],
+    "serial_number": ["일련번호", "시리얼", "S/N"],
+    "purchase_date": ["매입일"],
+    "purchase_counterparty_name": ["매입처"],
+    "actual_purchase_price": ["실매입가", "매입가"],
+    "intake_price": ["반입가"],
+    "margin": ["마진"],
+    "intake_type": ["반입구분"],
+    "current_status": ["현상태", "상태"],
+    "remarks": ["특이사항"],
+    "memo": ["비고"],
+}
+
+
+async def _handle_intake_preview(file: UploadFile, db: AsyncSession) -> dict:
+    """반입 내역 미리보기 처리"""
+    contents = await file.read()
+    if len(contents) > settings.MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=400, detail="파일 크기가 50MB를 초과합니다")
+    header_row = _detect_header_row(contents) or 0
+    try:
+        df = pd.read_excel(io.BytesIO(contents), engine="openpyxl", header=header_row)
+    except Exception:
+        raise HTTPException(status_code=400, detail="엑셀 파일을 읽을 수 없습니다.")
+    if df.empty:
+        raise HTTPException(status_code=400, detail="엑셀 파일이 비어있습니다")
+    df.columns = [str(c).strip() if not str(c).startswith("Unnamed") else f"col_{i}" for i, c in enumerate(df.columns)]
+    df = df.dropna(how="all").reset_index(drop=True)
+
+    column_map = _build_column_map(df, _DEFAULT_INTAKE_MAPPING)
+    required_fields = {"intake_date": "반입일", "counterparty_name": "반입처", "slip_number": "전표번호"}
+    missing = [f for f in required_fields if f not in column_map]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"필수 컬럼 누락: {', '.join(required_fields[f] for f in missing)}")
+
+    import re as _re
+    rows, excluded_count = [], 0
+    for idx, row_data in df.iterrows():
+        intake_date_val = _safe_date(row_data.get(column_map.get("intake_date")))
+        cp_name = _safe_str(row_data.get(column_map.get("counterparty_name")))
+        slip_num = _safe_str(row_data.get(column_map.get("slip_number")))
+
+        _KW = r'합계|소계|총계|통계|평균|TOTAL|SUM'
+        is_summary = False
+        if cp_name and _re.search(_KW, cp_name, _re.IGNORECASE):
+            is_summary = True
+        elif not intake_date_val and not cp_name and not slip_num:
+            is_summary = True
+
+        status, message = "ok", None
+        if is_summary:
+            status, message = "excluded", "통계/요약 행 (자동 제외)"
+            excluded_count += 1
+        elif not intake_date_val:
+            status, message = "error", "반입일이 누락되었습니다"
+        elif not cp_name:
+            status, message = "error", "반입처가 누락되었습니다"
+        elif not slip_num:
+            status, message = "error", "전표번호가 누락되었습니다"
+
+        model_name = _safe_str(row_data.get(column_map.get("model_name"))) if "model_name" in column_map else None
+        actual_pp = _safe_decimal(row_data.get(column_map.get("actual_purchase_price"))) if "actual_purchase_price" in column_map else None
+        intake_p = _safe_decimal(row_data.get(column_map.get("intake_price"))) if "intake_price" in column_map else None
+        margin_calc = float((actual_pp or 0) - (intake_p or 0))
+
+        rows.append({
+            "row_number": int(idx) + 1,
+            "intake_date": intake_date_val.isoformat() if intake_date_val else "",
+            "counterparty_name": cp_name or "",
+            "slip_number": slip_num or "",
+            "model_name": model_name or "",
+            "actual_purchase_price": float(actual_pp) if actual_pp else 0,
+            "intake_price": float(intake_p) if intake_p else 0,
+            "margin": margin_calc,
+            "status": status,
+            "message": message,
+        })
+    return {"rows": rows, "excluded_count": excluded_count}
+
+
+# =============================================================================
+# 업로드 엔드포인트 (Job 생성 → Worker 비동기 처리)
+# =============================================================================
+
 @router.post("/sales-excel", response_model=UploadJobResponse, status_code=201)
 async def upload_sales_excel(
     file: UploadFile = File(..., description="UPM 판매 전표 엑셀"),
@@ -487,6 +713,40 @@ async def upload_purchase_excel(
     return await _handle_voucher_upload(
         file=file,
         job_type=JobType.VOUCHER_PURCHASE_EXCEL,
+        db=db,
+        redis=redis,
+        user=current_user,
+    )
+
+
+@router.post("/return-excel", response_model=UploadJobResponse, status_code=201)
+async def upload_return_excel(
+    file: UploadFile = File(..., description="UPM 반품 내역 엑셀"),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+    current_user: User = Depends(get_settlement_user),
+):
+    """UPM 반품 내역 엑셀 업로드"""
+    return await _handle_voucher_upload(
+        file=file,
+        job_type=JobType.VOUCHER_RETURN_EXCEL,
+        db=db,
+        redis=redis,
+        user=current_user,
+    )
+
+
+@router.post("/intake-excel", response_model=UploadJobResponse, status_code=201)
+async def upload_intake_excel(
+    file: UploadFile = File(..., description="UPM 반입 내역 엑셀"),
+    db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
+    current_user: User = Depends(get_settlement_user),
+):
+    """UPM 반입 내역 엑셀 업로드"""
+    return await _handle_voucher_upload(
+        file=file,
+        job_type=JobType.VOUCHER_INTAKE_EXCEL,
         db=db,
         redis=redis,
         user=current_user,
@@ -572,12 +832,18 @@ async def _handle_voucher_upload(
     try:
         sync_redis_conn = sync_redis_lib.Redis.from_url(settings.REDIS_URL)
         q = Queue("default", connection=sync_redis_conn)
+        if job_type == JobType.VOUCHER_RETURN_EXCEL:
+            task_func = "tasks.return_parser.parse_return_excel"
+        elif job_type == JobType.VOUCHER_INTAKE_EXCEL:
+            task_func = "tasks.intake_parser.parse_intake_excel"
+        else:
+            task_func = "tasks.voucher_parser.parse_voucher_excel"
         q.enqueue(
-            "tasks.voucher_parser.parse_voucher_excel",
+            task_func,
             str(job.id),
             job_timeout="10m",
         )
-        logger.info(f"[Upload] Job {job.id} → RQ 큐 enqueue 완료")
+        logger.info(f"[Upload] Job {job.id} → RQ 큐 enqueue 완료 (task={task_func})")
     except Exception as enq_err:
         logger.error(f"[Upload] RQ enqueue 실패: {enq_err}", exc_info=True)
         # enqueue 실패 시 job 상태를 FAILED로 변경
@@ -611,13 +877,16 @@ async def list_upload_jobs(
     current_user: User = Depends(get_settlement_user),
 ):
     """업로드 작업 내역 조회"""
+    _voucher_job_types = [
+        JobType.VOUCHER_SALES_EXCEL,
+        JobType.VOUCHER_PURCHASE_EXCEL,
+        JobType.VOUCHER_RETURN_EXCEL,
+        JobType.VOUCHER_INTAKE_EXCEL,
+    ]
     query = select(UploadJob).options(
         selectinload(UploadJob.created_by_user)
     ).where(
-        UploadJob.job_type.in_([
-            JobType.VOUCHER_SALES_EXCEL,
-            JobType.VOUCHER_PURCHASE_EXCEL,
-        ])
+        UploadJob.job_type.in_(_voucher_job_types)
     )
 
     if job_type:
@@ -627,10 +896,7 @@ async def list_upload_jobs(
 
     count_q = select(func.count()).select_from(
         select(UploadJob).where(
-            UploadJob.job_type.in_([
-                JobType.VOUCHER_SALES_EXCEL,
-                JobType.VOUCHER_PURCHASE_EXCEL,
-            ])
+            UploadJob.job_type.in_(_voucher_job_types)
         ).subquery()
     )
     total = (await db.execute(count_q)).scalar() or 0
@@ -952,6 +1218,12 @@ async def confirm_upload_job(
     change_requests = 0
     skipped = 0
 
+    # 반품/반입 내역 확정은 별도 로직
+    if job.job_type == JobType.VOUCHER_RETURN_EXCEL:
+        return await _confirm_return_upload(job, rows, db, redis, current_user)
+    if job.job_type == JobType.VOUCHER_INTAKE_EXCEL:
+        return await _confirm_intake_upload(job, rows, db, redis, current_user)
+
     vtype = VoucherType.SALES if job.job_type == JobType.VOUCHER_SALES_EXCEL else VoucherType.PURCHASE
 
     for row in rows:
@@ -1088,3 +1360,233 @@ async def confirm_upload_job(
         "change_requests": change_requests,
         "skipped": skipped,
     }
+
+
+async def _confirm_return_upload(
+    job: UploadJob,
+    rows: list,
+    db: AsyncSession,
+    redis: "aioredis.Redis",
+    current_user: User,
+) -> dict:
+    """반품 내역 업로드 확정 → return_items INSERT/UPDATE"""
+    from app.models.return_item import ReturnItem
+    from decimal import Decimal
+    from datetime import datetime
+
+    created = 0
+    updated = 0
+    skipped = 0
+
+    for row in rows:
+        status = row.get("status")
+
+        if status in ("unmatched", "locked", "excluded", "error", "unchanged") or not row.get("counterparty_id"):
+            skipped += 1
+            continue
+
+        data = row.get("data", {})
+        counterparty_id = row["counterparty_id"]
+        return_date_str = row["return_date"]
+        slip_number = row["slip_number"]
+        dedupe_key = row.get("dedupe_key", "")
+
+        try:
+            return_date_val = date.fromisoformat(return_date_str) if isinstance(return_date_str, str) else return_date_str
+        except (ValueError, TypeError):
+            skipped += 1
+            continue
+
+        if not dedupe_key:
+            skipped += 1
+            continue
+
+        # 기존 건 조회
+        existing = await db.execute(
+            select(ReturnItem).where(ReturnItem.dedupe_key == dedupe_key)
+        )
+        existing_item = existing.scalar_one_or_none()
+
+        if existing_item:
+            if existing_item.is_locked:
+                skipped += 1
+                continue
+
+            for field in ["purchase_cost", "purchase_deduction", "return_amount", "as_cost"]:
+                if field in data:
+                    setattr(existing_item, field, Decimal(str(data[field] or 0)))
+            for field in ["pg_no", "model_name", "serial_number", "imei", "color", "remarks", "memo"]:
+                if field in data and data[field] is not None:
+                    setattr(existing_item, field, data[field])
+
+            if row.get("source_voucher_id"):
+                existing_item.source_voucher_id = row["source_voucher_id"]
+
+            updated += 1
+        else:
+            item = ReturnItem(
+                return_date=return_date_val,
+                slip_number=slip_number,
+                counterparty_id=counterparty_id,
+                pg_no=data.get("pg_no"),
+                model_name=data.get("model_name"),
+                serial_number=data.get("serial_number"),
+                imei=data.get("imei"),
+                color=data.get("color"),
+                purchase_cost=Decimal(str(data.get("purchase_cost", 0) or 0)),
+                purchase_deduction=Decimal(str(data.get("purchase_deduction", 0) or 0)),
+                return_amount=Decimal(str(data.get("return_amount", 0) or 0)),
+                as_cost=Decimal(str(data.get("as_cost", 0) or 0)),
+                remarks=data.get("remarks"),
+                memo=data.get("memo"),
+                dedupe_key=dedupe_key,
+                source_voucher_id=row.get("source_voucher_id"),
+                upload_job_id=job.id,
+                created_by=current_user.id,
+            )
+            db.add(item)
+            created += 1
+
+    job.is_confirmed = True
+    job.confirmed_at = datetime.utcnow()
+    job.result_summary = {
+        **(job.result_summary or {}),
+        "confirmed": {"created": created, "updated": updated, "skipped": skipped},
+    }
+
+    db.add(AuditLog(
+        user_id=current_user.id,
+        action=AuditAction.RETURN_ITEM_UPSERT,
+        target_type="upload_job",
+        target_id=job.id,
+        after_data={"created": created, "updated": updated},
+    ))
+
+    await db.flush()
+
+    return {
+        "message": "반품 내역 확정 완료",
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+    }
+
+
+async def _confirm_intake_upload(
+    job: UploadJob, rows: list, db: AsyncSession,
+    redis: "aioredis.Redis", current_user: User,
+) -> dict:
+    """반입 내역 업로드 확정 → intake_items INSERT/UPDATE (margin 저장 안 함)"""
+    from app.models.intake_item import IntakeItem
+    from app.models.enums import IntakeStatus, IntakeType
+    from decimal import Decimal
+    from datetime import datetime
+
+    created, updated, skipped = 0, 0, 0
+
+    for row in rows:
+        status = row.get("status")
+        if status in ("unmatched", "locked", "excluded", "error", "unchanged") or not row.get("counterparty_id"):
+            skipped += 1
+            continue
+
+        data = row.get("data", {})
+        cp_id = row["counterparty_id"]
+        dedupe_key = row.get("dedupe_key", "")
+        if not dedupe_key:
+            skipped += 1
+            continue
+
+        try:
+            intake_date_val = date.fromisoformat(row["intake_date"]) if isinstance(row["intake_date"], str) else row["intake_date"]
+        except (ValueError, TypeError):
+            skipped += 1
+            continue
+
+        purchase_date_val = None
+        if data.get("purchase_date"):
+            try:
+                purchase_date_val = date.fromisoformat(data["purchase_date"])
+            except (ValueError, TypeError):
+                pass
+
+        existing = await db.execute(select(IntakeItem).where(IntakeItem.dedupe_key == dedupe_key))
+        existing_item = existing.scalar_one_or_none()
+
+        if existing_item:
+            if existing_item.is_locked:
+                skipped += 1
+                continue
+            for f in ["actual_purchase_price", "intake_price"]:
+                if f in data:
+                    setattr(existing_item, f, Decimal(str(data[f] or 0)))
+            for f in ["pg_no", "model_name", "serial_number", "remarks", "memo"]:
+                if f in data and data[f] is not None:
+                    setattr(existing_item, f, data[f])
+            if data.get("current_status"):
+                try:
+                    existing_item.current_status = IntakeStatus(data["current_status"])
+                except ValueError:
+                    pass
+            if data.get("intake_type"):
+                try:
+                    existing_item.intake_type = IntakeType(data["intake_type"])
+                except ValueError:
+                    pass
+            if purchase_date_val:
+                existing_item.purchase_date = purchase_date_val
+            if data.get("purchase_counterparty_id"):
+                existing_item.purchase_counterparty_id = data["purchase_counterparty_id"]
+            if row.get("source_voucher_id"):
+                existing_item.source_voucher_id = row["source_voucher_id"]
+            updated += 1
+        else:
+            try:
+                cs = IntakeStatus(data.get("current_status", "RECEIVED"))
+            except ValueError:
+                cs = IntakeStatus.RECEIVED
+            try:
+                it = IntakeType(data.get("intake_type", "NORMAL"))
+            except ValueError:
+                it = IntakeType.NORMAL
+
+            item = IntakeItem(
+                intake_date=intake_date_val,
+                slip_number=row["slip_number"],
+                counterparty_id=cp_id,
+                pg_no=data.get("pg_no"),
+                model_name=data.get("model_name"),
+                serial_number=data.get("serial_number"),
+                purchase_date=purchase_date_val,
+                purchase_counterparty_id=data.get("purchase_counterparty_id"),
+                actual_purchase_price=Decimal(str(data.get("actual_purchase_price", 0) or 0)),
+                intake_price=Decimal(str(data.get("intake_price", 0) or 0)),
+                intake_type=it,
+                current_status=cs,
+                remarks=data.get("remarks"),
+                memo=data.get("memo"),
+                dedupe_key=dedupe_key,
+                source_voucher_id=row.get("source_voucher_id"),
+                upload_job_id=job.id,
+                created_by=current_user.id,
+            )
+            db.add(item)
+            created += 1
+
+    job.is_confirmed = True
+    job.confirmed_at = datetime.utcnow()
+    job.result_summary = {
+        **(job.result_summary or {}),
+        "confirmed": {"created": created, "updated": updated, "skipped": skipped},
+    }
+
+    db.add(AuditLog(
+        user_id=current_user.id,
+        action=AuditAction.INTAKE_ITEM_UPSERT,
+        target_type="upload_job",
+        target_id=job.id,
+        after_data={"created": created, "updated": updated},
+    ))
+
+    await db.flush()
+    return {"message": "반입 내역 확정 완료", "created": created, "updated": updated, "skipped": skipped}

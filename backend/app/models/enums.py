@@ -113,6 +113,23 @@ class AdjustmentType(str, enum.Enum):
     DISCOUNT = "discount"       # 할인/감액
 
 
+class IntakeStatus(str, enum.Enum):
+    """반입 현상태"""
+    RECEIVED = "received"       # 반입 (입고 완료)
+    IN_STOCK = "in_stock"       # 재고
+    SOLD = "sold"               # 판매완료
+    HOLD = "hold"               # 보류
+    EXCLUDED = "excluded"       # 제외
+
+
+class IntakeType(str, enum.Enum):
+    """반입 구분"""
+    NORMAL = "normal"                 # 일반 반입
+    RETURN_INTAKE = "return_intake"   # 반품 후 재반입
+    TRANSFER = "transfer"             # 이관
+    OTHER = "other"                   # 기타
+
+
 class BankImportLineStatus(str, enum.Enum):
     """은행 임포트 라인 상태"""
     UNMATCHED = "unmatched"     # 미매칭
@@ -150,6 +167,8 @@ class JobType(str, enum.Enum):
     # 정산 도메인 추가
     VOUCHER_SALES_EXCEL = "voucher_sales_excel"       # UPM 판매 전표 업로드
     VOUCHER_PURCHASE_EXCEL = "voucher_purchase_excel" # UPM 매입 전표 업로드
+    VOUCHER_RETURN_EXCEL = "voucher_return_excel"     # UPM 반품 내역 업로드
+    VOUCHER_INTAKE_EXCEL = "voucher_intake_excel"     # UPM 반입 내역 업로드
 
 
 class JobStatus(str, enum.Enum):
@@ -277,6 +296,19 @@ class AuditAction(str, enum.Enum):
 
     # 조정전표
     ADJUSTMENT_VOUCHER_CREATE = "adjustment_voucher_create"
+
+    # 반품 내역
+    RETURN_ITEM_CREATE = "return_item_create"
+    RETURN_ITEM_UPDATE = "return_item_update"
+    RETURN_ITEM_DELETE = "return_item_delete"
+    RETURN_ITEM_UPSERT = "return_item_upsert"
+
+    # 반입 내역
+    INTAKE_ITEM_CREATE = "intake_item_create"
+    INTAKE_ITEM_UPDATE = "intake_item_update"
+    INTAKE_ITEM_DELETE = "intake_item_delete"
+    INTAKE_ITEM_UPSERT = "intake_item_upsert"
+    INTAKE_ITEM_STATUS_CHANGE = "intake_item_status_change"
 
     # 법인 관리
     CORPORATE_ENTITY_CREATE = "corporate_entity_create"

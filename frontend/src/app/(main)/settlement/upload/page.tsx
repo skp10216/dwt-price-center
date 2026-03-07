@@ -190,7 +190,7 @@ interface Counterparty {
   name: string;
 }
 
-type VoucherType = 'sales' | 'purchase';
+type VoucherType = 'sales' | 'purchase' | 'return' | 'intake';
 type SortField = 'row_index' | 'trade_date' | 'counterparty_name' | 'voucher_number' | 'status';
 type SortDirection = 'asc' | 'desc';
 
@@ -584,7 +584,7 @@ export default function UploadWizardPage() {
       <AppPageHeader
         icon={<CloudUploadIcon />}
         title="UPM 전표 업로드"
-        description="판매/매입 전표를 한 번에 업로드하고 미매칭 거래처 처리까지 완료하세요"
+        description="판매/매입 전표 및 반품 내역을 업로드하고 미매칭 거래처 처리까지 완료하세요"
         color="primary"
         highlight
         actions={[
@@ -643,16 +643,28 @@ export default function UploadWizardPage() {
                 onChange={(_, v) => v && setVoucherType(v)}
                 sx={{ mt: 1 }}
               >
-                <ToggleButton value="sales" sx={{ px: 4, py: 1.5, borderRadius: '12px 0 0 12px' }}>
+                <ToggleButton value="sales" sx={{ px: 3, py: 1.5, borderRadius: '12px 0 0 12px' }}>
                   <Stack direction="row" spacing={1} alignItems="center">
                     <SalesIcon color={voucherType === 'sales' ? 'primary' : 'inherit'} />
                     <Typography fontWeight={600}>판매 전표</Typography>
                   </Stack>
                 </ToggleButton>
-                <ToggleButton value="purchase" sx={{ px: 4, py: 1.5, borderRadius: '0 12px 12px 0' }}>
+                <ToggleButton value="purchase" sx={{ px: 3, py: 1.5 }}>
                   <Stack direction="row" spacing={1} alignItems="center">
                     <PurchaseIcon color={voucherType === 'purchase' ? 'primary' : 'inherit'} />
                     <Typography fontWeight={600}>매입 전표</Typography>
+                  </Stack>
+                </ToggleButton>
+                <ToggleButton value="return" sx={{ px: 3, py: 1.5 }}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <CloudUploadIcon color={voucherType === 'return' ? 'warning' : 'inherit'} sx={{ fontSize: 20 }} />
+                    <Typography fontWeight={600}>반품 내역</Typography>
+                  </Stack>
+                </ToggleButton>
+                <ToggleButton value="intake" sx={{ px: 3, py: 1.5, borderRadius: '0 12px 12px 0' }}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <CloudUploadIcon color={voucherType === 'intake' ? 'info' : 'inherit'} sx={{ fontSize: 20 }} />
+                    <Typography fontWeight={600}>반입 내역</Typography>
                   </Stack>
                 </ToggleButton>
               </ToggleButtonGroup>
@@ -707,34 +719,67 @@ export default function UploadWizardPage() {
                     startIcon={<DownloadIcon />}
                     onClick={(e) => {
                       e.stopPropagation();
-                      const isSales = voucherType === 'sales';
-                      downloadSampleTemplate({
-                        filename: isSales ? '판매전표_양식' : '매입전표_양식',
-                        sheetName: isSales ? '판매전표' : '매입전표',
-                        columns: isSales
-                          ? [
-                              { header: '판매일', width: 12 }, { header: '판매처', width: 20 },
-                              { header: '전표번호', width: 15 }, { header: '수량', width: 8 },
-                              { header: '매입원가', width: 12 }, { header: '판매금액', width: 12 },
-                              { header: '비고', width: 15 },
-                            ]
-                          : [
-                              { header: '매입일', width: 12 }, { header: '매입처', width: 20 },
-                              { header: '전표번호', width: 15 }, { header: '수량', width: 8 },
-                              { header: '매입원가', width: 12 }, { header: '비고', width: 15 },
-                            ],
-                        sampleRows: isSales
-                          ? [
-                              ['2025-03-01', 'ABC무역', 'S-2025-001', 10, 500000, 600000, '정상 거래'],
-                              ['2025-03-02', 'DEF전자', 'S-2025-002', 5, 250000, 310000, ''],
-                              ['2025-03-03', 'GHI상사', 'S-2025-003', 8, 400000, 480000, '할인 적용'],
-                            ]
-                          : [
-                              ['2025-03-01', 'GHI부품', 'P-2025-001', 20, 400000, '정상 거래'],
-                              ['2025-03-02', 'JKL기계', 'P-2025-002', 15, 750000, ''],
-                              ['2025-03-03', 'MNO전자', 'P-2025-003', 30, 900000, '대량 입고'],
-                            ],
-                      });
+                      const templateMap = {
+                        sales: {
+                          filename: '판매전표_양식', sheetName: '판매전표',
+                          columns: [
+                            { header: '판매일', width: 12 }, { header: '판매처', width: 20 },
+                            { header: '전표번호', width: 15 }, { header: '수량', width: 8 },
+                            { header: '매입원가', width: 12 }, { header: '판매금액', width: 12 },
+                            { header: '비고', width: 15 },
+                          ],
+                          sampleRows: [
+                            ['2025-03-01', 'ABC무역', 'S-2025-001', 10, 500000, 600000, '정상 거래'],
+                            ['2025-03-02', 'DEF전자', 'S-2025-002', 5, 250000, 310000, ''],
+                          ],
+                        },
+                        purchase: {
+                          filename: '매입전표_양식', sheetName: '매입전표',
+                          columns: [
+                            { header: '매입일', width: 12 }, { header: '매입처', width: 20 },
+                            { header: '전표번호', width: 15 }, { header: '수량', width: 8 },
+                            { header: '매입원가', width: 12 }, { header: '비고', width: 15 },
+                          ],
+                          sampleRows: [
+                            ['2025-03-01', 'GHI부품', 'P-2025-001', 20, 400000, '정상 거래'],
+                            ['2025-03-02', 'JKL기계', 'P-2025-002', 15, 750000, ''],
+                          ],
+                        },
+                        intake: {
+                          filename: '반입내역_양식', sheetName: '반입내역',
+                          columns: [
+                            { header: '반입일', width: 12 }, { header: '전표번호', width: 10 },
+                            { header: '반입처', width: 18 }, { header: 'P/G No', width: 15 },
+                            { header: '모델명', width: 20 }, { header: '일련번호', width: 15 },
+                            { header: '매입일', width: 12 }, { header: '매입처', width: 18 },
+                            { header: '실매입가', width: 12 }, { header: '반입가', width: 12 },
+                            { header: '마진', width: 12 }, { header: '반입구분', width: 10 },
+                            { header: '현상태', width: 10 }, { header: '특이사항', width: 25 },
+                            { header: '비고', width: 15 },
+                          ],
+                          sampleRows: [
+                            ['2026-01-07', '24', '베트남 홍산', 'I290133006', 'AIP12 Pro-128G', 'DNPG90FG0D8X', '2025-12-30', '행운모바일', 240000, 250000, -10000, '반입', '반입', '', ''],
+                          ],
+                        },
+                        return: {
+                          filename: '반품내역_양식', sheetName: '반품내역',
+                          columns: [
+                            { header: '반품일', width: 12 }, { header: '전표번호', width: 10 },
+                            { header: '반품처', width: 18 }, { header: 'P/G No', width: 15 },
+                            { header: '모델명', width: 20 }, { header: '일련번호', width: 15 },
+                            { header: 'IMEI', width: 18 }, { header: '색상', width: 8 },
+                            { header: '매입원가', width: 12 }, { header: '매입차감', width: 12 },
+                            { header: '반품금액', width: 12 }, { header: 'A/S금액', width: 12 },
+                            { header: '특이사항', width: 25 }, { header: '비고', width: 15 },
+                          ],
+                          sampleRows: [
+                            ['2026-03-06', '3', '의리인_부산사하', 'G642125319', 'SM-G998N_256G', '', '352412372287178', '', 0, 0, 0, 0, '분실', ''],
+                            ['2026-03-06', '216', '의리인_부산사하', 'G642125349', 'SM-A135', '', '353270790556940', '', 0, 0, 0, 0, '액정 우측 찔긴거', ''],
+                          ],
+                        },
+                      };
+                      const t = templateMap[voucherType];
+                      downloadSampleTemplate(t);
                     }}
                     sx={{
                       fontWeight: 600, fontSize: '0.75rem', borderRadius: 2, textTransform: 'none',
@@ -784,6 +829,41 @@ export default function UploadWizardPage() {
                             { col: '매입원가', req: false, desc: '매입 원가' },
                             { col: '판매금액', req: false, desc: '판매 금액' },
                             { col: '실판매가', req: false, desc: '실 판매가 (차감 후)' },
+                            { col: '비고', req: false, desc: '메모 / 비고' },
+                          ]
+                        : voucherType === 'intake'
+                        ? [
+                            { col: '반입일 / 일자', req: true, desc: '반입 일자' },
+                            { col: '반입처 / 거래처', req: true, desc: '반입 거래처명' },
+                            { col: '전표번호 / 번호', req: true, desc: '전표 번호' },
+                            { col: 'P/G No', req: false, desc: '제품 그룹 번호' },
+                            { col: '모델명', req: false, desc: '기기 모델명' },
+                            { col: '일련번호 / S/N', req: false, desc: '기기 시리얼 (중복 감지 키)' },
+                            { col: '매입일', req: false, desc: '원래 매입 일자' },
+                            { col: '매입처', req: false, desc: '원래 매입 거래처' },
+                            { col: '실매입가', req: false, desc: '실제 매입 가격' },
+                            { col: '반입가', req: false, desc: '반입 가격' },
+                            { col: '마진', req: false, desc: '실매입가 - 반입가 (자동 검증)' },
+                            { col: '반입구분', req: false, desc: '일반/재반입/이관/기타' },
+                            { col: '현상태', req: false, desc: '반입/재고/판매완료/보류/제외' },
+                            { col: '특이사항', req: false, desc: '기기 상태 메모' },
+                            { col: '비고', req: false, desc: '메모' },
+                          ]
+                        : voucherType === 'return'
+                        ? [
+                            { col: '반품일 / 거래일 / 일자', req: true, desc: '반품 일자' },
+                            { col: '반품처 / 거래처 / 업체명', req: true, desc: '반품 거래처명' },
+                            { col: '전표번호 / 번호 / No', req: true, desc: '전표 번호' },
+                            { col: 'P/G No', req: false, desc: '제품 그룹 번호' },
+                            { col: '모델명', req: false, desc: '기기 모델명' },
+                            { col: '일련번호 / S/N', req: false, desc: '기기 시리얼 번호' },
+                            { col: 'IMEI', req: false, desc: 'IMEI 번호 (중복 감지 키)' },
+                            { col: '색상', req: false, desc: '기기 색상' },
+                            { col: '매입원가', req: false, desc: '매입 원가' },
+                            { col: '매입차감', req: false, desc: '매입 차감 금액' },
+                            { col: '반품금액', req: false, desc: '반품 금액' },
+                            { col: 'A/S금액', req: false, desc: 'A/S 비용' },
+                            { col: '특이사항', req: false, desc: '기기 상태/결함 메모' },
                             { col: '비고', req: false, desc: '메모 / 비고' },
                           ]
                         : [
@@ -1695,8 +1775,8 @@ export default function UploadWizardPage() {
                 <Typography variant="body2" fontWeight={600} noWrap>{jobDetail?.original_filename ?? '—'}</Typography>
               </Box>
               <Chip
-                label={voucherType === 'sales' ? '판매 전표' : '매입 전표'}
-                color={voucherType === 'sales' ? 'primary' : 'secondary'}
+                label={voucherType === 'sales' ? '판매 전표' : voucherType === 'purchase' ? '매입 전표' : voucherType === 'return' ? '반품 내역' : '반입 내역'}
+                color={voucherType === 'sales' ? 'primary' : voucherType === 'purchase' ? 'secondary' : voucherType === 'return' ? 'warning' : 'info'}
                 size="small"
                 sx={{ fontWeight: 700 }}
               />

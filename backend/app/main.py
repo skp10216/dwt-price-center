@@ -264,9 +264,10 @@ async def sync_pg_enums():
             for member in py_enum:
                 # SQLAlchemy는 기본적으로 enum의 .name (대문자)을 DB에 저장
                 if member.name not in existing:
+                    safe_val = member.name.replace("'", "''")
                     await conn.execute(text(
-                        f"ALTER TYPE {pg_name} ADD VALUE IF NOT EXISTS :val"
-                    ), {"val": member.name})
+                        f"ALTER TYPE {pg_name} ADD VALUE IF NOT EXISTS '{safe_val}'"
+                    ))
                     added.append(f"{pg_name}.{member.name}")
 
         await conn.commit()

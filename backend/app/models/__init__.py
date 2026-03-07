@@ -33,6 +33,8 @@ from app.models.netting_record import NettingRecord, NettingVoucherLink
 from app.models.bank_import import BankImportJob, BankImportLine
 from app.models.period_lock import PeriodLock
 from app.models.scenario_test_record import ScenarioTestRecord
+from app.models.return_item import ReturnItem
+from app.models.intake_item import IntakeItem
 
 __all__ = [
     "User",
@@ -73,4 +75,6 @@ __all__ = [
     "BankImportLine",
     "PeriodLock",
     "ScenarioTestRecord",
+    "ReturnItem",
+    "IntakeItem",
 ]

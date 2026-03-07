@@ -670,16 +670,15 @@ export const settlementApi = {
   },
 
   // 미리보기 검증 (파일 업로드 전 데이터 검증)
-  previewUpload: (file: File, type: 'sales' | 'purchase', templateId?: string) => {
+  previewUpload: (file: File, type: 'sales' | 'purchase' | 'return' | 'intake', templateId?: string) => {
     const formData = new FormData();
     formData.append('file', file);
     if (templateId) formData.append('template_id', templateId);
-    // FormData 전송 시 Content-Type을 수동 설정하지 않음 → axios가 boundary 자동 포함
     return api.post<ApiResponse<{ rows: unknown[] }>>(`/settlement/upload/${type}/preview`, formData);
   },
 
-  // 전표 Excel 업로드 (판매/매입 통합)
-  uploadVoucherExcel: (file: File, type: 'sales' | 'purchase', templateId?: string) => {
+  // 전표 Excel 업로드 (판매/매입/반품 통합)
+  uploadVoucherExcel: (file: File, type: 'sales' | 'purchase' | 'return' | 'intake', templateId?: string) => {
     const formData = new FormData();
     formData.append('file', file);
     if (templateId) formData.append('template_id', templateId);
@@ -1006,6 +1005,47 @@ export const settlementApi = {
     api.get<ApiResponse<unknown>>('/settlement/statistics/completion-rate', { params: { months } }),
   statsCashLag: (limit?: number) =>
     api.get<ApiResponse<unknown>>('/settlement/statistics/cash-lag', { params: { limit } }),
+
+  // ── 반품 내역 ──────────────────────────────────────────────────
+  listReturnItems: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<{ items: unknown[]; total: number }>>('/settlement/returns', { params }),
+
+  getReturnItem: (id: string) =>
+    api.get<ApiResponse<unknown>>(`/settlement/returns/${id}`),
+
+  updateReturnItem: (id: string, data: unknown) =>
+    api.patch<ApiResponse<unknown>>(`/settlement/returns/${id}`, data),
+
+  deleteReturnItem: (id: string) =>
+    api.delete<ApiResponse<unknown>>(`/settlement/returns/${id}`),
+
+  getReturnSummary: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<unknown>>('/settlement/returns/summary', { params }),
+
+  exportReturnExcel: (params?: Record<string, unknown>) =>
+    api.get('/settlement/returns/export/excel', { params, responseType: 'blob' }),
+
+  // ── 반입 내역 ──────────────────────────────────────────────────
+  listIntakeItems: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<{ items: unknown[]; total: number }>>('/settlement/intakes', { params }),
+
+  getIntakeItem: (id: string) =>
+    api.get<ApiResponse<unknown>>(`/settlement/intakes/${id}`),
+
+  updateIntakeItem: (id: string, data: unknown) =>
+    api.patch<ApiResponse<unknown>>(`/settlement/intakes/${id}`, data),
+
+  changeIntakeStatus: (id: string, status: string) =>
+    api.patch<ApiResponse<unknown>>(`/settlement/intakes/${id}/status`, { status }),
+
+  deleteIntakeItem: (id: string) =>
+    api.delete<ApiResponse<unknown>>(`/settlement/intakes/${id}`),
+
+  getIntakeSummary: (params?: Record<string, unknown>) =>
+    api.get<ApiResponse<unknown>>('/settlement/intakes/summary', { params }),
+
+  exportIntakeExcel: (params?: Record<string, unknown>) =>
+    api.get('/settlement/intakes/export/excel', { params, responseType: 'blob' }),
 
   // ── 플로우 테스트 ────────────────────────────────────────────
   flowTestHealthCheck: () =>

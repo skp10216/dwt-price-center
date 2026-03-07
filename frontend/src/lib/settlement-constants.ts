@@ -42,6 +42,29 @@ export const TRANSACTION_STATUS_LABELS: Record<string, { label: string; color: C
   cancelled: { label: '취소', color: 'default' },
 };
 
+// ─── 반입 현상태 (IntakeStatus) ──────────────────────────────────
+
+export const INTAKE_STATUS_LABELS: Record<string, { label: string; color: ChipColor }> = {
+  received:  { label: '반입',     color: 'info' },
+  in_stock:  { label: '재고',     color: 'primary' },
+  sold:      { label: '판매완료', color: 'success' },
+  hold:      { label: '보류',     color: 'warning' },
+  excluded:  { label: '제외',     color: 'default' },
+};
+
+export const INTAKE_STATUS_OPTIONS = Object.entries(INTAKE_STATUS_LABELS).map(
+  ([value, { label }]) => ({ value, label })
+);
+
+// ─── 반입 구분 (IntakeType) ─────────────────────────────────────
+
+export const INTAKE_TYPE_LABELS: Record<string, { label: string; color: ChipColor }> = {
+  normal:         { label: '일반',   color: 'default' },
+  return_intake:  { label: '재반입', color: 'secondary' },
+  transfer:       { label: '이관',   color: 'info' },
+  other:          { label: '기타',   color: 'default' },
+};
+
 // ─── 금액 포맷 ──────────────────────────────────────────────────
 
 export const formatAmount = (amount: number) =>

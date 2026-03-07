@@ -16,6 +16,8 @@ from app.core.database import get_db
 from app.api.deps import get_settlement_user
 from app.models.user import User
 from app.models.voucher import Voucher
+from app.models.return_item import ReturnItem
+from app.models.intake_item import IntakeItem
 from app.models.period_lock import PeriodLock
 from app.models.enums import (
     VoucherType, SettlementStatus, PaymentStatus, AuditAction,
@@ -163,6 +165,31 @@ async def create_monthly_lock(
     result = await db.execute(stmt)
     locked_count = result.rowcount
 
+    # 반품 내역도 일괄 잠금
+    return_stmt = (
+        update(ReturnItem)
+        .where(
+            ReturnItem.return_date >= first_day,
+            ReturnItem.return_date < last_day,
+            ReturnItem.is_locked == False,
+        )
+        .values(is_locked=True)
+    )
+    return_result = await db.execute(return_stmt)
+    locked_returns = return_result.rowcount
+
+    # 반입 내역도 일괄 잠금
+    intake_stmt = (
+        update(IntakeItem)
+        .where(
+            IntakeItem.intake_date >= first_day,
+            IntakeItem.intake_date < last_day,
+            IntakeItem.is_locked == False,
+        )
+        .values(is_locked=True)
+    )
+    await db.execute(intake_stmt)
+
     # 전체 전표 수 조회
     total_q = select(func.count()).select_from(Voucher).where(
         Voucher.trade_date >= first_day,
@@ -236,7 +263,6 @@ async def release_monthly_lock(
     unlocked_count = len(locked_vouchers)
 
     for v in locked_vouchers:
-        # 먼저 LOCKED 해제 (OPEN/UNPAID로 임시 전환) → _update_voucher_status가 처리 가능하도록
         v.settlement_status = SettlementStatus.OPEN
         v.payment_status = PaymentStatus.UNPAID
 
@@ -244,6 +270,30 @@ async def release_monthly_lock(
     await db.flush()
     for v in locked_vouchers:
         await _update_voucher_status(v.id, db)
+
+    # 반품 내역 잠금 해제
+    return_stmt = (
+        update(ReturnItem)
+        .where(
+            ReturnItem.return_date >= first_day,
+            ReturnItem.return_date < last_day,
+            ReturnItem.is_locked == True,
+        )
+        .values(is_locked=False)
+    )
+    await db.execute(return_stmt)
+
+    # 반입 내역 잠금 해제
+    intake_unlock_stmt = (
+        update(IntakeItem)
+        .where(
+            IntakeItem.intake_date >= first_day,
+            IntakeItem.intake_date < last_day,
+            IntakeItem.is_locked == True,
+        )
+        .values(is_locked=False)
+    )
+    await db.execute(intake_unlock_stmt)
 
     # PeriodLock 레코드 업데이트
     period_lock = (await db.execute(
