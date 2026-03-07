@@ -35,6 +35,7 @@ from app.models.period_lock import PeriodLock
 from app.models.scenario_test_record import ScenarioTestRecord
 from app.models.return_item import ReturnItem
 from app.models.intake_item import IntakeItem
+from app.models.system_metric import SystemMetric
 
 __all__ = [
     "User",
@@ -77,4 +78,5 @@ __all__ = [
     "ScenarioTestRecord",
     "ReturnItem",
     "IntakeItem",
+    "SystemMetric",
 ]

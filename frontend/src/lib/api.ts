@@ -1087,6 +1087,9 @@ export const settlementAdminApi = {
   getSystemHealth: () =>
     api.get<ApiResponse<unknown>>('/settlement/admin/system/health'),
 
+  getHealthHistory: (range: '24h' | '7d' | '30d' = '24h') =>
+    api.get<ApiResponse<unknown>>('/settlement/admin/system/health/history', { params: { range } }),
+
   // Phase 2: 비정상 활동
   getAnomalies: (period?: string) =>
     api.get<ApiResponse<unknown>>('/settlement/admin/audit/anomalies', { params: { period } }),
