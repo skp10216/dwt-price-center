@@ -319,7 +319,14 @@ class AuditAction(str, enum.Enum):
     BANK_IMPORT_UPLOAD = "bank_import_upload"
     BANK_IMPORT_CONFIRM = "bank_import_confirm"
 
-    # 기간 마감 (신규)
+    # 기간 마감
     PERIOD_LOCK = "period_lock"
     PERIOD_UNLOCK = "period_unlock"
     PERIOD_ADJUST = "period_adjust"
+
+    # 관리자 조작 (Phase 3)
+    JOB_RETRY = "job_retry"
+    JOB_CANCEL = "job_cancel"
+    JOB_DELETE = "job_delete"
+    INTEGRITY_FIX = "integrity_fix"
+    BALANCE_ADJUSTMENT = "balance_adjustment"
