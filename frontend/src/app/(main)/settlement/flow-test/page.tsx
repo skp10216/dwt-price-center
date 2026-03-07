@@ -81,6 +81,125 @@ interface StepResult {
 
 type StepState = 'idle' | 'running' | 'pass' | 'fail' | 'skipped';
 
+interface RecommendedScenario {
+  id: string;
+  title: string;
+  description: string;
+  category: 'return' | 'intake' | 'settlement' | 'integration';
+  steps: string[];
+  difficulty: 'easy' | 'medium' | 'hard';
+  relatedPath: string;
+}
+
+// ─── 추천 시나리오 ────────────────────────────────
+
+const RECOMMENDED_SCENARIOS: RecommendedScenario[] = [
+  {
+    id: 'return-basic',
+    title: '반품 내역 업로드 → 조회',
+    description: 'UPM 반품 엑셀을 업로드하고, 미리보기 검증 후 확정하여 반품 목록에서 조회합니다.',
+    category: 'return',
+    difficulty: 'easy',
+    steps: [
+      'UPM 업로드 페이지에서 "반품 내역" 선택',
+      '반품 엑셀 파일 업로드 → 미리보기 검증',
+      '거래처 매칭 확인 (미매칭 시 거래처 등록 후 재매칭)',
+      '확정 → 반품 내역 목록에서 데이터 확인',
+      'IMEI/일련번호 검색으로 특정 기기 조회',
+    ],
+    relatedPath: '/settlement/upload',
+  },
+  {
+    id: 'return-reupload-diff',
+    title: '반품 재업로드 Diff 검증',
+    description: '이미 업로드된 반품 내역을 동일 파일로 재업로드하여 변경 감지(Diff) 및 LOCK 검증을 확인합니다.',
+    category: 'return',
+    difficulty: 'medium',
+    steps: [
+      '반품 엑셀 최초 업로드 → 확정',
+      '동일 파일 재업로드 → 미리보기에서 "unchanged" 상태 확인',
+      '금액 수정한 파일 업로드 → "update" 상태 + diff 표시 확인',
+      '기간 마감 후 재업로드 → "locked" 상태로 스킵 확인',
+    ],
+    relatedPath: '/settlement/returns',
+  },
+  {
+    id: 'intake-basic',
+    title: '반입 내역 업로드 → 상태 관리',
+    description: 'UPM 반입 엑셀을 업로드하고, 현상태(enum) 기반 라이프사이클을 관리합니다.',
+    category: 'intake',
+    difficulty: 'easy',
+    steps: [
+      'UPM 업로드 페이지에서 "반입 내역" 선택',
+      '반입 엑셀 파일 업로드 → 이중 거래처(반입처/매입처) 매칭 확인',
+      '마진 자동 검증 (엑셀 마진 vs 서버 계산값 비교)',
+      '확정 → 반입 내역 목록에서 데이터 확인',
+      '현상태 Chip 클릭 → 반입 → 재고 → 판매완료 전환',
+    ],
+    relatedPath: '/settlement/upload',
+  },
+  {
+    id: 'intake-margin-verify',
+    title: '반입 마진 파생값 정합성 검증',
+    description: '실매입가/반입가를 수정했을 때 마진이 자동 재계산되는지 검증합니다. DB에 margin 컬럼이 없으므로 항상 서버에서 계산됩니다.',
+    category: 'intake',
+    difficulty: 'medium',
+    steps: [
+      '반입 내역 업로드 → 확정',
+      '목록에서 마진 컬럼 값 확인 (실매입가 - 반입가)',
+      '반입 내역 수정 → 실매입가 변경',
+      '목록 새로고침 → 마진이 자동 재계산되었는지 확인',
+      '엑셀 다운로드 → 마진 컬럼이 서버 계산값과 일치하는지 확인',
+    ],
+    relatedPath: '/settlement/intakes',
+  },
+  {
+    id: 'period-lock-all',
+    title: '기간 마감 → 반품/반입 잠금 통합 검증',
+    description: '월별 마감 실행 시 전표뿐 아니라 반품/반입 내역도 함께 잠기는지 검증합니다.',
+    category: 'integration',
+    difficulty: 'hard',
+    steps: [
+      '반품/반입 내역이 있는 월의 데이터 준비',
+      '마감 관리에서 해당 월 마감 실행',
+      '반품 목록에서 잠금 아이콘 확인 + 수정/삭제 비활성',
+      '반입 목록에서 잠금 아이콘 확인 + 상태변경 비활성',
+      '재업로드 시 해당 월 건이 "locked"로 스킵되는지 확인',
+      '마감 해제 후 잠금 해제 확인',
+    ],
+    relatedPath: '/settlement/lock',
+  },
+  {
+    id: 'full-settlement-flow',
+    title: '전체 정산 플로우 (전표 + 반품 + 반입)',
+    description: '매입/판매 전표, 반품, 반입을 모두 업로드한 후 입출금 배분, 상계, 마감까지 전체 흐름을 테스트합니다.',
+    category: 'integration',
+    difficulty: 'hard',
+    steps: [
+      '거래처 등록 (반입처/매입처/반품처)',
+      '판매/매입 전표 업로드 → 확정',
+      '반품 내역 업로드 → 확정',
+      '반입 내역 업로드 → 확정 → 현상태 관리',
+      '은행 임포트 → 자동 배분 → 수동 배분',
+      '상계 처리 → 마감 → 최종 데이터 검증',
+    ],
+    relatedPath: '/settlement/dashboard',
+  },
+];
+
+const CATEGORY_CONFIG = {
+  return: { label: '반품', color: 'warning' as const, icon: '↩' },
+  intake: { label: '반입', color: 'info' as const, icon: '↓' },
+  settlement: { label: '정산', color: 'primary' as const, icon: '💰' },
+  integration: { label: '통합', color: 'secondary' as const, icon: '🔗' },
+};
+
+const DIFFICULTY_CONFIG = {
+  easy: { label: '기본', color: 'success' as const },
+  medium: { label: '중급', color: 'warning' as const },
+  hard: { label: '고급', color: 'error' as const },
+};
+
 // ─── 상수 ────────────────────────────────────────
 
 const STATUS_MAP = {
@@ -575,6 +694,8 @@ export default function FlowTestPage() {
                     { label: 'UPM 업로드', path: '/settlement/upload' },
                     { label: '은행 임포트', path: '/settlement/bank-import' },
                     { label: '전표', path: '/settlement/vouchers' },
+                    { label: '반품 내역', path: '/settlement/returns' },
+                    { label: '반입 내역', path: '/settlement/intakes' },
                     { label: '입출금', path: '/settlement/transactions' },
                     { label: '거래처', path: '/settlement/counterparties' },
                     { label: '상계', path: '/settlement/netting' },
@@ -593,12 +714,113 @@ export default function FlowTestPage() {
 
         {/* ━━━ Tab 1: 시나리오 테스트 ━━━ */}
         {activeTab === 1 && (
-          <Stack spacing={2}>
-            {/* 컨트롤 바 */}
-            <Paper variant="outlined" sx={{ p: 2.5 }}>
+          <Stack spacing={2.5}>
+
+            {/* ── 추천 시나리오 섹션 ── */}
+            <Paper
+              elevation={0}
+              sx={{
+                borderRadius: 3,
+                border: `1px solid ${alpha(theme.palette.info.main, 0.15)}`,
+                background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.02)} 0%, ${alpha(theme.palette.secondary.main, 0.02)} 100%)`,
+                overflow: 'hidden',
+              }}
+            >
+              <Box sx={{
+                px: 3, py: 2,
+                borderBottom: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              }}>
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box component="span" sx={{
+                      width: 28, height: 28, borderRadius: 2,
+                      bgcolor: alpha(theme.palette.info.main, 0.1),
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '0.85rem',
+                    }}>📋</Box>
+                    추천 시나리오
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    반품/반입 기능을 포함한 실무 검증 시나리오입니다. 각 항목을 클릭하면 관련 페이지로 이동합니다.
+                  </Typography>
+                </Box>
+                <Stack direction="row" spacing={0.5}>
+                  {Object.entries(CATEGORY_CONFIG).map(([key, cfg]) => (
+                    <Chip key={key} label={cfg.label} size="small" color={cfg.color} variant="outlined"
+                      sx={{ height: 22, fontSize: '0.65rem', fontWeight: 700 }} />
+                  ))}
+                </Stack>
+              </Box>
+              <Box sx={{ px: 2, py: 1.5, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 1.5 }}>
+                {RECOMMENDED_SCENARIOS.map((sc) => {
+                  const cat = CATEGORY_CONFIG[sc.category];
+                  const diff = DIFFICULTY_CONFIG[sc.difficulty];
+                  return (
+                    <Paper
+                      key={sc.id}
+                      variant="outlined"
+                      sx={{
+                        p: 2, borderRadius: 2.5, cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        borderColor: alpha(theme.palette[cat.color].main, 0.15),
+                        '&:hover': {
+                          borderColor: alpha(theme.palette[cat.color].main, 0.4),
+                          transform: 'translateY(-2px)',
+                          boxShadow: `0 4px 20px ${alpha(theme.palette[cat.color].main, 0.1)}`,
+                        },
+                      }}
+                      onClick={() => router.push(sc.relatedPath)}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
+                        <Typography variant="body2" fontWeight={700} sx={{ flex: 1, lineHeight: 1.4 }}>
+                          {sc.title}
+                        </Typography>
+                        <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0, ml: 1 }}>
+                          <Chip label={cat.label} size="small" color={cat.color}
+                            sx={{ height: 20, fontSize: '0.6rem', fontWeight: 700 }} />
+                          <Chip label={diff.label} size="small" color={diff.color} variant="outlined"
+                            sx={{ height: 20, fontSize: '0.6rem', fontWeight: 700 }} />
+                        </Stack>
+                      </Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5, lineHeight: 1.5 }}>
+                        {sc.description}
+                      </Typography>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
+                        {sc.steps.map((step, i) => (
+                          <Box key={i} sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.75 }}>
+                            <Box sx={{
+                              width: 18, height: 18, borderRadius: '50%', flexShrink: 0, mt: 0.1,
+                              bgcolor: alpha(theme.palette[cat.color].main, 0.08),
+                              color: theme.palette[cat.color].main,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: '0.6rem', fontWeight: 700,
+                            }}>{i + 1}</Box>
+                            <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.5 }}>
+                              {step}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    </Paper>
+                  );
+                })}
+              </Box>
+            </Paper>
+
+            {/* ── 자동 시나리오 테스트 (기존) ── */}
+            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Box>
-                  <Typography variant="subtitle1" fontWeight={700}>시나리오 테스트</Typography>
+                  <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box component="span" sx={{
+                      width: 28, height: 28, borderRadius: 2,
+                      bgcolor: alpha(theme.palette.info.main, 0.1),
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '0.85rem',
+                    }}>⚡</Box>
+                    자동 시나리오 테스트
+                  </Typography>
                   <Typography variant="caption" color="text.secondary">
                     전체 자동 실행하거나, 각 단계를 개별적으로 실행할 수 있습니다. 전체 초기화 후 실행을 권장합니다.
                   </Typography>
@@ -671,35 +893,43 @@ export default function FlowTestPage() {
                   variant="outlined"
                   sx={{
                     overflow: 'hidden',
-                    transition: 'all 0.2s',
-                    pointerEvents: isDisabled && !result ? 'none' : 'auto',
-                    // 활성화 상태: 파란색 좌측 보더 + 밝은 배경
+                    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                    borderRadius: 2.5,
+                    // 활성화 상태
                     ...(isStepEnabled && {
                       borderColor: alpha(theme.palette.info.main, 0.5),
                       borderLeft: `4px solid ${theme.palette.info.main}`,
                       bgcolor: alpha(theme.palette.info.main, 0.03),
+                      boxShadow: `0 2px 12px ${alpha(theme.palette.info.main, 0.08)}`,
+                      '&:hover': { transform: 'translateY(-1px)', boxShadow: `0 4px 16px ${alpha(theme.palette.info.main, 0.12)}` },
                     }),
                     // 실행 중
                     ...(state === 'running' && {
                       borderColor: alpha(theme.palette.info.main, 0.5),
                       borderLeft: `4px solid ${theme.palette.info.main}`,
                       bgcolor: alpha(theme.palette.info.main, 0.04),
+                      boxShadow: `0 0 0 1px ${alpha(theme.palette.info.main, 0.15)}, 0 4px 20px ${alpha(theme.palette.info.main, 0.1)}`,
                     }),
                     // 통과
                     ...(state === 'pass' && {
-                      borderColor: alpha(theme.palette.success.main, 0.4),
+                      borderColor: alpha(theme.palette.success.main, 0.3),
                       borderLeft: `4px solid ${theme.palette.success.main}`,
+                      bgcolor: alpha(theme.palette.success.main, 0.015),
                     }),
                     // 실패
                     ...(state === 'fail' && {
-                      borderColor: alpha(theme.palette.error.main, 0.4),
+                      borderColor: alpha(theme.palette.error.main, 0.3),
                       borderLeft: `4px solid ${theme.palette.error.main}`,
+                      bgcolor: alpha(theme.palette.error.main, 0.015),
                     }),
-                    // 비활성화: 회색 배경 + 낮은 opacity
+                    // 비활성화: 고급 비활성 스타일
                     ...(isDisabled && state !== 'pass' && state !== 'fail' && {
-                      opacity: 0.55,
-                      bgcolor: alpha(theme.palette.action.disabledBackground, 0.3),
-                      borderColor: theme.palette.divider,
+                      opacity: 0.5,
+                      bgcolor: 'transparent',
+                      borderColor: alpha(theme.palette.divider, 0.5),
+                      borderLeft: `4px solid ${alpha(theme.palette.text.disabled, 0.15)}`,
+                      filter: 'grayscale(0.3)',
+                      '&:hover': { opacity: 0.65 },
                     }),
                   }}
                 >
@@ -707,19 +937,28 @@ export default function FlowTestPage() {
                   <Box sx={{ px: 2.5, py: 1.5, display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
                     {/* 상태 아이콘 */}
                     <Box sx={{
-                      width: 32, height: 32, borderRadius: '50%', flexShrink: 0, mt: 0.25,
+                      width: 34, height: 34, borderRadius: '50%', flexShrink: 0, mt: 0.15,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      bgcolor: state === 'pass' ? alpha(theme.palette.success.main, 0.1)
-                        : state === 'fail' ? alpha(theme.palette.error.main, 0.1)
-                        : state === 'running' ? alpha(theme.palette.info.main, 0.1)
-                        : alpha(theme.palette.action.selected, 0.08),
+                      transition: 'all 0.2s',
+                      bgcolor: state === 'pass' ? alpha(theme.palette.success.main, 0.12)
+                        : state === 'fail' ? alpha(theme.palette.error.main, 0.12)
+                        : state === 'running' ? alpha(theme.palette.info.main, 0.12)
+                        : isStepEnabled ? alpha(theme.palette.info.main, 0.08)
+                        : alpha(theme.palette.action.disabled, 0.06),
+                      border: `1.5px solid ${
+                        state === 'pass' ? alpha(theme.palette.success.main, 0.3)
+                        : state === 'fail' ? alpha(theme.palette.error.main, 0.3)
+                        : state === 'running' ? alpha(theme.palette.info.main, 0.3)
+                        : isStepEnabled ? alpha(theme.palette.info.main, 0.2)
+                        : alpha(theme.palette.divider, 0.4)
+                      }`,
                     }}>
                       {isBusy ? <CircularProgress size={18} thickness={5} />
                         : state === 'pass' ? <StepPassIcon sx={{ color: 'success.main', fontSize: 20 }} />
                         : state === 'fail' ? <StepFailIcon sx={{ color: 'error.main', fontSize: 20 }} />
-                        : state === 'skipped' ? <StepWaitIcon sx={{ color: 'text.disabled', fontSize: 20 }} />
-                        : isDisabled ? <LockIcon sx={{ color: 'text.disabled', fontSize: 18 }} />
-                        : <Typography variant="caption" fontWeight={700} color="info.main">{s.step}</Typography>}
+                        : state === 'skipped' ? <StepWaitIcon sx={{ color: 'text.disabled', fontSize: 18 }} />
+                        : isDisabled ? <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.disabled', fontSize: '0.7rem' }}>{s.step}</Typography>
+                        : <Typography variant="caption" fontWeight={800} color="info.main" sx={{ fontSize: '0.8rem' }}>{s.step}</Typography>}
                     </Box>
 
                     {/* 내용 */}
