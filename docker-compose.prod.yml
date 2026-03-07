@@ -8,12 +8,14 @@ services:
     ports: !override []
     mem_limit: 512m
     memswap_limit: 768m
+    cpus: 0.5
 
   redis:
     # 외부 포트 노출 제거 (보안)
     ports: !override []
     mem_limit: 128m
     memswap_limit: 192m
+    cpus: 0.25
 
   backend:
     image: ghcr.io/skp10216/dwt-price-center-backend:${IMAGE_TAG:-latest}
@@ -35,6 +37,13 @@ services:
       - SETTLEMENT_DOMAIN=${SETTLEMENT_DOMAIN:-settlement.dwt.kr}
     mem_limit: 768m
     memswap_limit: 1024m
+    cpus: 0.75
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   worker:
     image: ghcr.io/skp10216/dwt-price-center-worker:${IMAGE_TAG:-latest}
@@ -43,6 +52,7 @@ services:
       - upload_files:/app/uploads
     mem_limit: 512m
     memswap_limit: 768m
+    cpus: 0.5
 
   adminer:
     # 외부 포트 노출 제거 (보안)
@@ -50,6 +60,7 @@ services:
       - "127.0.0.1:8180:8080"
     mem_limit: 128m
     memswap_limit: 192m
+    cpus: 0.25
 
   frontend:
     image: ghcr.io/skp10216/dwt-price-center-frontend:${IMAGE_TAG:-latest}
@@ -70,5 +81,12 @@ services:
     environment:
       - NODE_ENV=production
     command: node server.js
-    mem_limit: 256m
-    memswap_limit: 384m
+    mem_limit: 512m
+    memswap_limit: 768m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3100/login || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

@@ -472,6 +472,32 @@ else
     WARNINGS+=("Worker 큐 리스닝 상태 불확실")
 fi
 
+# ── 5-5. 프로덕션 모드 검증 ──
+_info "프로덕션 모드 검증..."
+frontend_cmd=$(docker inspect --format='{{join .Config.Cmd " "}}' dwt-frontend 2>/dev/null || echo "unknown")
+if [[ "$frontend_cmd" == *"npm run dev"* ]]; then
+    _fail "dwt-frontend가 개발 모드(npm run dev)로 실행 중!"
+    ERRORS+=("frontend 개발 모드 실행")
+else
+    _ok "Frontend: 프로덕션 모드 (${frontend_cmd})"
+fi
+
+backend_cmd=$(docker inspect --format='{{join .Config.Cmd " "}}' dwt-backend 2>/dev/null || echo "unknown")
+if [[ "$backend_cmd" == *"--reload"* ]]; then
+    _fail "dwt-backend가 개발 모드(--reload)로 실행 중!"
+    ERRORS+=("backend 개발 모드 실행")
+else
+    _ok "Backend: 프로덕션 모드"
+fi
+
+frontend_mem=$(docker inspect --format='{{.HostConfig.Memory}}' dwt-frontend 2>/dev/null || echo "0")
+if [[ "$frontend_mem" == "0" ]]; then
+    _fail "dwt-frontend에 메모리 제한이 설정되지 않았습니다!"
+    ERRORS+=("frontend 메모리 제한 없음")
+else
+    _ok "Frontend 메모리 제한: $((frontend_mem / 1024 / 1024))MB"
+fi
+
 # ════════════════════════════════════════════════════════════════════════════
 #  Phase 6: 정리 & 리포트
 # ════════════════════════════════════════════════════════════════════════════

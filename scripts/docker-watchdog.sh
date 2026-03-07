@@ -24,6 +24,25 @@ for container in "${CORE_CONTAINERS[@]}"; do
     fi
 done
 
+# ── 개발 모드 감지 (안전장치) ──
+frontend_cmd=$(docker inspect --format='{{join .Config.Cmd " "}}' dwt-frontend 2>/dev/null || echo "")
+if [[ "$frontend_cmd" == *"npm run dev"* ]]; then
+    _log "CRITICAL: dwt-frontend is running in DEV mode ('npm run dev')! Forcing prod redeploy..."
+    needs_restart=true
+fi
+
+backend_cmd=$(docker inspect --format='{{join .Config.Cmd " "}}' dwt-backend 2>/dev/null || echo "")
+if [[ "$backend_cmd" == *"--reload"* ]]; then
+    _log "CRITICAL: dwt-backend is running with --reload (DEV mode)! Forcing prod redeploy..."
+    needs_restart=true
+fi
+
+frontend_mem=$(docker inspect --format='{{.HostConfig.Memory}}' dwt-frontend 2>/dev/null || echo "0")
+if [[ "$frontend_mem" == "0" ]]; then
+    _log "CRITICAL: dwt-frontend has no memory limit! Forcing prod redeploy..."
+    needs_restart=true
+fi
+
 if [[ "$needs_restart" == true ]]; then
     _log "WATCHDOG: Restarting services..."
     docker compose ${COMPOSE_FILES} up -d 2>&1 | while read -r line; do
