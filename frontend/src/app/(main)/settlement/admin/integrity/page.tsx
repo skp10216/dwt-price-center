@@ -5,14 +5,17 @@ import {
   Box, Typography, Stack, Paper, alpha, Skeleton, Chip, Button,
   TextField, FormControlLabel, Switch, useTheme,
   Table, TableHead, TableBody, TableRow, TableCell,
-  Tabs, Tab,
+  Tabs, Tab, Dialog, DialogTitle, DialogContent, DialogActions,
+  MenuItem, Select, InputLabel, FormControl, Link as MuiLink,
 } from '@mui/material';
 import { useSnackbar } from 'notistack';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import BuildIcon from '@mui/icons-material/Build';
 import SearchIcon from '@mui/icons-material/Search';
+import AdjustIcon from '@mui/icons-material/Tune';
 import { AppPageContainer, AppPageHeader } from '@/components/ui';
 import { settlementAdminApi } from '@/lib/api';
 
@@ -24,8 +27,11 @@ interface CheckResult {
   over_allocated?: { voucher_id: string; total_amount: string; allocated: string; balance: string }[];
 }
 
-function IntegrityCard({ title, description, result, loading }: {
+type FixType = 'allocations' | 'voucher-balances';
+
+function IntegrityCard({ title, description, result, loading, fixType, onFix, fixing }: {
   title: string; description: string; result: CheckResult | null; loading: boolean;
+  fixType?: FixType; onFix?: (type: FixType) => void; fixing?: boolean;
 }) {
   const theme = useTheme();
 
@@ -48,15 +54,30 @@ function IntegrityCard({ title, description, result, loading }: {
       <Stack spacing={1.5}>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
           <Typography variant="subtitle2" fontWeight={700}>{title}</Typography>
-          <Chip
-            icon={isOk ? <CheckCircleIcon sx={{ fontSize: 14 }} /> : <ErrorIcon sx={{ fontSize: 14 }} />}
-            label={isOk ? '정상' : `불일치 ${issues}건`}
-            size="small"
-            sx={{
-              bgcolor: alpha(color, 0.1), color, fontWeight: 700, fontSize: '0.7rem',
-              '& .MuiChip-icon': { color },
-            }}
-          />
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            {!isOk && fixType && onFix && (
+              <Button
+                size="small"
+                variant="contained"
+                color="warning"
+                startIcon={<BuildIcon sx={{ fontSize: 14 }} />}
+                onClick={() => onFix(fixType)}
+                disabled={fixing}
+                sx={{ fontSize: '0.65rem', py: 0.25, px: 1, minWidth: 0 }}
+              >
+                {fixing ? '수정 중...' : '자동 수정'}
+              </Button>
+            )}
+            <Chip
+              icon={isOk ? <CheckCircleIcon sx={{ fontSize: 14 }} /> : <ErrorIcon sx={{ fontSize: 14 }} />}
+              label={isOk ? '정상' : `불일치 ${issues}건`}
+              size="small"
+              sx={{
+                bgcolor: alpha(color, 0.1), color, fontWeight: 700, fontSize: '0.7rem',
+                '& .MuiChip-icon': { color },
+              }}
+            />
+          </Stack>
         </Stack>
         <Typography variant="caption" color="text.secondary">{description}</Typography>
         <Stack direction="row" spacing={3}>
@@ -84,7 +105,7 @@ function IntegrityCard({ title, description, result, loading }: {
           </Box>
         </Stack>
 
-        {/* 불일치 상세 (최대 5건) */}
+        {/* 불일치 상세 (최대 5건) — 클릭 가능한 링크 */}
         {!isOk && result?.mismatches && result.mismatches.length > 0 && (
           <Box sx={{ mt: 1, p: 1.5, bgcolor: alpha(color, 0.04), borderRadius: 2 }}>
             <Typography variant="caption" fontWeight={700} color="error" sx={{ mb: 0.5, display: 'block' }}>
@@ -92,7 +113,13 @@ function IntegrityCard({ title, description, result, loading }: {
             </Typography>
             {result.mismatches.slice(0, 5).map((m, i) => (
               <Typography key={i} variant="caption" sx={{ display: 'block', fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                ID: {m.transaction_id.slice(0, 8)}... | 저장: {m.stored} | 실제: {m.actual}
+                <MuiLink
+                  href={`/settlement/transactions?id=${m.transaction_id}`}
+                  sx={{ color: 'primary.main', textDecoration: 'underline', cursor: 'pointer' }}
+                >
+                  {m.transaction_id.slice(0, 8)}...
+                </MuiLink>
+                {' | 저장: '}{m.stored}{' | 실제: '}{m.actual}
               </Typography>
             ))}
           </Box>
@@ -104,7 +131,13 @@ function IntegrityCard({ title, description, result, loading }: {
             </Typography>
             {result.over_allocated.slice(0, 5).map((m, i) => (
               <Typography key={i} variant="caption" sx={{ display: 'block', fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                전표: {m.voucher_id.slice(0, 8)}... | 금액: {m.total_amount} | 배분: {m.allocated} | 잔액: {m.balance}
+                <MuiLink
+                  href={`/settlement/vouchers/${m.voucher_id}`}
+                  sx={{ color: 'primary.main', textDecoration: 'underline', cursor: 'pointer' }}
+                >
+                  {m.voucher_id.slice(0, 8)}...
+                </MuiLink>
+                {' | 금액: '}{m.total_amount}{' | 배분: '}{m.allocated}{' | 잔액: '}{m.balance}
               </Typography>
             ))}
           </Box>
@@ -121,6 +154,7 @@ export default function IntegrityPage() {
 
   const [tab, setTab] = useState(0);
   const [checkLoading, setCheckLoading] = useState(false);
+  const [fixing, setFixing] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [integrity, setIntegrity] = useState<any>(null);
 
@@ -132,11 +166,19 @@ export default function IntegrityPage() {
   const [search, setSearch] = useState('');
   const [mismatchOnly, setMismatchOnly] = useState(false);
 
+  // 잔액 조정 다이얼로그
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [adjustTarget, setAdjustTarget] = useState<{ id: string; name: string } | null>(null);
+  const [adjustType, setAdjustType] = useState<'INCREASE' | 'DECREASE'>('INCREASE');
+  const [adjustVoucherType, setAdjustVoucherType] = useState<'SALES' | 'PURCHASE'>('SALES');
+  const [adjustAmount, setAdjustAmount] = useState('');
+  const [adjustDesc, setAdjustDesc] = useState('');
+  const [adjustLoading, setAdjustLoading] = useState(false);
+
   const runCheck = useCallback(async () => {
     setCheckLoading(true);
     try {
       const res = await settlementAdminApi.checkIntegrity();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = (res.data as any)?.data ?? res.data;
       setIntegrity(data);
@@ -171,6 +213,65 @@ export default function IntegrityPage() {
 
   useEffect(() => { runCheck(); }, [runCheck]);
   useEffect(() => { if (tab === 1) loadBalance(); }, [tab, loadBalance]);
+
+  // 자동 수정 핸들러
+  const handleFix = async (type: FixType) => {
+    setFixing(true);
+    try {
+      if (type === 'allocations') {
+        const res = await settlementAdminApi.recalculateAllocations({ all_mismatched: true });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = (res.data as any)?.data ?? res.data;
+        enqueueSnackbar(`배분 합계 재계산 완료: ${data.fixed_count}건 수정`, { variant: 'success' });
+      } else {
+        const res = await settlementAdminApi.recalculateVoucherBalances({ all_over_allocated: true });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = (res.data as any)?.data ?? res.data;
+        enqueueSnackbar(`전표 상태 재계산 완료: ${data.fixed_count}건 수정`, { variant: 'success' });
+      }
+      await runCheck();
+    } catch {
+      enqueueSnackbar('자동 수정 실패', { variant: 'error' });
+    } finally {
+      setFixing(false);
+    }
+  };
+
+  // 잔액 조정 핸들러
+  const openAdjustDialog = (cp: { id: string; name: string }) => {
+    setAdjustTarget(cp);
+    setAdjustType('INCREASE');
+    setAdjustVoucherType('SALES');
+    setAdjustAmount('');
+    setAdjustDesc('');
+    setAdjustOpen(true);
+  };
+
+  const handleAdjust = async () => {
+    if (!adjustTarget || !adjustAmount || !adjustDesc) {
+      enqueueSnackbar('모든 필드를 입력하세요', { variant: 'warning' });
+      return;
+    }
+    setAdjustLoading(true);
+    try {
+      await settlementAdminApi.adjustCounterpartyBalance({
+        counterparty_id: adjustTarget.id,
+        adjustment_type: adjustType,
+        amount: parseFloat(adjustAmount),
+        voucher_type: adjustVoucherType,
+        description: adjustDesc,
+      });
+      enqueueSnackbar(`${adjustTarget.name} 잔액 조정 완료`, { variant: 'success' });
+      setAdjustOpen(false);
+      await loadBalance();
+    } catch (err) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const detail = (err as any)?.response?.data?.detail || '잔액 조정 실패';
+      enqueueSnackbar(detail, { variant: 'error' });
+    } finally {
+      setAdjustLoading(false);
+    }
+  };
 
   const c = theme.palette;
   const fmt = (v: string) => {
@@ -210,12 +311,18 @@ export default function IntegrityPage() {
             description="allocated_amount가 배분 합계와 일치하는지 검증"
             result={integrity?.transaction_allocation}
             loading={checkLoading}
+            fixType="allocations"
+            onFix={handleFix}
+            fixing={fixing}
           />
           <IntegrityCard
             title="전표 잔액 정합성"
             description="전표 금액 대비 초과 배분 여부 검증"
             result={integrity?.voucher_balance}
             loading={checkLoading}
+            fixType="voucher-balances"
+            onFix={handleFix}
+            fixing={fixing}
           />
           <IntegrityCard
             title="상계 정합성"
@@ -263,13 +370,14 @@ export default function IntegrityPage() {
                   <TableCell align="right">배분 합계</TableCell>
                   <TableCell align="right">판매 잔액</TableCell>
                   <TableCell align="right">매입 잔액</TableCell>
+                  <TableCell align="center">조정</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {balanceLoading ? (
-                  <TableRow><TableCell colSpan={8} sx={{ textAlign: 'center', py: 4 }}>로딩 중...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={9} sx={{ textAlign: 'center', py: 4 }}>로딩 중...</TableCell></TableRow>
                 ) : balanceData.length === 0 ? (
-                  <TableRow><TableCell colSpan={8} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>데이터 없음</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={9} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>데이터 없음</TableCell></TableRow>
                 ) : balanceData.map((row) => {
                   const hasMismatch = parseFloat(row.sales_balance) !== 0 || parseFloat(row.purchase_balance) !== 0;
                   return (
@@ -277,7 +385,14 @@ export default function IntegrityPage() {
                       bgcolor: hasMismatch ? alpha(c.error.main, 0.04) : 'transparent',
                       '& td': { fontSize: '0.78rem', fontFeatureSettings: '"tnum" on' },
                     }}>
-                      <TableCell sx={{ fontWeight: 600 }}>{row.name}</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>
+                        <MuiLink
+                          href={`/settlement/counterparties/${row.id}`}
+                          sx={{ color: 'text.primary', textDecoration: 'none', '&:hover': { textDecoration: 'underline', color: 'primary.main' } }}
+                        >
+                          {row.name}
+                        </MuiLink>
+                      </TableCell>
                       <TableCell align="right">{fmt(row.sales_total)}</TableCell>
                       <TableCell align="right">{fmt(row.purchase_total)}</TableCell>
                       <TableCell align="right">{fmt(row.deposit_total)}</TableCell>
@@ -289,6 +404,17 @@ export default function IntegrityPage() {
                       <TableCell align="right" sx={{ color: parseFloat(row.purchase_balance) !== 0 ? 'error.main' : 'text.primary', fontWeight: 700 }}>
                         {fmt(row.purchase_balance)}
                       </TableCell>
+                      <TableCell align="center">
+                        <Button
+                          size="small"
+                          variant="text"
+                          color="warning"
+                          onClick={() => openAdjustDialog({ id: row.id, name: row.name })}
+                          sx={{ fontSize: '0.65rem', py: 0, px: 0.5, minWidth: 0 }}
+                        >
+                          <AdjustIcon sx={{ fontSize: 16 }} />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -297,6 +423,68 @@ export default function IntegrityPage() {
           </Box>
         </Paper>
       )}
+
+      {/* 잔액 조정 다이얼로그 */}
+      <Dialog open={adjustOpen} onClose={() => !adjustLoading && setAdjustOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          잔액 조정 — {adjustTarget?.name}
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <FormControl size="small" fullWidth>
+              <InputLabel>전표 유형</InputLabel>
+              <Select
+                value={adjustVoucherType}
+                label="전표 유형"
+                onChange={(e) => setAdjustVoucherType(e.target.value as 'SALES' | 'PURCHASE')}
+              >
+                <MenuItem value="SALES">판매 (매출)</MenuItem>
+                <MenuItem value="PURCHASE">매입</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" fullWidth>
+              <InputLabel>조정 유형</InputLabel>
+              <Select
+                value={adjustType}
+                label="조정 유형"
+                onChange={(e) => setAdjustType(e.target.value as 'INCREASE' | 'DECREASE')}
+              >
+                <MenuItem value="INCREASE">잔액 증가 (입금/출금 추가)</MenuItem>
+                <MenuItem value="DECREASE">잔액 감소 (입금/출금 차감)</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              label="금액"
+              type="number"
+              size="small"
+              fullWidth
+              value={adjustAmount}
+              onChange={(e) => setAdjustAmount(e.target.value)}
+              inputProps={{ min: 0 }}
+            />
+            <TextField
+              label="사유 (필수)"
+              size="small"
+              fullWidth
+              value={adjustDesc}
+              onChange={(e) => setAdjustDesc(e.target.value)}
+              placeholder="잔액 조정 사유를 입력하세요"
+              required
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setAdjustOpen(false)} disabled={adjustLoading}>취소</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={handleAdjust}
+            disabled={adjustLoading || !adjustAmount || !adjustDesc}
+          >
+            {adjustLoading ? '처리 중...' : '조정 실행'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </AppPageContainer>
   );
 }
