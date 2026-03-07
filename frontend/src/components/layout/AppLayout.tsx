@@ -263,7 +263,6 @@ const settlementMenuGroups: MenuGroup[] = [
     items: [
       { id: 'stl-lock', label: '마감 관리', icon: <LockIcon />, path: '/settlement/lock' },
       { id: 'stl-activity', label: '작업 내역', icon: <ActivityIcon />, path: '/settlement/activity' },
-      { id: 'stl-flow-test', label: '플로우 점검', icon: <ScienceIcon />, path: '/settlement/flow-test' },
     ],
   },
 ];
@@ -281,6 +280,7 @@ const settlementAdminMenuGroup: MenuGroup = {
     { id: 'stl-admin-sessions', label: '로그인 이력', icon: <HistoryIcon />, path: '/settlement/admin/sessions' },
     { id: 'stl-admin-jobs', label: 'Worker 현황', icon: <WorkIcon />, path: '/settlement/admin/jobs' },
     { id: 'stl-admin-period-lock', label: '기간 마감', icon: <CalendarMonthIcon />, path: '/settlement/admin/period-lock' },
+    { id: 'stl-admin-flow-test', label: '플로우 점검', icon: <ScienceIcon />, path: '/settlement/flow-test' },
   ],
 };
 
