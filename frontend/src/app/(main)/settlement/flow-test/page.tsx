@@ -81,6 +81,67 @@ interface StepResult {
 
 type StepState = 'idle' | 'running' | 'pass' | 'fail' | 'skipped';
 
+/** localStorage에 저장할 시나리오 상태 — 화면 전환 후에도 유지 (결과 초기화 시까지) */
+const SCENARIO_STATE_KEY = 'flow-test-scenario-state';
+
+interface PersistedScenarioState {
+  stepStates: Record<string, StepState>;
+  stepResults: Record<string, StepResult>;
+  expandedStep: number | null;
+  scenarioElapsed: number;
+  scenarioContext: Record<string, unknown>;
+}
+
+function loadScenarioState(): PersistedScenarioState | null {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(SCENARIO_STATE_KEY) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedScenarioState;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveScenarioState(state: PersistedScenarioState): void {
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(SCENARIO_STATE_KEY, JSON.stringify(state));
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearScenarioState(): void {
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(SCENARIO_STATE_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Record<number, T> ↔ Record<string, T> 변환 (JSON 키는 문자열) */
+function numKeysToRecord<T>(rec: Record<string, T>): Record<number, T> {
+  const out: Record<number, T> = {};
+  for (const [k, v] of Object.entries(rec)) {
+    const n = parseInt(k, 10);
+    if (!Number.isNaN(n)) out[n] = v;
+  }
+  return out;
+}
+
+function recordToNumKeys<T>(rec: Record<number, T>): Record<string, T> {
+  const out: Record<string, T> = {};
+  for (const [k, v] of Object.entries(rec)) {
+    out[String(k)] = v;
+  }
+  return out;
+}
+
 interface RecommendedScenario {
   id: string;
   title: string;
@@ -482,6 +543,7 @@ export default function FlowTestPage() {
       setExpandedStep(null);
       setScenarioElapsed(0);
       scenarioContextRef.current = {};
+      clearScenarioState();
       runCheck();
     } catch {
       enqueueSnackbar('데이터 초기화에 실패했습니다.', { variant: 'error' });
@@ -501,6 +563,39 @@ export default function FlowTestPage() {
       } catch { /* ignore */ }
     })();
   }, []);
+
+  // ── 시나리오 상태 복원 (localStorage) — 화면 전환 후에도 유지 ───
+  const scenarioContextRef = useRef<Record<string, unknown>>({});
+  const hasRestoredRef = useRef(false);
+
+  useEffect(() => {
+    if (hasRestoredRef.current) return;
+    hasRestoredRef.current = true;
+    const saved = loadScenarioState();
+    if (!saved) return;
+    setStepStates(numKeysToRecord(saved.stepStates));
+    setStepResults(numKeysToRecord(saved.stepResults));
+    setExpandedStep(saved.expandedStep);
+    setScenarioElapsed(saved.scenarioElapsed ?? 0);
+    scenarioContextRef.current = saved.scenarioContext ?? {};
+  }, []);
+
+  // 시나리오 상태 저장 (화면 전환 후 복원용) — 결과가 있을 때만 저장
+  useEffect(() => {
+    const hasResults = Object.keys(stepStates).length > 0 || Object.keys(stepResults).length > 0;
+    if (!hasResults) return;
+    const latestStep = Math.max(-1, ...Object.keys(stepResults).map(Number));
+    const ctx = latestStep >= 0 && stepResults[latestStep]?.context
+      ? stepResults[latestStep].context
+      : scenarioContextRef.current;
+    saveScenarioState({
+      stepStates: recordToNumKeys(stepStates),
+      stepResults: recordToNumKeys(stepResults),
+      expandedStep,
+      scenarioElapsed,
+      scenarioContext: ctx,
+    });
+  }, [stepStates, stepResults, expandedStep, scenarioElapsed]);
 
   const startScenario = useCallback(async () => {
     if (scenarioRunning) return;
@@ -561,7 +656,6 @@ export default function FlowTestPage() {
   // ── 개별 단계 실행 (수동) ────────────
 
   const [singleRunning, setSingleRunning] = useState<number | null>(null);
-  const scenarioContextRef = useRef<Record<string, unknown>>({});
 
   const runSingleStep = useCallback(async (stepNum: number) => {
     if (scenarioRunning || singleRunning !== null) return;
@@ -595,6 +689,7 @@ export default function FlowTestPage() {
     setExpandedStep(null);
     setScenarioElapsed(0);
     scenarioContextRef.current = {};
+    clearScenarioState();
   }, []);
 
   // ── 통계 계산 ────────────────────────
