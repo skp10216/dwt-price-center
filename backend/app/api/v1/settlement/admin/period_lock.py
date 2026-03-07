@@ -61,7 +61,35 @@ async def get_period_lock_status(
     current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """전체 기간 마감 현황"""
+    """전체 기간 마감 현황 — 전표가 있는 월에 대해 OPEN 레코드 자동 생성"""
+
+    # 전표가 존재하는 월 목록 조회
+    voucher_months = (await db.execute(text("""
+        SELECT DISTINCT TO_CHAR(trade_date, 'YYYY-MM') AS ym
+        FROM vouchers
+        ORDER BY ym
+    """))).scalars().all()
+
+    # 현재 월 포함 (전표 없어도 표시)
+    current_ym = datetime.utcnow().strftime("%Y-%m")
+    all_months = set(voucher_months)
+    all_months.add(current_ym)
+
+    # 이미 존재하는 period_lock year_month 목록
+    existing = set(
+        (await db.execute(
+            select(PeriodLock.year_month)
+        )).scalars().all()
+    )
+
+    # 없는 월에 대해 OPEN 레코드 자동 생성
+    created = 0
+    for ym in all_months:
+        if ym not in existing:
+            db.add(PeriodLock(year_month=ym, status=PeriodLockStatus.OPEN))
+            created += 1
+    if created > 0:
+        await db.flush()
 
     locks = (await db.execute(text("""
         SELECT
